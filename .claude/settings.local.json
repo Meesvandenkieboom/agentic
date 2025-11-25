@@ -6,7 +6,8 @@
       "Bash(npx --package typescript tsc:*)",
       "Bash(npm run lint:*)",
       "Bash(chmod:*)",
-      "Bash(npx eslint:*)"
+      "Bash(npx eslint:*)",
+      "Bash(bash -n:*)"
     ],
     "deny": [],
     "ask": []

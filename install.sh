@@ -337,7 +337,14 @@ build_application() {
 
   # Install dependencies
   log_info "Installing dependencies (this may take a minute)..."
-  if ! bun install 2>&1 | tail -5; then
+
+  INSTALL_OUTPUT=$(bun install 2>&1)
+  INSTALL_EXIT_CODE=$?
+
+  # Show last few lines
+  echo "$INSTALL_OUTPUT" | tail -5
+
+  if [ $INSTALL_EXIT_CODE -ne 0 ]; then
     fatal_error "Failed to install dependencies" \
       "Check the error messages above"
   fi
@@ -347,7 +354,13 @@ build_application() {
   # Build CSS and JS
   log_info "Building application..."
 
-  if ! bun run build 2>&1 | grep -E "(✓|error|warning)" || true; then
+  BUILD_OUTPUT=$(bun run build 2>&1)
+  BUILD_EXIT_CODE=$?
+
+  # Show relevant output
+  echo "$BUILD_OUTPUT" | grep -E "(✓|error|warning|Error|built)" || echo "$BUILD_OUTPUT"
+
+  if [ $BUILD_EXIT_CODE -ne 0 ]; then
     fatal_error "Build failed" \
       "Check the error messages above"
   fi
