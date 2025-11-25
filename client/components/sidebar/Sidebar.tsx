@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, FolderInput } from 'lucide-react';
+import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, FolderInput, Loader2 } from 'lucide-react';
 import { toast } from '../../utils/toast';
 
 interface Chat {
@@ -47,6 +47,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
   const [isAllChatsExpanded, setIsAllChatsExpanded] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Group chats by date
@@ -175,6 +176,8 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
   };
 
   const handleImportFiles = async () => {
+    if (isImporting) return; // Prevent multiple imports
+
     try {
       // Step 1: Open file/folder picker first
       const pickerResponse = await fetch('/api/pick-import-items', {
@@ -199,11 +202,12 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
         return;
       }
 
-      // Step 2: Auto-create new chat if no session is active
+      // Step 2: Show loading state and create session if needed
+      setIsImporting(true);
+      toast.info('Importing files...', { duration: 10000 });
+
       let sessionId = currentSessionId;
       if (!sessionId) {
-        toast.info('Creating new chat for imported files...');
-
         const createResponse = await fetch('/api/sessions', {
           method: 'POST',
           headers: {
@@ -219,6 +223,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
           toast.error('Failed to create new chat', {
             description: 'Could not create a chat for your imported files'
           });
+          setIsImporting(false);
           return;
         }
 
@@ -243,6 +248,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
       });
 
       const importData = await importResponse.json();
+      setIsImporting(false);
 
       if (importData.success) {
         const folderName = importData.importFolder;
@@ -262,6 +268,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
         });
       }
     } catch (error) {
+      setIsImporting(false);
       toast.error('Failed to import files', {
         description: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -294,9 +301,18 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
         </button>
 
         {/* Import Files Button */}
-        <button className="sidebar-new-chat-btn" onClick={handleImportFiles} style={{ marginTop: '0.5rem' }}>
-          <FolderInput size={20} opacity={0.8} />
-          <span>Import Files</span>
+        <button
+          className="sidebar-new-chat-btn"
+          onClick={handleImportFiles}
+          style={{ marginTop: '0.5rem' }}
+          disabled={isImporting}
+        >
+          {isImporting ? (
+            <Loader2 size={20} opacity={0.8} className="animate-spin" />
+          ) : (
+            <FolderInput size={20} opacity={0.8} />
+          )}
+          <span>{isImporting ? 'Importing...' : 'Import Files'}</span>
         </button>
 
         {/* Search */}

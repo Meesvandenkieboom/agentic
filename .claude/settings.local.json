@@ -26,7 +26,8 @@
       "Bash(findstr:*)",
       "Bash(taskkill:*)",
       "Bash(cmd.exe /c \"taskkill /F /PID 1012 /PID 24332\")",
-      "Bash(powershell.exe -Command \"Get-Process | Where-Object {$_Id -eq 1012 -or $_Id -eq 24332} | Stop-Process -Force\")"
+      "Bash(powershell.exe -Command \"Get-Process | Where-Object {$_Id -eq 1012 -or $_Id -eq 24332} | Stop-Process -Force\")",
+      "Bash(bun run build:*)"
     ],
     "deny": [],
     "ask": []

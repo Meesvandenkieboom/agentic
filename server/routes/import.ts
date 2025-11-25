@@ -177,7 +177,7 @@ export async function handleImportRoutes(
         const powershellCmd = isWSL ? 'powershell.exe' : 'powershell';
 
         // Use FolderBrowserDialog which allows selecting folders, and we'll add file selection as an option
-        command = `${powershellCmd} -NoProfile -Command "$paths = @(); Add-Type -AssemblyName System.Windows.Forms; $$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; $$dialog.Description = 'Select a folder to import (or Cancel and use file picker)'; $$dialog.ShowNewFolderButton = $$false; if ($$dialog.ShowDialog() -eq 'OK') { $$paths += $$dialog.SelectedPath } else { $$fileDialog = New-Object System.Windows.Forms.OpenFileDialog; $$fileDialog.Multiselect = $$true; $$fileDialog.Title = 'Select files to import'; if ($$fileDialog.ShowDialog() -eq 'OK') { $$paths += $$fileDialog.FileNames } } $$paths | ForEach-Object { Write-Output $$_ }"`;
+        command = `${powershellCmd} -NoProfile -Command "$paths = @(); Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.FolderBrowserDialog; $dialog.Description = 'Select a folder to import (or Cancel and use file picker)'; $dialog.ShowNewFolderButton = $false; if ($dialog.ShowDialog() -eq 'OK') { $paths += $dialog.SelectedPath } else { $fileDialog = New-Object System.Windows.Forms.OpenFileDialog; $fileDialog.Multiselect = $true; $fileDialog.Title = 'Select files to import'; if ($fileDialog.ShowDialog() -eq 'OK') { $paths += $fileDialog.FileNames } } $paths | ForEach-Object { Write-Output $_ }"`;
       } else {
         // Linux (non-WSL) - zenity for file selection
         command = `zenity --file-selection --multiple --separator="\n" --title="Select files or folders to import"`;
