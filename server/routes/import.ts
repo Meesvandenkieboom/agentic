@@ -187,7 +187,10 @@ export async function handleImportRoutes(
             return '/' + p.replace(/^[^:]+:/, '').replace(/:/g, '/');
           });
         } else {
-          selectedPaths = stdout.trim().split('\n').filter(p => p.length > 0);
+          // Windows/Linux: Clean paths and remove carriage returns
+          selectedPaths = stdout.trim().split('\n')
+            .map(p => p.trim().replace(/\r/g, ''))
+            .filter(p => p.length > 0);
         }
       }
 

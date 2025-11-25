@@ -38,10 +38,11 @@ interface SidebarProps {
   onChatSelect?: (chatId: string) => void;
   onChatDelete?: (chatId: string) => void;
   onChatRename?: (chatId: string, newTitle: string) => void;
+  onFilesImported?: (folderName: string) => void;
   currentSessionId?: string | null;
 }
 
-export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect, onChatDelete, onChatRename, currentSessionId }: SidebarProps) {
+export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect, onChatDelete, onChatRename, onFilesImported, currentSessionId }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isAllChatsExpanded, setIsAllChatsExpanded] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -248,8 +249,11 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
         const itemsList = importData.copiedItems?.slice(0, 3).join(', ') || '';
         const moreItems = importData.copiedCount > 3 ? ` and ${importData.copiedCount - 3} more` : '';
 
+        // Notify parent component about the import
+        onFilesImported?.(folderName);
+
         toast.success('Files imported successfully', {
-          description: `${importData.copiedCount} item(s) copied to folder: ${folderName}\n\nFiles: ${itemsList}${moreItems}\n\nTell the agent: "Check the ${folderName} folder"`,
+          description: `${importData.copiedCount} item(s) copied to folder: ${folderName}\n\nFiles: ${itemsList}${moreItems}\n\nThe agent will automatically know to check this folder.`,
           duration: 8000,
         });
       } else {

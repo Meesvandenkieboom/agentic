@@ -54,6 +54,7 @@ export function ChatContainer() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [_isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [currentSessionMode, setCurrentSessionMode] = useState<'general' | 'coder' | 'intense-research' | 'spark'>('general');
+  const [lastImportedFolder, setLastImportedFolder] = useState<string | null>(null);
 
   // Slash commands available for current session
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
@@ -982,8 +983,15 @@ export function ChatContainer() {
   };
 
   const handleSubmit = async (files?: import('../message/types').FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark', messageOverride?: string) => {
-    const messageText = messageOverride || inputValue;
+    let messageText = messageOverride || inputValue;
     if (!messageText.trim()) return;
+
+    // Auto-inject imported folder context if available
+    if (lastImportedFolder) {
+      messageText = `[Imported files are in folder: ${lastImportedFolder}]\n\n${messageText}`;
+      // Clear the folder after first use
+      setLastImportedFolder(null);
+    }
 
     if (!isConnected) return;
 
@@ -1157,6 +1165,7 @@ export function ChatContainer() {
         onChatSelect={handleSessionSelect}
         onChatDelete={handleChatDelete}
         onChatRename={handleChatRename}
+        onFilesImported={setLastImportedFolder}
         currentSessionId={currentSessionId}
       />
 
