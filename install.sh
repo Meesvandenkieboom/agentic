@@ -292,7 +292,7 @@ clone_repository() {
   echo -e "   ${BLUE}${GITHUB_REPO_URL}${NC}"
   echo ""
 
-  if ! git clone --depth 1 "$GITHUB_REPO_URL" "$CLONE_DIR" 2>&1 | grep -v "^Cloning"; then
+  if ! git clone --depth 1 --branch "$BRANCH" "$GITHUB_REPO_URL" "$CLONE_DIR" 2>&1 | grep -v "^Cloning"; then
     fatal_error "Failed to clone repository" \
       "Check your network connection and try again"
   fi
