@@ -436,38 +436,151 @@ configure_api_keys() {
 
   # Skip if .env already exists with valid keys
   if [[ -f "$INSTALL_DIR/.env" ]]; then
-    if grep -q "^ANTHROPIC_API_KEY=sk-ant-" "$INSTALL_DIR/.env" 2>/dev/null; then
+    if grep -q "^ANTHROPIC_API_KEY=sk-ant-\|^ZAI_API_KEY=\|^MOONSHOT_API_KEY=" "$INSTALL_DIR/.env" 2>/dev/null; then
       log_success "API key already configured"
       return
     fi
   fi
 
-  echo "Agent Mees requires an Anthropic API key for Claude models."
+  echo "Which API provider(s) do you want to use?"
   echo ""
-  echo -e "${BLUE}Get your API key from:${NC} ${CYAN}https://console.anthropic.com/${NC}"
+  echo "  1) Anthropic API only (Claude models)"
+  echo "  2) Z.AI API only (GLM models)"
+  echo "  3) Moonshot AI only (Kimi models)"
+  echo "  4) All APIs (full model access)"
+  echo "  5) Skip (configure later)"
   echo ""
-  read -p "Enter your Anthropic API key (or press Enter to skip): " api_key < /dev/tty
+  read -p "Enter choice [1-5]: " api_choice < /dev/tty
+  echo ""
 
-  if [[ -n "$api_key" ]]; then
-    cat > "$INSTALL_DIR/.env" << EOF
+  case $api_choice in
+    1)
+      # Anthropic only
+      echo -e "${BLUE}Get your API key from:${NC} ${CYAN}https://console.anthropic.com/${NC}"
+      echo ""
+      read -p "Enter your Anthropic API key: " anthropic_key < /dev/tty
+
+      if [[ -n "$anthropic_key" ]]; then
+        cat > "$INSTALL_DIR/.env" << EOF
 # Anthropic API Configuration
-ANTHROPIC_API_KEY=$api_key
+ANTHROPIC_API_KEY=$anthropic_key
 
 # Optional: Z.AI API (GLM Models)
 # Get from: https://z.ai
-ZAI_API_KEY=your-zai-key-here
+# ZAI_API_KEY=your-zai-key-here
 
 # Optional: Moonshot AI (Kimi Models)
 # Get from: https://platform.moonshot.ai/
-MOONSHOT_API_KEY=your-moonshot-key-here
+# MOONSHOT_API_KEY=your-moonshot-key-here
 EOF
+        echo ""
+        log_success "Anthropic API key configured"
+      fi
+      ;;
 
-    echo ""
-    log_success "API key configured"
-  else
-    log_warning "Skipped API configuration"
-    echo "You'll need to edit ${YELLOW}$INSTALL_DIR/.env${NC} before running Agent Mees"
-  fi
+    2)
+      # Z.AI only
+      echo -e "${BLUE}Get your API key from:${NC} ${CYAN}https://z.ai${NC}"
+      echo ""
+      read -p "Enter your Z.AI API key: " zai_key < /dev/tty
+
+      if [[ -n "$zai_key" ]]; then
+        cat > "$INSTALL_DIR/.env" << EOF
+# Z.AI API Configuration
+ZAI_API_KEY=$zai_key
+
+# Optional: Anthropic API (Claude Models)
+# Get from: https://console.anthropic.com/
+# ANTHROPIC_API_KEY=your-anthropic-key-here
+
+# Optional: Moonshot AI (Kimi Models)
+# Get from: https://platform.moonshot.ai/
+# MOONSHOT_API_KEY=your-moonshot-key-here
+EOF
+        echo ""
+        log_success "Z.AI API key configured"
+      fi
+      ;;
+
+    3)
+      # Moonshot only
+      echo -e "${BLUE}Get your API key from:${NC} ${CYAN}https://platform.moonshot.ai/${NC}"
+      echo ""
+      read -p "Enter your Moonshot API key: " moonshot_key < /dev/tty
+
+      if [[ -n "$moonshot_key" ]]; then
+        cat > "$INSTALL_DIR/.env" << EOF
+# Moonshot AI Configuration
+MOONSHOT_API_KEY=$moonshot_key
+
+# Optional: Anthropic API (Claude Models)
+# Get from: https://console.anthropic.com/
+# ANTHROPIC_API_KEY=your-anthropic-key-here
+
+# Optional: Z.AI API (GLM Models)
+# Get from: https://z.ai
+# ZAI_API_KEY=your-zai-key-here
+EOF
+        echo ""
+        log_success "Moonshot API key configured"
+      fi
+      ;;
+
+    4)
+      # All APIs
+      echo -e "${BLUE}Anthropic API:${NC} ${CYAN}https://console.anthropic.com/${NC}"
+      read -p "Enter your Anthropic API key (or press Enter to skip): " anthropic_key < /dev/tty
+      echo ""
+
+      echo -e "${BLUE}Z.AI API:${NC} ${CYAN}https://z.ai${NC}"
+      read -p "Enter your Z.AI API key (or press Enter to skip): " zai_key < /dev/tty
+      echo ""
+
+      echo -e "${BLUE}Moonshot AI:${NC} ${CYAN}https://platform.moonshot.ai/${NC}"
+      read -p "Enter your Moonshot API key (or press Enter to skip): " moonshot_key < /dev/tty
+
+      cat > "$INSTALL_DIR/.env" << EOF
+# Multi-Provider API Configuration
+
+# Anthropic API (Claude Models)
+${anthropic_key:+ANTHROPIC_API_KEY=$anthropic_key}
+${anthropic_key:-# ANTHROPIC_API_KEY=your-anthropic-key-here}
+
+# Z.AI API (GLM Models)
+${zai_key:+ZAI_API_KEY=$zai_key}
+${zai_key:-# ZAI_API_KEY=your-zai-key-here}
+
+# Moonshot AI (Kimi Models)
+${moonshot_key:+MOONSHOT_API_KEY=$moonshot_key}
+${moonshot_key:-# MOONSHOT_API_KEY=your-moonshot-key-here}
+EOF
+      echo ""
+      log_success "Multi-provider API keys configured"
+      ;;
+
+    5|*)
+      # Skip
+      log_warning "Skipping API configuration"
+      echo "You'll need to edit ${YELLOW}$INSTALL_DIR/.env${NC} before running Agent Mees"
+
+      # Create template .env
+      cat > "$INSTALL_DIR/.env" << EOF
+# API Configuration - Add your keys below
+
+# Anthropic API (Claude Models)
+# Get from: https://console.anthropic.com/
+# ANTHROPIC_API_KEY=your-anthropic-key-here
+
+# Z.AI API (GLM Models)
+# Get from: https://z.ai
+# ZAI_API_KEY=your-zai-key-here
+
+# Moonshot AI (Kimi Models)
+# Get from: https://platform.moonshot.ai/
+# MOONSHOT_API_KEY=your-moonshot-key-here
+EOF
+      ;;
+  esac
 }
 
 # =============================================================================
@@ -530,9 +643,21 @@ create_global_launcher() {
   local LAUNCHER_PATH=""
   local NEEDS_SHELL_RESTART=false
 
-  # Create launcher script content
+  # Create launcher script content with explicit bun path
+  local BUN_PATH
+  if command -v bun &> /dev/null; then
+    BUN_PATH=$(command -v bun)
+  else
+    # Default to common installation location
+    BUN_PATH="$HOME/.bun/bin/bun"
+  fi
+
   LAUNCHER_SCRIPT="#!/bin/bash
-cd \"$INSTALL_DIR\" && bun run server/server.ts \"\$@\"
+# Add bun to PATH if not already present
+export BUN_INSTALL=\"\$HOME/.bun\"
+export PATH=\"\$BUN_INSTALL/bin:\$PATH\"
+
+cd \"$INSTALL_DIR\" && \"$BUN_PATH\" run server/server.ts \"\$@\"
 "
 
   if [[ "$OS_PREFIX" == "windows" ]]; then
