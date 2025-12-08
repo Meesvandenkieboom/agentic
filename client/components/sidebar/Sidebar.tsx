@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Github, Loader2 } from 'lucide-react';
+import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Github, Loader2, LogOut } from 'lucide-react';
 import { toast } from '../../utils/toast';
 
 interface Chat {
@@ -59,6 +59,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
   const [editingTitle, setEditingTitle] = useState('');
   const [githubStatus, setGithubStatus] = useState<GitHubStatus | null>(null);
   const [isLoadingGithub, setIsLoadingGithub] = useState(false);
+  const [isHoveringGithub, setIsHoveringGithub] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Check GitHub status on mount
@@ -287,21 +288,25 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
 
         {/* GitHub Connect Button */}
         <button
-          className={`sidebar-new-chat-btn ${githubStatus?.connected ? 'sidebar-github-connected' : ''}`}
+          className={`sidebar-new-chat-btn ${githubStatus?.connected ? (isHoveringGithub ? 'sidebar-github-disconnect' : 'sidebar-github-connected') : ''}`}
           onClick={handleGithubConnect}
+          onMouseEnter={() => setIsHoveringGithub(true)}
+          onMouseLeave={() => setIsHoveringGithub(false)}
           style={{ marginTop: '0.5rem' }}
           disabled={isLoadingGithub}
         >
           {isLoadingGithub ? (
             <Loader2 size={20} opacity={0.8} className="animate-spin" />
+          ) : githubStatus?.connected && isHoveringGithub ? (
+            <LogOut size={20} opacity={0.8} />
           ) : (
             <Github size={20} opacity={0.8} />
           )}
           <span>
             {isLoadingGithub
-              ? 'Connecting...'
+              ? (githubStatus?.connected ? 'Disconnecting...' : 'Connecting...')
               : githubStatus?.connected
-                ? `${githubStatus.user?.login || 'Connected'}`
+                ? (isHoveringGithub ? 'Disconnect' : `${githubStatus.user?.login || 'Connected'}`)
                 : 'Connect to GitHub'}
           </span>
         </button>

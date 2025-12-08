@@ -9,9 +9,18 @@ import { getAppDataDirectory } from '../directoryUtils';
 
 // GitHub OAuth configuration
 // Users should set these in their environment or through the setup wizard
-const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
-const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || '';
-const GITHUB_REDIRECT_URI = process.env.GITHUB_REDIRECT_URI || 'http://localhost:3001/api/github/callback';
+// NOTE: These are functions to read env vars dynamically AFTER .env is loaded by initializeStartup()
+function getGitHubClientId(): string {
+  return process.env.GITHUB_CLIENT_ID || '';
+}
+
+function getGitHubClientSecret(): string {
+  return process.env.GITHUB_CLIENT_SECRET || '';
+}
+
+function getGitHubRedirectUri(): string {
+  return process.env.GITHUB_REDIRECT_URI || 'http://localhost:3001/api/github/callback';
+}
 
 interface GitHubTokenData {
   access_token: string;
@@ -83,7 +92,7 @@ function deleteToken(): void {
 
 // Check if GitHub is configured
 function isGitHubConfigured(): boolean {
-  return !!(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET);
+  return !!(getGitHubClientId() && getGitHubClientSecret());
 }
 
 /**
@@ -182,8 +191,8 @@ export async function handleGitHubRoutes(
     const state = Math.random().toString(36).substring(7);
 
     const authUrl = new URL('https://github.com/login/oauth/authorize');
-    authUrl.searchParams.set('client_id', GITHUB_CLIENT_ID);
-    authUrl.searchParams.set('redirect_uri', GITHUB_REDIRECT_URI);
+    authUrl.searchParams.set('client_id', getGitHubClientId());
+    authUrl.searchParams.set('redirect_uri', getGitHubRedirectUri());
     authUrl.searchParams.set('scope', scopes);
     authUrl.searchParams.set('state', state);
 
@@ -228,10 +237,10 @@ export async function handleGitHubRoutes(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          client_id: GITHUB_CLIENT_ID,
-          client_secret: GITHUB_CLIENT_SECRET,
+          client_id: getGitHubClientId(),
+          client_secret: getGitHubClientSecret(),
           code,
-          redirect_uri: GITHUB_REDIRECT_URI
+          redirect_uri: getGitHubRedirectUri()
         })
       });
 

@@ -19,7 +19,7 @@
  */
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Send, Plus, X, Square, Palette, List, Github } from 'lucide-react';
+import { Send, Plus, X, Square, Palette, List, FileUp, Github, ChevronDown, GitBranch } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import { ModeIndicator } from './ModeIndicator';
@@ -27,6 +27,7 @@ import type { SlashCommand } from '../../hooks/useWebSocket';
 import { CommandTextRenderer } from '../message/CommandTextRenderer';
 import { StyleConfigModal } from './StyleConfigModal';
 import { FeaturesModal } from './FeaturesModal';
+import { GitHubRepoSelector } from './GitHubRepoSelector';
 import { getModelConfig } from '../../config/models';
 
 interface ChatInputProps {
@@ -39,9 +40,6 @@ interface ChatInputProps {
   placeholder?: string;
   isPlanMode?: boolean;
   onTogglePlanMode?: () => void;
-  isGithubEnabled?: boolean;
-  onToggleGithub?: () => void;
-  canToggleGithub?: boolean; // false once chat has started
   backgroundProcesses?: BackgroundProcess[];
   onKillProcess?: (bashId: string) => void;
   mode?: 'general' | 'coder' | 'intense-research' | 'spark';
@@ -52,16 +50,22 @@ interface ChatInputProps {
     contextPercentage: number;
   };
   selectedModel?: string;
+  sessionId?: string | null;
+  onRepoSelected?: (repoUrl: string, repoName: string) => void;
+  selectedRepo?: { url: string; name: string } | null;
 }
 
-export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, isGithubEnabled, onToggleGithub, canToggleGithub = true, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], contextUsage, selectedModel }: ChatInputProps) {
+export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], contextUsage, selectedModel, sessionId, onRepoSelected, selectedRepo }: ChatInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const plusMenuRef = useRef<HTMLDivElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [modeIndicatorWidth, setModeIndicatorWidth] = useState(80);
   const [isStyleConfigOpen, setIsStyleConfigOpen] = useState(false);
   const [isFeaturesModalOpen, setIsFeaturesModalOpen] = useState(false);
+  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
+  const [isRepoSelectorOpen, setIsRepoSelectorOpen] = useState(false);
 
   // Slash command autocomplete state
   const [showCommandMenu, setShowCommandMenu] = useState(false);
@@ -117,6 +121,23 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
       window.removeEventListener('dragover', preventDragDefaults);
     };
   }, []);
+
+  // Close plus menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node)) {
+        setIsPlusMenuOpen(false);
+      }
+    };
+
+    if (isPlusMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isPlusMenuOpen]);
 
   // Handle paste events for images (screenshots)
   const handlePaste = async (e: React.ClipboardEvent) => {
@@ -442,7 +463,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
           <div className="input-controls">
             {/* Left side */}
             <div className="input-controls-left">
-              {/* Plus button */}
+              {/* Plus button with dropdown menu */}
               <div className="flex gap-1">
                 <input
                   ref={fileInputRef}
@@ -452,14 +473,58 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                   onChange={handleFileChange}
                   style={{ display: 'none' }}
                 />
-                <button
-                  onClick={handleFileClick}
-                  className="btn-icon"
-                  title="Add attachment"
-                  type="button"
-                >
-                  <Plus size={20} />
-                </button>
+
+                {/* Plus button dropdown */}
+                <div className="relative" ref={plusMenuRef}>
+                  <button
+                    onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
+                    className="btn-icon flex items-center gap-0.5"
+                    title="Add files or repository"
+                    type="button"
+                  >
+                    <Plus size={18} />
+                    <ChevronDown size={12} className={`transition-transform ${isPlusMenuOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {/* Dropdown menu */}
+                  {isPlusMenuOpen && (
+                    <div className="absolute bottom-full left-0 mb-2 w-48 bg-[#1a1c1e] border border-white/10 rounded-lg shadow-lg overflow-hidden z-50">
+                      <button
+                        onClick={() => {
+                          handleFileClick();
+                          setIsPlusMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-white/5 transition-colors"
+                        type="button"
+                      >
+                        <FileUp size={18} className="text-gray-400" />
+                        <span>Add Files</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsRepoSelectorOpen(true);
+                          setIsPlusMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-white/5 transition-colors border-t border-white/5"
+                        type="button"
+                      >
+                        <Github size={18} className="text-gray-400" />
+                        <span>GitHub Repository</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Repository indicator */}
+                {selectedRepo && (
+                  <div
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/5 border border-white/10 text-xs text-gray-400"
+                    title={selectedRepo.name}
+                  >
+                    <GitBranch size={12} className="text-gray-500" />
+                    <span className="max-w-[100px] truncate">{selectedRepo.name.split('/')[1] || selectedRepo.name}</span>
+                  </div>
+                )}
 
                 {/* Plan Mode toggle button */}
                 {onTogglePlanMode && (
@@ -475,33 +540,6 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                     }}
                   >
                     Plan Mode
-                  </button>
-                )}
-
-                {/* GitHub toggle button */}
-                {onToggleGithub && (
-                  <button
-                    onClick={onToggleGithub}
-                    className={`${isGithubEnabled ? 'send-button-active' : 'btn-icon'} rounded-lg flex items-center gap-1.5`}
-                    title={
-                      !canToggleGithub
-                        ? (isGithubEnabled ? "GitHub enabled (locked)" : "GitHub must be enabled before chat starts")
-                        : (isGithubEnabled ? "GitHub Enabled - Click to disable" : "Enable GitHub Access")
-                    }
-                    type="button"
-                    style={{
-                      fontSize: '0.75rem',
-                      fontWeight: 500,
-                      padding: '0.375rem 0.75rem',
-                      opacity: !canToggleGithub && !isGithubEnabled ? 0.5 : 1,
-                    }}
-                    disabled={!canToggleGithub && !isGithubEnabled}
-                  >
-                    <Github size={14} />
-                    <span>{isGithubEnabled ? 'GitHub' : 'GitHub'}</span>
-                    {isGithubEnabled && !canToggleGithub && (
-                      <span className="text-[10px] opacity-70">locked</span>
-                    )}
                   </button>
                 )}
 
@@ -684,6 +722,22 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
             }, 100);
           }}
           onClose={() => setIsFeaturesModalOpen(false)}
+        />
+      )}
+
+      {/* GitHub Repository Selector Modal */}
+      {isRepoSelectorOpen && (
+        <GitHubRepoSelector
+          sessionId={sessionId}
+          onSelect={(repoUrl, repoName) => {
+            setIsRepoSelectorOpen(false);
+            onRepoSelected?.(repoUrl, repoName);
+            // Focus textarea after modal closes
+            setTimeout(() => {
+              textareaRef.current?.focus();
+            }, 100);
+          }}
+          onClose={() => setIsRepoSelectorOpen(false)}
         />
       )}
     </div>

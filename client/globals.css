@@ -1239,6 +1239,27 @@
   background-color: rgb(var(--bg-sidebar-hover)); /* dark:hover:bg-[#36383A] */
 }
 
+/* GitHub connected state */
+.sidebar-new-chat-btn.sidebar-github-connected {
+  background-color: rgba(34, 197, 94, 0.15); /* green tint */
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.sidebar-new-chat-btn.sidebar-github-connected:hover {
+  background-color: rgba(34, 197, 94, 0.25);
+}
+
+/* GitHub disconnect hover state - higher specificity */
+.sidebar-new-chat-btn.sidebar-github-disconnect {
+  background-color: rgba(239, 68, 68, 0.15); /* red tint */
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: rgb(239, 68, 68);
+}
+
+.sidebar-new-chat-btn.sidebar-github-disconnect:hover {
+  background-color: rgba(239, 68, 68, 0.25);
+}
+
 /* Search */
 .sidebar-search-container {
   position: relative;

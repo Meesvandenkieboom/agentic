@@ -19,12 +19,13 @@
  */
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Send, Plus, X, Square, Github } from 'lucide-react';
+import { Send, Plus, X, Square, FileUp, Github, ChevronDown, GitBranch } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import { ModeSelector } from './ModeSelector';
 import { ModeIndicator } from './ModeIndicator';
 import type { SlashCommand } from '../../hooks/useWebSocket';
 import { CommandTextRenderer } from '../message/CommandTextRenderer';
+import { GitHubRepoSelector } from './GitHubRepoSelector';
 
 interface NewChatWelcomeProps {
   inputValue: string;
@@ -35,11 +36,11 @@ interface NewChatWelcomeProps {
   isGenerating?: boolean;
   isPlanMode?: boolean;
   onTogglePlanMode?: () => void;
-  isGithubEnabled?: boolean;
-  onToggleGithub?: () => void;
   availableCommands?: SlashCommand[];
   onOpenBuildWizard?: () => void;
   mode?: 'general' | 'coder' | 'intense-research' | 'spark';
+  onRepoSelected?: (repoUrl: string, repoName: string) => void;
+  selectedRepo?: { url: string; name: string } | null;
 }
 
 const CAPABILITIES = [
@@ -50,11 +51,14 @@ const CAPABILITIES = [
   "I can analyze data and files"
 ];
 
-export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, isGithubEnabled, onToggleGithub, availableCommands = [], onOpenBuildWizard, mode }: NewChatWelcomeProps) {
+export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard, mode, onRepoSelected, selectedRepo }: NewChatWelcomeProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const plusMenuRef = useRef<HTMLDivElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<FileAttachment[]>([]);
   const [_isDraggingOver, setIsDraggingOver] = useState(false);
+  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
+  const [isRepoSelectorOpen, setIsRepoSelectorOpen] = useState(false);
 
   // Mode selection state (synchronized with parent via props)
   const [selectedMode, setSelectedMode] = useState<'general' | 'coder' | 'intense-research' | 'spark'>(mode || 'general');
@@ -116,6 +120,23 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
     }, 100);
     return () => clearTimeout(timer);
   }, []);
+
+  // Close plus menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node)) {
+        setIsPlusMenuOpen(false);
+      }
+    };
+
+    if (isPlusMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isPlusMenuOpen]);
 
   // Auto-resize textarea based on content
   useEffect(() => {
@@ -492,7 +513,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
               {/* Action Buttons */}
               <div className="flex justify-between items-center mx-3.5 mt-1.5 mb-3.5 max-w-full">
                 <div className="self-end flex items-center gap-1.5">
-                  {/* File Upload */}
+                  {/* Plus button with dropdown menu */}
                   <div className="flex gap-1">
                     <input
                       ref={fileInputRef}
@@ -502,14 +523,58 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                       onChange={handleFileChange}
                       style={{ display: 'none' }}
                     />
-                    <button
-                      onClick={handleFileClick}
-                      type="button"
-                      className="border rounded-lg border-white/10 bg-transparent transition p-1.5 outline-none focus:outline-none text-white hover:bg-gray-800"
-                      aria-label="Upload files"
-                    >
-                      <Plus className="size-5" />
-                    </button>
+
+                    {/* Plus button dropdown */}
+                    <div className="relative" ref={plusMenuRef}>
+                      <button
+                        onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
+                        type="button"
+                        className="border rounded-lg border-white/10 bg-transparent transition p-1.5 outline-none focus:outline-none text-white hover:bg-gray-800 flex items-center gap-0.5"
+                        aria-label="Add files or repository"
+                      >
+                        <Plus className="size-4" />
+                        <ChevronDown size={12} className={`transition-transform ${isPlusMenuOpen ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {/* Dropdown menu */}
+                      {isPlusMenuOpen && (
+                        <div className="absolute bottom-full left-0 mb-2 w-48 bg-[#1a1c1e] border border-white/10 rounded-lg shadow-lg overflow-hidden z-50">
+                          <button
+                            onClick={() => {
+                              handleFileClick();
+                              setIsPlusMenuOpen(false);
+                            }}
+                            type="button"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-white/5 transition-colors"
+                          >
+                            <FileUp size={18} className="text-gray-400" />
+                            <span>Add Files</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsRepoSelectorOpen(true);
+                              setIsPlusMenuOpen(false);
+                            }}
+                            type="button"
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-white/5 transition-colors border-t border-white/5"
+                          >
+                            <Github size={18} className="text-gray-400" />
+                            <span>GitHub Repository</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Repository indicator */}
+                    {selectedRepo && (
+                      <div
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-400"
+                        title={selectedRepo.name}
+                      >
+                        <GitBranch size={12} className="text-gray-500" />
+                        <span className="max-w-[120px] truncate">{selectedRepo.name.split('/')[1] || selectedRepo.name}</span>
+                      </div>
+                    )}
 
                     {/* Plan Mode toggle button */}
                     {onTogglePlanMode && (
@@ -526,25 +591,6 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                         aria-label={isPlanMode ? "Deactivate Plan Mode" : "Activate Plan Mode"}
                       >
                         Plan Mode
-                      </button>
-                    )}
-
-                    {/* GitHub toggle button */}
-                    {onToggleGithub && (
-                      <button
-                        onClick={onToggleGithub}
-                        type="button"
-                        className={`${isGithubEnabled ? 'send-button-active' : 'border border-white/10 bg-transparent text-white hover:bg-gray-800'} rounded-lg transition outline-none focus:outline-none flex items-center gap-1.5`}
-                        style={{
-                          fontSize: '0.75rem',
-                          fontWeight: 500,
-                          padding: '0.375rem 0.75rem',
-                        }}
-                        title={isGithubEnabled ? "GitHub Enabled - Click to disable" : "Enable GitHub Access"}
-                        aria-label={isGithubEnabled ? "Disable GitHub" : "Enable GitHub"}
-                      >
-                        <Github size={14} />
-                        <span>GitHub</span>
                       </button>
                     )}
                   </div>
@@ -586,6 +632,21 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
           </div>
         </div>
       </div>
+
+      {/* GitHub Repository Selector Modal */}
+      {isRepoSelectorOpen && (
+        <GitHubRepoSelector
+          onSelect={(repoUrl, repoName) => {
+            setIsRepoSelectorOpen(false);
+            onRepoSelected?.(repoUrl, repoName);
+            // Focus textarea after modal closes
+            setTimeout(() => {
+              textareaRef.current?.focus();
+            }, 100);
+          }}
+          onClose={() => setIsRepoSelectorOpen(false)}
+        />
+      )}
     </div>
   );
 }

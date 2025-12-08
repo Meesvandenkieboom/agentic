@@ -100,9 +100,8 @@ export function ChatContainer() {
   // Build wizard state
   const [isBuildWizardOpen, setIsBuildWizardOpen] = useState(false);
 
-  // GitHub connection state (per-session)
-  const [isGithubEnabled, setIsGithubEnabled] = useState(false);
-  const [githubEnabledSessions, setGithubEnabledSessions] = useState<Set<string>>(new Set());
+  // GitHub repository selected for session
+  const [selectedRepo, setSelectedRepo] = useState<{ url: string; name: string } | null>(null);
 
   const sessionAPI = useSessionAPI();
 
@@ -339,42 +338,12 @@ export function ChatContainer() {
     // If no session exists yet, the mode will be applied when session is created
   };
 
-  // Handle GitHub toggle
-  const handleToggleGithub = () => {
-    // Can only enable GitHub before chat starts
-    // Once enabled for a session, it cannot be disabled
-    if (!currentSessionId) {
-      // No session yet - just toggle the default state for new chats
-      setIsGithubEnabled(!isGithubEnabled);
-      return;
-    }
-
-    // If messages exist, can't toggle (locked in)
-    if (messages.length > 0) {
-      if (githubEnabledSessions.has(currentSessionId)) {
-        toast.info('GitHub is locked for this chat', {
-          description: 'GitHub access cannot be disabled after chat has started'
-        });
-      } else {
-        toast.info('Cannot enable GitHub', {
-          description: 'GitHub must be enabled before starting the chat'
-        });
-      }
-      return;
-    }
-
-    // Toggle GitHub for this session (before chat starts)
-    const newEnabled = !githubEnabledSessions.has(currentSessionId);
-    setGithubEnabledSessions(prev => {
-      const next = new Set(prev);
-      if (newEnabled) {
-        next.add(currentSessionId);
-      } else {
-        next.delete(currentSessionId);
-      }
-      return next;
+  // Handle GitHub repository selection
+  const handleRepoSelected = (repoUrl: string, repoName: string) => {
+    setSelectedRepo({ url: repoUrl, name: repoName });
+    toast.success(`Selected ${repoName}`, {
+      description: 'Repository will be cloned when chat starts'
     });
-    setIsGithubEnabled(newEnabled);
   };
 
   // Handle plan approval
@@ -1291,11 +1260,11 @@ export function ChatContainer() {
             isGenerating={isLoading}
             isPlanMode={isPlanMode}
             onTogglePlanMode={handleTogglePlanMode}
-            isGithubEnabled={isGithubEnabled}
-            onToggleGithub={handleToggleGithub}
             availableCommands={availableCommands}
             onOpenBuildWizard={handleOpenBuildWizard}
             mode={currentSessionMode}
+            onRepoSelected={handleRepoSelected}
+            selectedRepo={selectedRepo}
           />
         ) : (
           // Chat Interface
@@ -1319,15 +1288,15 @@ export function ChatContainer() {
               isGenerating={isLoading}
               isPlanMode={isPlanMode}
               onTogglePlanMode={handleTogglePlanMode}
-              isGithubEnabled={currentSessionId ? githubEnabledSessions.has(currentSessionId) : isGithubEnabled}
-              onToggleGithub={handleToggleGithub}
-              canToggleGithub={messages.length === 0}
               backgroundProcesses={backgroundProcesses.get(currentSessionId || '') || []}
               onKillProcess={handleKillProcess}
               mode={currentSessionId ? currentSessionMode : undefined}
               availableCommands={availableCommands}
               contextUsage={currentSessionId ? contextUsage.get(currentSessionId) : undefined}
               selectedModel={selectedModel}
+              sessionId={currentSessionId}
+              onRepoSelected={handleRepoSelected}
+              selectedRepo={selectedRepo}
             />
           </>
         )}
