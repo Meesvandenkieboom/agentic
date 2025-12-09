@@ -1004,6 +1004,11 @@ export function ChatContainer() {
       return;
     }
 
+    // Set loading immediately to prevent double-submit and show loading state
+    // Use a temporary ID for new sessions, will be replaced with real session ID
+    const tempSessionId = currentSessionId || `temp-${Date.now()}`;
+    setSessionLoading(tempSessionId, true);
+
     try {
       // Create new session if none exists
       let sessionId = currentSessionId;
@@ -1012,6 +1017,7 @@ export function ChatContainer() {
         const newSession = await sessionAPI.createSession(undefined, mode || 'general', selectedRepo?.name);
         if (!newSession) {
           // Error already shown by sessionAPI
+          setSessionLoading(tempSessionId, false);
           return;
         }
 
@@ -1069,6 +1075,10 @@ export function ChatContainer() {
         // Update state and load sessions
         setCurrentSessionId(sessionId);
         await loadSessions();
+
+        // Transfer loading state from temp ID to real session ID
+        setSessionLoading(tempSessionId, false);
+        setSessionLoading(sessionId, true);
       }
 
       const userMessage: Message = {
@@ -1080,7 +1090,10 @@ export function ChatContainer() {
       };
 
       setMessages((prev) => [...prev, userMessage]);
-      setSessionLoading(sessionId, true);
+      // Only set loading if we didn't already set it for a new session
+      if (currentSessionId) {
+        setSessionLoading(sessionId, true);
+      }
 
       // Build content: if there are image files, send as array of blocks
       // Otherwise, send as plain string (existing behavior)
@@ -1142,6 +1155,8 @@ export function ChatContainer() {
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       showError('SEND_MESSAGE', errorMsg);
+      // Clear both temp and real session loading states
+      setSessionLoading(tempSessionId, false);
       if (currentSessionId) setSessionLoading(currentSessionId, false);
     }
   };
