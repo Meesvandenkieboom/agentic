@@ -128,23 +128,86 @@ async function handleStatus() {
   }
 }
 
+async function handleUpdate() {
+  console.log('\n🔄 Agent Smith - Update\n');
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  console.log('This will download and run the latest installer from GitHub.');
+  const answer = await new Promise<string>((resolve) => {
+    rl.question('Do you want to continue? (y/N): ', resolve);
+  });
+  rl.close();
+
+  if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes') {
+    console.log('Update cancelled.');
+    process.exit(0);
+  }
+
+  try {
+    console.log('\n⏳ Downloading latest installer...\n');
+
+    // Use Bun's built-in fetch to download the installer
+    const response = await fetch('https://raw.githubusercontent.com/Meesvandenkieboom/agent-smith/main/install.sh');
+
+    if (!response.ok) {
+      throw new Error(`Failed to download installer: ${response.status} ${response.statusText}`);
+    }
+
+    const installScript = await response.text();
+
+    // Write to a temporary file
+    const tmpFile = '/tmp/agent-smith-update.sh';
+    await Bun.write(tmpFile, installScript);
+
+    console.log('📦 Running installer...\n');
+
+    // Execute the installer with bash
+    const proc = Bun.spawn(['bash', tmpFile], {
+      stdout: 'inherit',
+      stderr: 'inherit',
+      stdin: 'inherit',
+    });
+
+    const exitCode = await proc.exited;
+
+    // Clean up temp file
+    await Bun.$`rm -f ${tmpFile}`;
+
+    if (exitCode === 0) {
+      console.log('\n✅ Update completed successfully!');
+    } else {
+      console.error(`\n❌ Update failed with exit code ${exitCode}`);
+      process.exit(exitCode);
+    }
+
+  } catch (error) {
+    console.error('\n❌ Update failed:', error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}
+
 function showHelp() {
   console.log(`
-🤖 Agent Smith - OAuth Authentication CLI
+🤖 Agent Smith - CLI
 
 Commands:
   --login        Log in with Claude Pro/Max subscription (OAuth)
   --logout       Log out and clear OAuth tokens
   --status       Show current authentication status
+  --update       Update to the latest version from GitHub
   --help         Show this help message
 
 Examples:
   bun run cli.ts --login
   bun run cli.ts --logout
   bun run cli.ts --status
+  bun run cli.ts --update
 
-Note: This CLI is for OAuth authentication only.
-      Use 'agent-smith' command to launch the app (standalone binary).
+Note: Use 'agent-smith' command to launch the app (standalone binary).
 `);
 }
 
@@ -164,6 +227,11 @@ async function main() {
     case '--status':
     case 'status':
       await handleStatus();
+      break;
+
+    case '--update':
+    case 'update':
+      await handleUpdate();
       break;
 
     case '--help':

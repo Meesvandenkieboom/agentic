@@ -25,16 +25,17 @@ if (process.argv.includes('--setup')) {
   process.exit(0);
 }
 
-// Check for OAuth flags before starting the server
+// Check for CLI flags before starting the server
 // Run cli.ts as a separate process to avoid importing server modules
-const oauthFlag = process.argv.find(arg =>
+const cliFlag = process.argv.find(arg =>
   arg === '--login' || arg === 'login' ||
   arg === '--logout' || arg === 'logout' ||
-  arg === '--status' || arg === 'status' || arg === '--auth-status'
+  arg === '--status' || arg === 'status' || arg === '--auth-status' ||
+  arg === '--update' || arg === 'update'
 );
 
-if (oauthFlag) {
-  const proc = Bun.spawn(['bun', 'run', 'cli.ts', oauthFlag], {
+if (cliFlag) {
+  const proc = Bun.spawn(['bun', 'run', 'cli.ts', cliFlag], {
     stdin: 'inherit',
     stdout: 'inherit',
     stderr: 'inherit',

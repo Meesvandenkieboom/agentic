@@ -8,6 +8,7 @@
  *   agent-smith --login
  *   agent-smith --logout
  *   agent-smith --status
+ *   agent-smith --update
  */
 
 import { spawn } from 'child_process';

@@ -179,6 +179,20 @@ The app starts at **http://localhost:3001** and opens automatically in your brow
 3. Choose your model (Claude Sonnet 4.5 recommended)
 4. Start your conversation!
 
+### 4. Updating
+
+To update to the latest version:
+
+```bash
+agent-smith --update
+```
+
+This will automatically download and run the latest installer from GitHub. No need to manually run curl commands!
+
+**Alternative update methods:**
+- Manual: `curl -fsSL https://raw.githubusercontent.com/Meesvandenkieboom/agent-smith/main/install.sh | bash`
+- From source: `cd agent-smith && git pull && bun install && bun run build`
+
 ---
 
 ## 🎮 Usage
