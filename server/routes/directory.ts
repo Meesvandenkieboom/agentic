@@ -25,6 +25,22 @@ function isWSL(): boolean {
 }
 
 /**
+ * Convert WSL path to Windows path
+ * Example: /mnt/c/Users/... -> C:\Users\...
+ */
+function wslToWindowsPath(wslPath: string): string {
+  // Match /mnt/X/... pattern
+  const match = wslPath.match(/^\/mnt\/([a-z])\/(.*)/);
+  if (match) {
+    const driveLetter = match[1].toUpperCase();
+    const pathPart = match[2].replace(/\//g, '\\');
+    return `${driveLetter}:\\${pathPart}`;
+  }
+  // If not a /mnt path, return as-is
+  return wslPath;
+}
+
+/**
  * Handle directory-related API routes
  * Returns Response if route was handled, undefined otherwise
  */
@@ -98,8 +114,10 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
 
       if (inWSL) {
         // WSL - use Windows explorer.exe to open Windows paths
+        const windowsPath = wslToWindowsPath(chatFolderPath);
         console.log('🪟 WSL detected, using explorer.exe');
-        spawn('explorer.exe', [chatFolderPath]);
+        console.log('🔄 Converting WSL path to Windows path:', chatFolderPath, '->', windowsPath);
+        spawn('explorer.exe', [windowsPath]);
       } else if (platform === 'darwin') {
         // macOS - use 'open' command
         spawn('open', [chatFolderPath]);
