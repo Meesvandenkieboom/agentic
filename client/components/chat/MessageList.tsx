@@ -113,11 +113,17 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
     overscan: 5, // Render 5 extra items above/below viewport
   });
 
-  // Scroll to bottom when messages change (for new messages)
+  // Scroll to bottom when messages change (only if user is already at bottom)
   useEffect(() => {
     if (parentRef.current) {
-      // Auto-scroll to bottom on new messages
-      parentRef.current.scrollTop = parentRef.current.scrollHeight;
+      const container = parentRef.current;
+      // Check if user is already at bottom (within 100px threshold)
+      const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 100;
+
+      // Only auto-scroll if user is already at bottom
+      if (isAtBottom) {
+        container.scrollTop = container.scrollHeight;
+      }
     }
   }, [messages]);
 

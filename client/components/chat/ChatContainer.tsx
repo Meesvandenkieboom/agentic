@@ -26,6 +26,7 @@ import { NewChatWelcome } from './NewChatWelcome';
 import { Sidebar } from '../sidebar/Sidebar';
 import { ModelSelector } from '../header/ModelSelector';
 import { WorkingDirectoryDisplay } from '../header/WorkingDirectoryDisplay';
+import { GitHubRepoIndicator } from '../header/GitHubRepoIndicator';
 import { AboutButton } from '../header/AboutButton';
 import { RadioPlayer } from '../header/RadioPlayer';
 import { PlanApprovalModal } from '../plan/PlanApprovalModal';
@@ -1278,6 +1279,12 @@ export function ChatContainer() {
             <div className="header-right">
               {/* Radio Player */}
               <RadioPlayer />
+              {/* GitHub Repo Indicator */}
+              {currentSessionId && sessions.find(s => s.id === currentSessionId)?.github_repo && (
+                <GitHubRepoIndicator
+                  repoName={sessions.find(s => s.id === currentSessionId)?.github_repo || ''}
+                />
+              )}
               {/* Working Directory Display */}
               {currentSessionId && sessions.find(s => s.id === currentSessionId)?.working_directory && (
                 <WorkingDirectoryDisplay
