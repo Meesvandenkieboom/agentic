@@ -7,6 +7,22 @@ import { validateDirectory, getDefaultWorkingDirectory } from "../directoryUtils
 import { openDirectoryPicker } from "../directoryPicker";
 import { spawn } from 'child_process';
 import os from 'os';
+import fs from 'fs';
+
+/**
+ * Detect if running in WSL (Windows Subsystem for Linux)
+ */
+function isWSL(): boolean {
+  try {
+    if (fs.existsSync('/proc/version')) {
+      const version = fs.readFileSync('/proc/version', 'utf8').toLowerCase();
+      return version.includes('microsoft') || version.includes('wsl');
+    }
+  } catch {
+    // Ignore errors
+  }
+  return false;
+}
 
 /**
  * Handle directory-related API routes
@@ -78,8 +94,13 @@ export async function handleDirectoryRoutes(req: Request, url: URL): Promise<Res
 
       // Open the folder in the system file explorer
       const platform = os.platform();
+      const inWSL = isWSL();
 
-      if (platform === 'darwin') {
+      if (inWSL) {
+        // WSL - use Windows explorer.exe to open Windows paths
+        console.log('🪟 WSL detected, using explorer.exe');
+        spawn('explorer.exe', [chatFolderPath]);
+      } else if (platform === 'darwin') {
         // macOS - use 'open' command
         spawn('open', [chatFolderPath]);
       } else if (platform === 'win32') {
