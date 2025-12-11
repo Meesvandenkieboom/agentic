@@ -84,54 +84,81 @@ export async function initializeStartup(): Promise<StartupConfig> {
   }
 
   // Load environment variables
-  // In standalone mode, manually parse .env from binary directory
+  // In standalone mode, manually parse .env files from binary directory
   // In dev mode, use dotenv/config from project root
+
+  // Helper function to load an .env file
+  const loadEnvFile = (envPath: string) => {
+    if (!existsSync(envPath)) {
+      return 0;
+    }
+
+    const envContent = readFileSync(envPath, 'utf-8');
+    let keysLoaded = 0;
+
+    envContent.split('\n').forEach(line => {
+      const trimmedLine = line.trim();
+      // Skip empty lines and comments
+      if (!trimmedLine || trimmedLine.startsWith('#')) return;
+
+      const match = trimmedLine.match(/^([^=]+)=(.*)$/);
+      if (match) {
+        const key = match[1].trim();
+        let value = match[2].trim();
+
+        // Remove quotes if present
+        if ((value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.slice(1, -1);
+        }
+
+        process.env[key] = value;
+        keysLoaded++;
+        // Only log the key name, not the value (for security)
+        if (key === 'ANTHROPIC_API_KEY' || key === 'ZAI_API_KEY' || key === 'GITHUB_CLIENT_ID') {
+          debugLog(`  - Loaded ${key}: ${value.substring(0, 10)}...`);
+        }
+      }
+    });
+
+    return keysLoaded;
+  };
+
   if (IS_STANDALONE) {
+    // Load root .env
     const envPath = path.join(BINARY_DIR, '.env');
     debugLog(`  - Looking for .env at: ${envPath}`);
-    debugLog(`  - .env exists: ${existsSync(envPath)}`);
-
-    if (existsSync(envPath)) {
-      const envContent = readFileSync(envPath, 'utf-8');
-      debugLog(`  - .env file size: ${envContent.length} bytes`);
-
-      let keysLoaded = 0;
-      envContent.split('\n').forEach(line => {
-        const trimmedLine = line.trim();
-        // Skip empty lines and comments
-        if (!trimmedLine || trimmedLine.startsWith('#')) return;
-
-        const match = trimmedLine.match(/^([^=]+)=(.*)$/);
-        if (match) {
-          const key = match[1].trim();
-          let value = match[2].trim();
-
-          // Remove quotes if present
-          if ((value.startsWith('"') && value.endsWith('"')) ||
-              (value.startsWith("'") && value.endsWith("'"))) {
-            value = value.slice(1, -1);
-          }
-
-          process.env[key] = value;
-          keysLoaded++;
-          // Only log the key name, not the value (for security)
-          if (key === 'ANTHROPIC_API_KEY' || key === 'ZAI_API_KEY') {
-            debugLog(`  - Loaded ${key}: ${value.substring(0, 10)}...`);
-          }
-        }
-      });
-      debugLog(`✅ Loaded .env from: ${envPath} (${keysLoaded} keys)`);
+    const rootKeysLoaded = loadEnvFile(envPath);
+    if (rootKeysLoaded > 0) {
+      debugLog(`✅ Loaded .env: ${rootKeysLoaded} keys`);
     } else {
       debugLog(`⚠️  .env file not found at: ${envPath}`);
+    }
+
+    // Load server/.env (GitHub credentials)
+    const serverEnvPath = path.join(BINARY_DIR, 'server', '.env');
+    debugLog(`  - Looking for server/.env at: ${serverEnvPath}`);
+    const serverKeysLoaded = loadEnvFile(serverEnvPath);
+    if (serverKeysLoaded > 0) {
+      debugLog(`✅ Loaded server/.env: ${serverKeysLoaded} keys (GitHub credentials)`);
     }
   } else {
     debugLog('  - Using dotenv/config (dev mode)');
     await import("dotenv/config");
+
+    // Also load server/.env in dev mode
+    const serverEnvPath = path.join(BINARY_DIR, 'server', '.env');
+    const serverKeysLoaded = loadEnvFile(serverEnvPath);
+    if (serverKeysLoaded > 0) {
+      debugLog(`✅ Loaded server/.env: ${serverKeysLoaded} keys (GitHub credentials)`);
+    }
   }
 
   debugLog(`  - ANTHROPIC_API_KEY set: ${!!process.env.ANTHROPIC_API_KEY}`);
   debugLog(`  - ZAI_API_KEY set: ${!!process.env.ZAI_API_KEY}`);
   debugLog(`  - MOONSHOT_API_KEY set: ${!!process.env.MOONSHOT_API_KEY}`);
+  debugLog(`  - GITHUB_CLIENT_ID set: ${!!process.env.GITHUB_CLIENT_ID}`);
+  debugLog(`  - GITHUB_CLIENT_SECRET set: ${!!process.env.GITHUB_CLIENT_SECRET}`);
 
   return {
     isStandalone: IS_STANDALONE,
