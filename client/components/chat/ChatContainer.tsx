@@ -351,7 +351,7 @@ export function ChatContainer() {
   const handleApprovePlan = () => {
     if (!currentSessionId) return;
 
-    // Send approval to server to switch mode
+    // Update database to bypassPermissions mode immediately
     sendMessage({
       type: 'approve_plan',
       sessionId: currentSessionId
@@ -360,27 +360,9 @@ export function ChatContainer() {
     // Close modal
     setPendingPlan(null);
 
-    // Immediately send continuation message to start execution
-    if (currentSessionId) setSessionLoading(currentSessionId, true);
-
-    // Add a user message indicating approval
-    const approvalMessage: Message = {
-      id: Date.now().toString(),
-      type: 'user',
-      content: 'Approved. Please proceed with the plan.',
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, approvalMessage]);
-
-    // Send the continuation message to trigger execution
-    setTimeout(() => {
-      sendMessage({
-        type: 'chat',
-        content: 'Approved. Please proceed with the plan.',
-        sessionId: currentSessionId,
-        model: selectedModel,
-      });
-    }, 100); // Small delay to ensure mode is switched
+    // Note: Don't send a follow-up message automatically
+    // Let the user decide what to do next after approving the plan
+    console.log('✅ Plan approved. Mode switched to bypassPermissions.');
   };
 
   // Handle plan rejection
@@ -723,10 +705,12 @@ export function ChatContainer() {
       } else if (message.type === 'user_message') {
         // Echo back user message if needed
       } else if (message.type === 'exit_plan_mode') {
-        // Handle plan mode exit - show approval modal and auto-deactivate plan mode
+        // Handle plan mode exit - show approval modal
         const planText = 'plan' in message ? message.plan : undefined;
         setPendingPlan(planText || 'No plan provided');
-        setIsPlanMode(false); // Auto-deactivate plan mode when ExitPlanMode is triggered
+        // CRITICAL FIX: Don't auto-deactivate plan mode here!
+        // Wait for user approval and server confirmation before changing UI state
+        // The permission_mode_changed event will update the UI state after server confirms
       } else if (message.type === 'permission_mode_changed') {
         // Handle permission mode change confirmation
         const mode = 'mode' in message ? message.mode : undefined;

@@ -1313,13 +1313,17 @@ async function handleApprovePlan(
   try {
     console.log('✅ Plan approved, switching to bypassPermissions mode');
 
-    // Switch SDK back to bypassPermissions (was in plan mode)
+    // CRITICAL FIX: Only try to switch mode if there's an active query
+    // If no active query, the session will start in bypassPermissions mode on next message
     if (activeQuery) {
       console.log(`🔄 Switching SDK permission mode: plan → bypassPermissions`);
       await (activeQuery as { setPermissionMode: (mode: string) => Promise<void> }).setPermissionMode('bypassPermissions');
+      console.log('✅ SDK mode switched successfully');
+    } else {
+      console.log('⚠️  No active query - mode will be applied on next message');
     }
 
-    // Update database to bypassPermissions mode
+    // Update database to bypassPermissions mode (important for next session load)
     sessionDb.updatePermissionMode(sessionId as string, 'bypassPermissions');
 
     // Send confirmation to client
@@ -1328,18 +1332,16 @@ async function handleApprovePlan(
       mode: 'bypassPermissions'
     }));
 
-    // Send a continuation message to the user to trigger execution
-    ws.send(JSON.stringify({
-      type: 'plan_approved_continue',
-      message: 'Plan approved. Proceeding with implementation...'
-    }));
-
-    console.log('✅ Plan approved, SDK switched to bypassPermissions');
+    console.log('✅ Plan approved, database updated to bypassPermissions');
   } catch (error) {
-    console.error('Failed to handle plan approval:', error);
+    console.error('❌ Failed to handle plan approval:', error);
+
+    // Still update database even if SDK switch fails
+    sessionDb.updatePermissionMode(sessionId as string, 'bypassPermissions');
+
     ws.send(JSON.stringify({
       type: 'error',
-      error: 'Failed to approve plan'
+      error: error instanceof Error ? error.message : 'Failed to approve plan'
     }));
   }
 }
