@@ -189,11 +189,11 @@ agent-smith --update
 
 **The smart update process:**
 - ✅ Downloads latest code from GitHub
-- ✅ Only reinstalls dependencies if `package.json` changed
-- ✅ Builds the application
+- ✅ Installs dependencies and builds (fast with Bun)
 - ✅ Preserves your .env, data, and OAuth tokens
-- ✅ Skips setup prompts (API keys, personalization, etc.)
-- ✅ Fast and minimal - only updates what's needed
+- ✅ Skips all setup prompts (no API keys, personalization, etc.)
+- ✅ Skips system checks (dependencies, disk space, etc.)
+- ✅ Clean, minimal output - just what you need to know
 
 **Alternative update methods:**
 - Manual: `curl -fsSL https://raw.githubusercontent.com/Meesvandenkieboom/agent-smith/main/install.sh | bash` (full reinstall)

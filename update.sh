@@ -95,53 +95,43 @@ else
   exit 1
 fi
 
-# Check if dependencies changed
-log_section "Checking Dependencies"
-
-DEPS_CHANGED=false
-if [[ -f "$INSTALL_DIR/package.json" ]]; then
-  # Compare package.json
-  if ! diff -q "$CLONE_DIR/package.json" "$INSTALL_DIR/package.json" > /dev/null 2>&1; then
-    DEPS_CHANGED=true
-    log_info "Dependencies have changed - will reinstall"
-  else
-    log_success "Dependencies unchanged - skipping install"
-  fi
-else
-  # No existing package.json, need to install
-  DEPS_CHANGED=true
-  log_info "No existing dependencies - will install"
-fi
-
-# Build new version
-log_section "Building Application"
+# Install dependencies and build
+log_section "Installing Dependencies"
 
 cd "$CLONE_DIR"
 
-# Install dependencies only if needed
-if [[ "$DEPS_CHANGED" == "true" ]]; then
-  log_info "Installing dependencies..."
-
-  if ! command -v bun &> /dev/null; then
-    log_error "Bun not found in PATH"
-    rm -rf "$CLONE_DIR"
-    exit 1
-  fi
-
-  INSTALL_OUTPUT=$(bun install 2>&1)
-  INSTALL_EXIT_CODE=$?
-
-  # Show summary
-  echo "$INSTALL_OUTPUT" | tail -3
-
-  if [ $INSTALL_EXIT_CODE -ne 0 ]; then
-    log_error "Failed to install dependencies"
-    rm -rf "$CLONE_DIR"
-    exit 1
-  fi
-
-  log_success "Dependencies installed"
+if ! command -v bun &> /dev/null; then
+  log_error "Bun not found in PATH"
+  rm -rf "$CLONE_DIR"
+  exit 1
 fi
+
+# Check if dependencies changed (just for informational message)
+DEPS_MSG="Installing dependencies..."
+if [[ -f "$INSTALL_DIR/package.json" ]]; then
+  if ! diff -q "$CLONE_DIR/package.json" "$INSTALL_DIR/package.json" > /dev/null 2>&1; then
+    DEPS_MSG="Dependencies changed - installing..."
+  fi
+fi
+
+log_info "$DEPS_MSG"
+
+INSTALL_OUTPUT=$(bun install 2>&1)
+INSTALL_EXIT_CODE=$?
+
+# Show summary
+echo "$INSTALL_OUTPUT" | tail -3
+
+if [ $INSTALL_EXIT_CODE -ne 0 ]; then
+  log_error "Failed to install dependencies"
+  rm -rf "$CLONE_DIR"
+  exit 1
+fi
+
+log_success "Dependencies installed"
+
+# Build application
+log_section "Building Application"
 
 # Build
 log_info "Building..."
