@@ -49,6 +49,11 @@ const MODE_CONFIGS: Record<string, ModeConfig> = {
     name: 'Spark',
     description: 'Interactive brainstorming with research',
   },
+  'hive': {
+    id: 'hive',
+    name: 'HIVE',
+    description: 'Opus queen orchestrating Sonnet worker swarm',
+  },
 };
 
 const modePromptCache = new Map<string, string>();

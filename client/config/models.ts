@@ -56,6 +56,13 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     provider: 'anthropic',
   },
   {
+    id: 'hive',
+    name: 'Claude HIVE',
+    description: 'Opus orchestrator with Sonnet worker swarm for complex tasks',
+    apiModelId: 'claude-opus-4-5-20250101',
+    provider: 'anthropic',
+  },
+  {
     id: 'haiku',
     name: 'Claude Haiku 4.5',
     description: 'Fast and efficient model for quick tasks and rapid responses',
