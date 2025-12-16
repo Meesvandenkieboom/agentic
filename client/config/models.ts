@@ -49,6 +49,13 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     provider: 'anthropic',
   },
   {
+    id: 'opus',
+    name: 'Claude Opus 4.5',
+    description: 'Powerful model with enhanced capabilities for advanced tasks',
+    apiModelId: 'claude-opus-4-5-20250101',
+    provider: 'anthropic',
+  },
+  {
     id: 'haiku',
     name: 'Claude Haiku 4.5',
     description: 'Fast and efficient model for quick tasks and rapid responses',
