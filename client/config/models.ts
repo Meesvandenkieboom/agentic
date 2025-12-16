@@ -52,7 +52,7 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     id: 'opus',
     name: 'Claude Opus 4.5',
     description: 'Powerful model with enhanced capabilities for advanced tasks',
-    apiModelId: 'claude-opus-4-5-20250101',
+    apiModelId: 'claude-opus-4-5-20251101',
     provider: 'anthropic',
   },
   {
