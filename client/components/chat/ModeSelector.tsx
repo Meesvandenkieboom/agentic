@@ -22,7 +22,7 @@ import React, { useState } from 'react';
 import { MessageCircle, Code, Target, Zap, Hammer } from 'lucide-react';
 
 interface ModeOption {
-  id: 'general' | 'coder' | 'intense-research' | 'spark' | 'build';
+  id: 'general' | 'coder' | 'intense-research' | 'spark' | 'build' | 'hive';
   name: string;
   description: string;
   icon: React.ReactNode;
@@ -70,8 +70,8 @@ const MODES: ModeOption[] = [
 ];
 
 interface ModeSelectorProps {
-  selectedMode: 'general' | 'coder' | 'intense-research' | 'spark';
-  onSelectMode: (mode: 'general' | 'coder' | 'intense-research' | 'spark') => void;
+  selectedMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive';
+  onSelectMode: (mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive') => void;
   onOpenBuildWizard?: () => void;
 }
 
@@ -92,7 +92,7 @@ export function ModeSelector({ selectedMode, onSelectMode, onOpenBuildWizard }: 
     if (mode.isBuildMode) {
       onOpenBuildWizard?.();
     } else {
-      onSelectMode(mode.id as 'general' | 'coder' | 'intense-research' | 'spark');
+      onSelectMode(mode.id as 'general' | 'coder' | 'intense-research' | 'spark' | 'hive');
     }
   };
 

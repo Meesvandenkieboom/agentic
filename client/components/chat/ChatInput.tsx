@@ -33,7 +33,7 @@ import { getModelConfig } from '../../config/models';
 interface ChatInputProps {
   value: string;
   onChange: (value: string) => void;
-  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark') => void;
+  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive') => void;
   onStop?: () => void;
   disabled?: boolean;
   isGenerating?: boolean;
@@ -42,7 +42,7 @@ interface ChatInputProps {
   onTogglePlanMode?: () => void;
   backgroundProcesses?: BackgroundProcess[];
   onKillProcess?: (bashId: string) => void;
-  mode?: 'general' | 'coder' | 'intense-research' | 'spark';
+  mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive';
   availableCommands?: SlashCommand[];
   contextUsage?: {
     inputTokens: number;

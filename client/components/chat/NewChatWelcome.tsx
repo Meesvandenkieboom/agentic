@@ -30,7 +30,7 @@ import { GitHubRepoSelector } from './GitHubRepoSelector';
 interface NewChatWelcomeProps {
   inputValue: string;
   onInputChange: (value: string) => void;
-  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark') => void;
+  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive') => void;
   onStop?: () => void;
   disabled?: boolean;
   isGenerating?: boolean;
@@ -38,7 +38,7 @@ interface NewChatWelcomeProps {
   onTogglePlanMode?: () => void;
   availableCommands?: SlashCommand[];
   onOpenBuildWizard?: () => void;
-  mode?: 'general' | 'coder' | 'intense-research' | 'spark';
+  mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive';
   onRepoSelected?: (repoUrl: string, repoName: string) => void;
   selectedRepo?: { url: string; name: string } | null;
 }
@@ -61,7 +61,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
   const [isRepoSelectorOpen, setIsRepoSelectorOpen] = useState(false);
 
   // Mode selection state (synchronized with parent via props)
-  const [selectedMode, setSelectedMode] = useState<'general' | 'coder' | 'intense-research' | 'spark'>(mode || 'general');
+  const [selectedMode, setSelectedMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'hive'>(mode || 'general');
 
   // Sync local mode state with prop when it changes
   useEffect(() => {

@@ -19,10 +19,10 @@
  */
 
 import React, { useRef, useEffect } from 'react';
-import { MessageCircle, Code, Target, Zap } from 'lucide-react';
+import { MessageCircle, Code, Target, Zap, Hexagon } from 'lucide-react';
 
 interface ModeIndicatorProps {
-  mode: 'general' | 'coder' | 'intense-research' | 'spark';
+  mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive';
   onWidthChange?: (width: number) => void;
 }
 
@@ -49,6 +49,12 @@ const MODE_CONFIGS = {
     name: 'Spark',
     icon: Zap,
     gradient: 'linear-gradient(90deg, #FAE9A8 0%, #FFF4DA 25%, #ffffff 50%, #FFF4DA 75%, #FAE9A8 100%)',
+    textColor: '#000000',
+  },
+  'hive': {
+    name: 'HIVE',
+    icon: Hexagon,
+    gradient: 'linear-gradient(90deg, #FFD700 0%, #FFA500 25%, #FFD700 50%, #FFA500 75%, #FFD700 100%)',
     textColor: '#000000',
   },
 };

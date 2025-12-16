@@ -54,7 +54,7 @@ export function ChatContainer() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [_isLoadingSessions, setIsLoadingSessions] = useState(true);
-  const [currentSessionMode, setCurrentSessionMode] = useState<'general' | 'coder' | 'intense-research' | 'spark'>('general');
+  const [currentSessionMode, setCurrentSessionMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'hive'>('general');
 
   // Slash commands available for current session
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
@@ -131,14 +131,30 @@ export function ChatContainer() {
   const isCurrentSessionLoading = currentSessionId ? loadingSessions.has(currentSessionId) : false;
 
   // Save model selection to localStorage
+  // Auto-switch to hive mode when HIVE model is selected
   const handleModelChange = (modelId: string) => {
     setSelectedModel(modelId);
     localStorage.setItem('agent-boy-model', modelId);
+
+    // Auto-switch mode for HIVE model
+    if (modelId === 'hive') {
+      setCurrentSessionMode('hive');
+    } else if (currentSessionMode === 'hive') {
+      // If switching away from HIVE model while in hive mode, reset to general
+      setCurrentSessionMode('general');
+    }
   };
 
   // Load sessions on mount
   useEffect(() => {
     loadSessions();
+  }, []);
+
+  // Auto-switch to hive mode if HIVE model is already selected on mount
+  useEffect(() => {
+    if (selectedModel === 'hive') {
+      setCurrentSessionMode('hive');
+    }
   }, []);
 
   const loadSessions = async () => {
@@ -977,7 +993,7 @@ export function ChatContainer() {
     });
   };
 
-  const handleSubmit = async (files?: import('../message/types').FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark', messageOverride?: string) => {
+  const handleSubmit = async (files?: import('../message/types').FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive', messageOverride?: string) => {
     const messageText = messageOverride || inputValue;
     if (!messageText.trim()) return;
 
