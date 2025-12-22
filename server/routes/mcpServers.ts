@@ -8,6 +8,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { MCP_SERVERS_BY_PROVIDER } from '../mcpServers';
+import { mcpClientManager } from '../mcpClientManager';
 
 const MCP_CONFIG_PATH = path.join(process.cwd(), '.claude', 'mcp-servers.json');
 
@@ -539,6 +540,118 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
     await saveMCPConfig(config);
 
     return new Response(JSON.stringify({ success: true, id }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  // POST /api/mcp-servers/:id/connect - Connect to an MCP server (spawns mcp-remote)
+  const connectMatch = url.pathname.match(/^\/api\/mcp-servers\/([^/]+)\/connect$/);
+  if (req.method === 'POST' && connectMatch) {
+    const id = connectMatch[1];
+    const config = await loadMCPConfig();
+
+    // Find the server
+    const builtinServers = MCP_SERVERS_BY_PROVIDER['anthropic'] || {};
+    const serverConfig = builtinServers[id] || config.custom[id];
+
+    if (!serverConfig) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Server not found'
+      }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Only stdio servers with mcp-remote can be connected this way
+    if (serverConfig.type !== 'stdio') {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Only stdio servers (mcp-remote) can be connected'
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Extract URL from args (mcp-remote uses URL as last argument)
+    const args = serverConfig.args || [];
+    const mcpUrl = args[args.length - 1]; // Last arg should be the URL
+
+    if (!mcpUrl || !mcpUrl.startsWith('http')) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Could not find MCP server URL in configuration'
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    try {
+      const name = serverConfig.name || id;
+      const connection = await mcpClientManager.connect(id, name, mcpUrl);
+
+      return new Response(JSON.stringify({
+        success: true,
+        connection
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : 'Connection failed'
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  }
+
+  // POST /api/mcp-servers/:id/disconnect - Disconnect from an MCP server
+  const disconnectMatch = url.pathname.match(/^\/api\/mcp-servers\/([^/]+)\/disconnect$/);
+  if (req.method === 'POST' && disconnectMatch) {
+    const id = disconnectMatch[1];
+
+    try {
+      await mcpClientManager.disconnect(id);
+
+      return new Response(JSON.stringify({ success: true, id }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: error instanceof Error ? error.message : 'Disconnect failed'
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  }
+
+  // GET /api/mcp-servers/connections - Get all active MCP connections
+  if (req.method === 'GET' && url.pathname === '/api/mcp-servers/connections') {
+    const connections = mcpClientManager.getConnections();
+
+    return new Response(JSON.stringify({
+      success: true,
+      connections
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  // GET /api/mcp-servers/tools - Get all tools from connected MCP servers
+  if (req.method === 'GET' && url.pathname === '/api/mcp-servers/tools') {
+    const tools = mcpClientManager.getAllTools();
+
+    return new Response(JSON.stringify({
+      success: true,
+      tools
+    }), {
       headers: { 'Content-Type': 'application/json' }
     });
   }

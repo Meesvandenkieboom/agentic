@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Power, PowerOff, Loader2, Info, X, Globe, Terminal, ExternalLink, CheckCircle2, XCircle, Plug2, KeyRound, LogIn, LogOut as LogOutIcon } from 'lucide-react';
+import { Plus, Trash2, Power, PowerOff, Loader2, Info, X, Globe, Terminal, ExternalLink, CheckCircle2, XCircle, Plug2, KeyRound, Link, Unlink, Wrench } from 'lucide-react';
 import { toast } from '../../utils/toast';
 
 interface MCPServer {
@@ -23,10 +23,22 @@ interface MCPServer {
   authProvider?: string; // e.g., 'atlassian', 'figma', etc.
 }
 
+interface MCPConnection {
+  id: string;
+  name: string;
+  url: string;
+  status: 'connecting' | 'connected' | 'disconnected' | 'error';
+  pid?: number;
+  tools?: Array<{ name: string; description: string }>;
+  error?: string;
+  connectedAt?: number;
+}
+
 type ServerType = 'http' | 'stdio';
 
 export function MCPServersTab() {
   const [servers, setServers] = useState<MCPServer[]>([]);
+  const [connections, setConnections] = useState<MCPConnection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [serverType, setServerType] = useState<ServerType>('http');
@@ -40,29 +52,15 @@ export function MCPServersTab() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
-  const [loggingInId, setLoggingInId] = useState<string | null>(null);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
 
   useEffect(() => {
     loadServers();
+    loadConnections();
 
-    // Listen for OAuth callback
-    const handleOAuthCallback = (event: MessageEvent) => {
-      if (event.data?.type === 'mcp-oauth-success') {
-        const { serverId } = event.data;
-        setServers(prev => prev.map(server =>
-          server.id === serverId ? { ...server, authenticated: true, status: 'connected' } : server
-        ));
-        toast.success('Successfully logged in', { description: serverId });
-        setLoggingInId(null);
-        loadServers(); // Reload to get updated auth status
-      } else if (event.data?.type === 'mcp-oauth-error') {
-        toast.error('Login failed', { description: event.data.error });
-        setLoggingInId(null);
-      }
-    };
-
-    window.addEventListener('message', handleOAuthCallback);
-    return () => window.removeEventListener('message', handleOAuthCallback);
+    // Poll for connection status updates every 5 seconds
+    const interval = setInterval(loadConnections, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadServers = async () => {
@@ -78,6 +76,23 @@ export function MCPServersTab() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const loadConnections = async () => {
+    try {
+      const response = await fetch('/api/mcp-servers/connections');
+      const data = await response.json();
+      if (data.success) {
+        setConnections(data.connections);
+      }
+    } catch (error) {
+      console.error('Failed to load MCP connections:', error);
+    }
+  };
+
+  // Helper to get connection status for a server
+  const getConnectionForServer = (serverId: string): MCPConnection | undefined => {
+    return connections.find(c => c.id === serverId);
   };
 
   const handleToggle = async (id: string) => {
@@ -160,61 +175,60 @@ export function MCPServersTab() {
     }
   };
 
-  const handleLogin = async (id: string) => {
-    setLoggingInId(id);
+  const handleConnect = async (id: string) => {
+    setConnectingId(id);
     try {
-      const response = await fetch(`/api/mcp-servers/${id}/auth`, {
-        method: 'POST',
+      toast.info('Connecting...', {
+        description: 'A browser window may open for authentication'
       });
-      const data = await response.json();
 
-      if (data.success && data.authUrl) {
-        // Open OAuth popup
-        const width = 600;
-        const height = 700;
-        const left = window.screenX + (window.outerWidth - width) / 2;
-        const top = window.screenY + (window.outerHeight - height) / 2;
-
-        const popup = window.open(
-          data.authUrl,
-          'mcp-oauth',
-          `width=${width},height=${height},left=${left},top=${top},popup=1`
-        );
-
-        // Check if popup was blocked
-        if (!popup) {
-          toast.error('Popup blocked', { description: 'Please allow popups for OAuth login' });
-          setLoggingInId(null);
-        }
-      } else {
-        toast.error('Failed to start login', { description: data.error || 'Unknown error' });
-        setLoggingInId(null);
-      }
-    } catch (error) {
-      console.error('Failed to start OAuth:', error);
-      toast.error('Failed to start login');
-      setLoggingInId(null);
-    }
-  };
-
-  const handleLogout = async (id: string) => {
-    try {
-      const response = await fetch(`/api/mcp-servers/${id}/logout`, {
+      const response = await fetch(`/api/mcp-servers/${id}/connect`, {
         method: 'POST',
       });
       const data = await response.json();
 
       if (data.success) {
-        setServers(servers.map(server =>
-          server.id === id ? { ...server, authenticated: false, status: 'needs-auth' } : server
-        ));
-        toast.success('Logged out', { description: id });
+        const conn = data.connection as MCPConnection;
+        if (conn.status === 'connected') {
+          const toolCount = conn.tools?.length || 0;
+          toast.success('Connected!', {
+            description: `${toolCount} tools available`
+          });
+        } else if (conn.status === 'connecting') {
+          toast.info('Connecting...', {
+            description: 'Check your browser for authentication'
+          });
+        } else if (conn.status === 'error') {
+          toast.error('Connection failed', { description: conn.error });
+        }
+        await loadConnections();
       } else {
-        toast.error('Failed to logout', { description: data.error });
+        toast.error('Connection failed', { description: data.error || 'Unknown error' });
       }
     } catch (error) {
-      console.error('Failed to logout:', error);
-      toast.error('Failed to logout');
+      console.error('Failed to connect:', error);
+      toast.error('Connection failed');
+    } finally {
+      setConnectingId(null);
+    }
+  };
+
+  const handleDisconnect = async (id: string) => {
+    try {
+      const response = await fetch(`/api/mcp-servers/${id}/disconnect`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        toast.success('Disconnected', { description: id });
+        await loadConnections();
+      } else {
+        toast.error('Disconnect failed', { description: data.error });
+      }
+    } catch (error) {
+      console.error('Failed to disconnect:', error);
+      toast.error('Disconnect failed');
     }
   };
 
@@ -270,17 +284,37 @@ export function MCPServersTab() {
     }
   };
 
-  const getStatusIcon = (status?: MCPServer['status']) => {
-    switch (status) {
+  const getStatusIcon = (server: MCPServer) => {
+    const conn = getConnectionForServer(server.id);
+
+    if (conn?.status === 'connected') {
+      return <CheckCircle2 size={16} className="text-green-400" title={`Connected - ${conn.tools?.length || 0} tools`} />;
+    }
+    if (conn?.status === 'connecting') {
+      return <Loader2 size={16} className="text-blue-400 animate-spin" title="Connecting..." />;
+    }
+    if (conn?.status === 'error') {
+      return <XCircle size={16} className="text-red-400" title={conn.error || 'Connection error'} />;
+    }
+
+    // Fallback to server status
+    switch (server.status) {
       case 'connected':
         return <CheckCircle2 size={16} className="text-green-400" title="Connected" />;
       case 'needs-auth':
-        return <KeyRound size={16} className="text-amber-400" title="Needs OAuth login" />;
+        return <KeyRound size={16} className="text-amber-400" title="Needs connection" />;
       case 'error':
         return <XCircle size={16} className="text-red-400" title="Connection error" />;
       default:
         return null;
     }
+  };
+
+  // Check if server supports connect (stdio servers with mcp-remote)
+  const canConnect = (server: MCPServer): boolean => {
+    if (server.type !== 'stdio') return false;
+    const args = server.args?.join(' ') || '';
+    return args.includes('mcp-remote');
   };
 
   if (isLoading) {
@@ -372,108 +406,144 @@ export function MCPServersTab() {
             <p className="text-sm">Add a server to extend Claude&apos;s capabilities</p>
           </div>
         ) : (
-          servers.map((server) => (
+          servers.map((server) => {
+            const conn = getConnectionForServer(server.id);
+            const isConnected = conn?.status === 'connected';
+            const isConnecting = conn?.status === 'connecting' || connectingId === server.id;
+
+            return (
             <div
               key={server.id}
-              className="flex items-start gap-3 p-3 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors"
+              className="flex flex-col gap-2 p-3 bg-white/5 rounded-lg border border-white/10 hover:bg-white/[0.07] transition-colors"
             >
-              {/* Type icon */}
-              <div className={`p-2 rounded-lg ${server.type === 'http' ? 'bg-blue-500/20' : 'bg-orange-500/20'}`}>
-                {server.type === 'http' ? (
-                  <Globe size={18} className="text-blue-400" />
-                ) : (
-                  <Terminal size={18} className="text-orange-400" />
-                )}
-              </div>
-
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-medium text-gray-100">{server.name || server.id}</span>
-                  {server.builtin && (
-                    <span className="text-xs px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full">
-                      Built-in
-                    </span>
+              <div className="flex items-start gap-3">
+                {/* Type icon */}
+                <div className={`p-2 rounded-lg ${server.type === 'http' ? 'bg-blue-500/20' : 'bg-orange-500/20'}`}>
+                  {server.type === 'http' ? (
+                    <Globe size={18} className="text-blue-400" />
+                  ) : (
+                    <Terminal size={18} className="text-orange-400" />
                   )}
-                  {getStatusIcon(server.status)}
                 </div>
-                <p className="text-sm text-gray-400 truncate">
-                  {server.type === 'http' ? server.url : `${server.command} ${server.args?.join(' ') || ''}`}
-                </p>
-              </div>
 
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {/* Test connection button */}
-                <button
-                  onClick={() => handleTestConnection(server.id)}
-                  disabled={testingId === server.id}
-                  className="px-3 py-1.5 rounded-lg text-sm bg-white/5 text-gray-300 hover:bg-white/10 transition-colors disabled:opacity-50"
-                  title="Test connection"
-                >
-                  {testingId === server.id ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    'Test'
-                  )}
-                </button>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium text-gray-100">{server.name || server.id}</span>
+                    {server.builtin && (
+                      <span className="text-xs px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded-full">
+                        Built-in
+                      </span>
+                    )}
+                    {getStatusIcon(server)}
+                  </div>
+                  <p className="text-sm text-gray-400 truncate">
+                    {server.type === 'http' ? server.url : `${server.command} ${server.args?.join(' ') || ''}`}
+                  </p>
+                </div>
 
-                {/* Login/Logout button - shows for servers needing OAuth */}
-                {(server.status === 'needs-auth' || server.authenticated) && (
-                  server.authenticated ? (
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {/* Test connection button (for HTTP servers) */}
+                  {server.type === 'http' && (
                     <button
-                      onClick={() => handleLogout(server.id)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors"
-                      title="Logout"
+                      onClick={() => handleTestConnection(server.id)}
+                      disabled={testingId === server.id}
+                      className="px-3 py-1.5 rounded-lg text-sm bg-white/5 text-gray-300 hover:bg-white/10 transition-colors disabled:opacity-50"
+                      title="Test connection"
                     >
-                      <LogOutIcon size={14} />
-                      <span>Logout</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleLogin(server.id)}
-                      disabled={loggingInId === server.id}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
-                      title="Login with OAuth"
-                    >
-                      {loggingInId === server.id ? (
-                        <Loader2 size={14} className="animate-spin" />
+                      {testingId === server.id ? (
+                        <Loader2 size={16} className="animate-spin" />
                       ) : (
-                        <LogIn size={14} />
+                        'Test'
                       )}
-                      <span>{loggingInId === server.id ? 'Logging in...' : 'Login'}</span>
                     </button>
-                  )
-                )}
-
-                {/* Toggle button */}
-                <button
-                  onClick={() => handleToggle(server.id)}
-                  className={`p-2 rounded-lg transition-colors ${
-                    server.enabled
-                      ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
-                      : 'bg-gray-500/20 text-gray-400 hover:bg-gray-500/30'
-                  }`}
-                  title={server.enabled ? 'Disable server' : 'Enable server'}
-                >
-                  {server.enabled ? (
-                    <Power size={18} />
-                  ) : (
-                    <PowerOff size={18} />
                   )}
-                </button>
 
-                {/* Delete button (only for custom servers) */}
-                {!server.builtin && (
+                  {/* Connect/Disconnect button for mcp-remote servers */}
+                  {canConnect(server) && (
+                    isConnected ? (
+                      <button
+                        onClick={() => handleDisconnect(server.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-green-500/20 text-green-400 hover:bg-red-500/20 hover:text-red-400 transition-colors"
+                        title="Disconnect"
+                      >
+                        <Unlink size={14} />
+                        <span>Disconnect</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleConnect(server.id)}
+                        disabled={isConnecting}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors disabled:opacity-50"
+                        title="Connect (opens browser for OAuth)"
+                      >
+                        {isConnecting ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <Link size={14} />
+                        )}
+                        <span>{isConnecting ? 'Connecting...' : 'Connect'}</span>
+                      </button>
+                    )
+                  )}
+
+                  {/* Toggle button */}
                   <button
-                    onClick={() => handleDelete(server.id)}
-                    className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                    title="Delete server"
+                    onClick={() => handleToggle(server.id)}
+                    className={`p-2 rounded-lg transition-colors ${
+                      server.enabled
+                        ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                        : 'bg-gray-500/20 text-gray-400 hover:bg-gray-500/30'
+                    }`}
+                    title={server.enabled ? 'Disable server' : 'Enable server'}
                   >
-                    <Trash2 size={18} />
+                    {server.enabled ? (
+                      <Power size={18} />
+                    ) : (
+                      <PowerOff size={18} />
+                    )}
                   </button>
-                )}
+
+                  {/* Delete button (only for custom servers) */}
+                  {!server.builtin && (
+                    <button
+                      onClick={() => handleDelete(server.id)}
+                      className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                      title="Delete server"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {/* Show available tools when connected */}
+              {isConnected && conn.tools && conn.tools.length > 0 && (
+                <div className="ml-11 pl-3 border-l border-white/10">
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
+                    <Wrench size={12} />
+                    <span>{conn.tools.length} tools available</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {conn.tools.slice(0, 6).map((tool) => (
+                      <span
+                        key={tool.name}
+                        className="text-xs px-2 py-0.5 bg-white/5 text-gray-400 rounded"
+                        title={tool.description}
+                      >
+                        {tool.name}
+                      </span>
+                    ))}
+                    {conn.tools.length > 6 && (
+                      <span className="text-xs px-2 py-0.5 text-gray-500">
+                        +{conn.tools.length - 6} more
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-          ))
+          );
+          })
         )}
       </div>
 

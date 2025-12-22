@@ -11,6 +11,7 @@ import { getSystemPrompt, injectWorkingDirIntoAgents } from "../systemPrompt";
 import { AVAILABLE_MODELS } from "../../client/config/models";
 import { configureProvider } from "../providers";
 import { getMcpServers } from "../mcpServers";
+import { mcpClientManager } from "../mcpClientManager";
 import { AGENT_REGISTRY } from "../agents";
 import { validateDirectory, getSessionPaths } from "../directoryUtils";
 import { saveImageToSessionPictures, saveFileToSessionFiles } from "../imageUtils";
@@ -419,8 +420,21 @@ IMPORTANT: Do not modify files outside the workspace directory.
     // Add MCP servers if provider has them
     // No need to set allowedTools - bypassPermissions gives access to all tools
     // MCP tools will be available through mcpServers, built-in tools through bypassPermissions
-    if (Object.keys(mcpServers).length > 0) {
-      queryOptions.mcpServers = mcpServers;
+
+    // Get connected MCP servers from client manager (OAuth-based servers like Atlassian, Figma)
+    const connectedMcpServers = mcpClientManager.getMcpServersForSDK();
+
+    // Merge provider MCP servers with user-connected servers
+    const allMcpServers = { ...mcpServers, ...connectedMcpServers };
+
+    if (Object.keys(allMcpServers).length > 0) {
+      queryOptions.mcpServers = allMcpServers;
+
+      // Log connected MCP servers for debugging
+      const connectedIds = Object.keys(connectedMcpServers);
+      if (connectedIds.length > 0) {
+        console.log(`🔌 MCP: Including ${connectedIds.length} connected servers: ${connectedIds.join(', ')}`);
+      }
     }
 
     // Add PreToolUse hook to intercept background Bash commands and long-running commands
