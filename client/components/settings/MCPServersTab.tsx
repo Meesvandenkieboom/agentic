@@ -374,13 +374,13 @@ export function MCPServersTab() {
         </button>
         <button
           onClick={() => {
-            setServerType('stdio');
+            setServerType('http');
             setNewServer({
               id: 'figma',
               name: 'Figma',
-              url: '',
-              command: 'npx',
-              args: '-y, mcp-remote, https://mcp.figma.com/mcp',
+              url: 'https://mcp.figma.com/mcp',
+              command: '',
+              args: '',
               headers: ''
             });
             setShowAddForm(true);
