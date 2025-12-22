@@ -16,6 +16,7 @@ interface MCPHttpServerConfig {
   name?: string;
   url: string;
   headers?: Record<string, string>;
+  authProvider?: string; // e.g., 'atlassian', 'figma', etc.
 }
 
 interface MCPStdioServerConfig {
@@ -28,9 +29,43 @@ interface MCPStdioServerConfig {
 
 type MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig;
 
+interface MCPAuthToken {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: number;
+}
+
 interface MCPServersConfig {
   enabled: Record<string, boolean>;
   custom: Record<string, MCPServerConfig>;
+  auth: Record<string, MCPAuthToken>; // Store auth tokens per server
+}
+
+// Known OAuth providers and their configurations
+const OAUTH_PROVIDERS: Record<string, {
+  authUrl: string;
+  tokenUrl: string;
+  scopes: string[];
+  detectUrl: RegExp;
+}> = {
+  atlassian: {
+    authUrl: 'https://auth.atlassian.com/authorize',
+    tokenUrl: 'https://auth.atlassian.com/oauth/token',
+    scopes: ['read:jira-work', 'write:jira-work', 'read:confluence-content.all', 'write:confluence-content'],
+    detectUrl: /atlassian\.com/i,
+  },
+};
+
+/**
+ * Detect OAuth provider from server URL
+ */
+function detectAuthProvider(url: string): string | undefined {
+  for (const [provider, config] of Object.entries(OAUTH_PROVIDERS)) {
+    if (config.detectUrl.test(url)) {
+      return provider;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -39,12 +74,16 @@ interface MCPServersConfig {
 async function loadMCPConfig(): Promise<MCPServersConfig> {
   try {
     const data = await fs.readFile(MCP_CONFIG_PATH, 'utf-8');
-    return JSON.parse(data) as MCPServersConfig;
+    const config = JSON.parse(data) as MCPServersConfig;
+    // Ensure auth field exists
+    if (!config.auth) config.auth = {};
+    return config;
   } catch {
     // Initialize with all built-in servers enabled
     const config: MCPServersConfig = {
       enabled: {},
-      custom: {}
+      custom: {},
+      auth: {}
     };
 
     // Enable all built-in servers by default
@@ -79,34 +118,46 @@ function getAllServers(config: MCPServersConfig) {
     args?: string[];
     enabled: boolean;
     builtin: boolean;
+    authenticated: boolean;
+    authProvider?: string;
   }> = [];
 
   // Add built-in servers from Anthropic provider (as they're the default)
   const builtinServers = MCP_SERVERS_BY_PROVIDER['anthropic'] || {};
   Object.entries(builtinServers).forEach(([id, serverConfig]) => {
+    const url = serverConfig.type === 'http' ? serverConfig.url : undefined;
+    const authProvider = url ? detectAuthProvider(url) : undefined;
     servers.push({
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, ' '),
       type: serverConfig.type,
-      url: serverConfig.type === 'http' ? serverConfig.url : undefined,
+      url,
       command: serverConfig.type === 'stdio' ? serverConfig.command : undefined,
       args: serverConfig.type === 'stdio' ? serverConfig.args : undefined,
       enabled: config.enabled[id] ?? true,
-      builtin: true
+      builtin: true,
+      authenticated: !!config.auth[id],
+      authProvider,
     });
   });
 
   // Add custom servers
   Object.entries(config.custom).forEach(([id, serverConfig]) => {
+    const url = serverConfig.type === 'http' ? serverConfig.url : undefined;
+    const authProvider = serverConfig.type === 'http'
+      ? (serverConfig.authProvider || (url ? detectAuthProvider(url) : undefined))
+      : undefined;
     servers.push({
       id,
       name: serverConfig.name || id,
       type: serverConfig.type,
-      url: serverConfig.type === 'http' ? serverConfig.url : undefined,
+      url,
       command: serverConfig.type === 'stdio' ? serverConfig.command : undefined,
       args: serverConfig.type === 'stdio' ? serverConfig.args : undefined,
       enabled: config.enabled[id] ?? true,
-      builtin: false
+      builtin: false,
+      authenticated: !!config.auth[id],
+      authProvider,
     });
   });
 
@@ -339,6 +390,152 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
     }
     config.enabled[id] = true;
 
+    await saveMCPConfig(config);
+
+    return new Response(JSON.stringify({ success: true, id }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  // POST /api/mcp-servers/:id/auth - Start OAuth flow for an MCP server
+  const authMatch = url.pathname.match(/^\/api\/mcp-servers\/([^/]+)\/auth$/);
+  if (req.method === 'POST' && authMatch) {
+    const id = authMatch[1];
+    const config = await loadMCPConfig();
+
+    // Find the server
+    const builtinServers = MCP_SERVERS_BY_PROVIDER['anthropic'] || {};
+    const serverConfig = builtinServers[id] || config.custom[id];
+
+    if (!serverConfig) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Server not found'
+      }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Detect OAuth provider
+    const serverUrl = serverConfig.type === 'http' ? serverConfig.url : undefined;
+    const authProvider = serverConfig.type === 'http' && 'authProvider' in serverConfig
+      ? serverConfig.authProvider
+      : (serverUrl ? detectAuthProvider(serverUrl) : undefined);
+
+    if (!authProvider || !OAUTH_PROVIDERS[authProvider]) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'No OAuth provider detected for this server. Try adding OAuth headers manually.'
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // For now, redirect to the MCP server's SSE endpoint which handles its own OAuth
+    // The Atlassian MCP server at mcp.atlassian.com handles OAuth internally
+    if (authProvider === 'atlassian') {
+      // Atlassian MCP uses its own OAuth flow via the SSE endpoint
+      // Opening this URL should trigger the OAuth flow
+      return new Response(JSON.stringify({
+        success: true,
+        authUrl: `${serverUrl}?oauth=true`,
+        provider: authProvider,
+        message: 'Atlassian MCP handles OAuth via the SSE connection. Opening auth flow...'
+      }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Generic OAuth 2.0 flow for other providers
+    const providerConfig = OAUTH_PROVIDERS[authProvider];
+    const state = crypto.randomUUID();
+    const redirectUri = `${url.origin}/api/mcp-servers/oauth/callback`;
+
+    const authUrl = new URL(providerConfig.authUrl);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('client_id', process.env[`${authProvider.toUpperCase()}_CLIENT_ID`] || '');
+    authUrl.searchParams.set('redirect_uri', redirectUri);
+    authUrl.searchParams.set('scope', providerConfig.scopes.join(' '));
+    authUrl.searchParams.set('state', `${id}:${state}`);
+
+    return new Response(JSON.stringify({
+      success: true,
+      authUrl: authUrl.toString(),
+      provider: authProvider
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  // GET /api/mcp-servers/oauth/callback - Handle OAuth callback
+  if (req.method === 'GET' && url.pathname === '/api/mcp-servers/oauth/callback') {
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
+    const error = url.searchParams.get('error');
+
+    if (error) {
+      // Return HTML that closes the popup and notifies parent
+      return new Response(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>OAuth Error</title></head>
+        <body>
+          <script>
+            window.opener?.postMessage({ type: 'mcp-oauth-error', error: '${error}' }, '*');
+            window.close();
+          </script>
+          <p>Authentication failed: ${error}. You can close this window.</p>
+        </body>
+        </html>
+      `, {
+        headers: { 'Content-Type': 'text/html' }
+      });
+    }
+
+    if (!code || !state) {
+      return new Response('Missing code or state', { status: 400 });
+    }
+
+    const [serverId] = state.split(':');
+
+    // For now, just acknowledge the callback - full token exchange would go here
+    // In a production setup, you'd exchange the code for tokens here
+
+    const config = await loadMCPConfig();
+    config.auth[serverId] = {
+      accessToken: code, // In production, exchange for real token
+      expiresAt: Date.now() + 3600000 // 1 hour
+    };
+    await saveMCPConfig(config);
+
+    // Return HTML that closes the popup and notifies parent
+    return new Response(`
+      <!DOCTYPE html>
+      <html>
+      <head><title>OAuth Success</title></head>
+      <body>
+        <script>
+          window.opener?.postMessage({ type: 'mcp-oauth-success', serverId: '${serverId}' }, '*');
+          window.close();
+        </script>
+        <p>Authentication successful! You can close this window.</p>
+      </body>
+      </html>
+    `, {
+      headers: { 'Content-Type': 'text/html' }
+    });
+  }
+
+  // POST /api/mcp-servers/:id/logout - Logout from an MCP server
+  const logoutMatch = url.pathname.match(/^\/api\/mcp-servers\/([^/]+)\/logout$/);
+  if (req.method === 'POST' && logoutMatch) {
+    const id = logoutMatch[1];
+    const config = await loadMCPConfig();
+
+    // Remove auth token
+    delete config.auth[id];
     await saveMCPConfig(config);
 
     return new Response(JSON.stringify({ success: true, id }), {

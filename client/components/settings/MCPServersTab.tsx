@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Power, PowerOff, Loader2, Info, X, Globe, Terminal, ExternalLink, CheckCircle2, XCircle, Plug2, KeyRound } from 'lucide-react';
+import { Plus, Trash2, Power, PowerOff, Loader2, Info, X, Globe, Terminal, ExternalLink, CheckCircle2, XCircle, Plug2, KeyRound, LogIn, LogOut as LogOutIcon } from 'lucide-react';
 import { toast } from '../../utils/toast';
 
 interface MCPServer {
@@ -19,6 +19,8 @@ interface MCPServer {
   enabled: boolean;
   builtin: boolean;
   status?: 'connected' | 'disconnected' | 'error' | 'needs-auth';
+  authenticated?: boolean;
+  authProvider?: string; // e.g., 'atlassian', 'figma', etc.
 }
 
 type ServerType = 'http' | 'stdio';
@@ -38,9 +40,29 @@ export function MCPServersTab() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [loggingInId, setLoggingInId] = useState<string | null>(null);
 
   useEffect(() => {
     loadServers();
+
+    // Listen for OAuth callback
+    const handleOAuthCallback = (event: MessageEvent) => {
+      if (event.data?.type === 'mcp-oauth-success') {
+        const { serverId } = event.data;
+        setServers(prev => prev.map(server =>
+          server.id === serverId ? { ...server, authenticated: true, status: 'connected' } : server
+        ));
+        toast.success('Successfully logged in', { description: serverId });
+        setLoggingInId(null);
+        loadServers(); // Reload to get updated auth status
+      } else if (event.data?.type === 'mcp-oauth-error') {
+        toast.error('Login failed', { description: event.data.error });
+        setLoggingInId(null);
+      }
+    };
+
+    window.addEventListener('message', handleOAuthCallback);
+    return () => window.removeEventListener('message', handleOAuthCallback);
   }, []);
 
   const loadServers = async () => {
@@ -135,6 +157,64 @@ export function MCPServersTab() {
       toast.error('Connection test failed');
     } finally {
       setTestingId(null);
+    }
+  };
+
+  const handleLogin = async (id: string) => {
+    setLoggingInId(id);
+    try {
+      const response = await fetch(`/api/mcp-servers/${id}/auth`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+
+      if (data.success && data.authUrl) {
+        // Open OAuth popup
+        const width = 600;
+        const height = 700;
+        const left = window.screenX + (window.outerWidth - width) / 2;
+        const top = window.screenY + (window.outerHeight - height) / 2;
+
+        const popup = window.open(
+          data.authUrl,
+          'mcp-oauth',
+          `width=${width},height=${height},left=${left},top=${top},popup=1`
+        );
+
+        // Check if popup was blocked
+        if (!popup) {
+          toast.error('Popup blocked', { description: 'Please allow popups for OAuth login' });
+          setLoggingInId(null);
+        }
+      } else {
+        toast.error('Failed to start login', { description: data.error || 'Unknown error' });
+        setLoggingInId(null);
+      }
+    } catch (error) {
+      console.error('Failed to start OAuth:', error);
+      toast.error('Failed to start login');
+      setLoggingInId(null);
+    }
+  };
+
+  const handleLogout = async (id: string) => {
+    try {
+      const response = await fetch(`/api/mcp-servers/${id}/logout`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        setServers(servers.map(server =>
+          server.id === id ? { ...server, authenticated: false, status: 'needs-auth' } : server
+        ));
+        toast.success('Logged out', { description: id });
+      } else {
+        toast.error('Failed to logout', { description: data.error });
+      }
+    } catch (error) {
+      console.error('Failed to logout:', error);
+      toast.error('Failed to logout');
     }
   };
 
@@ -285,6 +365,34 @@ export function MCPServersTab() {
                     'Test'
                   )}
                 </button>
+
+                {/* Login/Logout button - shows for servers needing OAuth */}
+                {(server.status === 'needs-auth' || server.authenticated) && (
+                  server.authenticated ? (
+                    <button
+                      onClick={() => handleLogout(server.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors"
+                      title="Logout"
+                    >
+                      <LogOutIcon size={14} />
+                      <span>Logout</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleLogin(server.id)}
+                      disabled={loggingInId === server.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors disabled:opacity-50"
+                      title="Login with OAuth"
+                    >
+                      {loggingInId === server.id ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <LogIn size={14} />
+                      )}
+                      <span>{loggingInId === server.id ? 'Logging in...' : 'Login'}</span>
+                    </button>
+                  )
+                )}
 
                 {/* Toggle button */}
                 <button
