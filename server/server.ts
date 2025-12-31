@@ -57,6 +57,7 @@ import { handleGitHubRoutes } from "./routes/github";
 import { handleAgentRoutes } from "./routes/agents";
 import { handleMCPServerRoutes } from "./routes/mcpServers";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
+import { runStartupMigrations } from "./utils/configMigration";
 import type { ServerWebSocket, Server as ServerType } from "bun";
 
 // Initialize startup configuration (loads env vars, sets up PostCSS)
@@ -64,6 +65,9 @@ const { isStandalone: IS_STANDALONE, binaryDir: BINARY_DIR, postcss, tailwindcss
 
 // Check Node.js availability for Claude SDK subprocess
 await checkNodeAvailability();
+
+// Run config migrations (updates schemas, preserves user data)
+await runStartupMigrations();
 
 // Initialize default working directory
 const DEFAULT_WORKING_DIR = getDefaultWorkingDirectory();

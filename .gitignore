@@ -10,6 +10,11 @@ agent-smith
 release/
 .history
 
+# User configuration (preserved during updates)
+.claude/
+.tokens
+*.backup.*
+
 # Ignore all .md files except README, CLAUDE, OAUTH, and command files
 *.md
 !README.md

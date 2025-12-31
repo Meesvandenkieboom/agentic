@@ -154,6 +154,10 @@ ENV_BACKUP=""
 SERVER_ENV_BACKUP=""
 DATA_BACKUP=""
 TOKENS_BACKUP=""
+CLAUDE_DIR_BACKUP=""
+GITHUB_TOKEN_BACKUP=""
+
+log_info "Backing up user settings..."
 
 if [[ -f "$INSTALL_DIR/.env" ]]; then
   ENV_BACKUP="/tmp/agent-smith-env-$$"
@@ -179,6 +183,32 @@ if [[ -f "$INSTALL_DIR/.tokens" ]]; then
   log_info "Backed up OAuth tokens"
 fi
 
+# Backup .claude directory (MCP configs, agents, settings)
+if [[ -d "$INSTALL_DIR/.claude" ]]; then
+  CLAUDE_DIR_BACKUP="/tmp/agent-smith-claude-$$"
+  cp -r "$INSTALL_DIR/.claude" "$CLAUDE_DIR_BACKUP"
+  log_info "Backed up .claude directory (MCP servers, agents, settings)"
+fi
+
+# Backup GitHub token from app data directory
+case $OS in
+  Darwin)
+    APP_DATA_DIR="$HOME/Documents/agent-smith-app"
+    ;;
+  Linux)
+    APP_DATA_DIR="$HOME/Documents/agent-smith-app"
+    ;;
+  MINGW*|MSYS*|CYGWIN*)
+    APP_DATA_DIR="$USERPROFILE/Documents/agent-smith-app"
+    ;;
+esac
+
+if [[ -f "$APP_DATA_DIR/github-token.json" ]]; then
+  GITHUB_TOKEN_BACKUP="/tmp/agent-smith-github-token-$$"
+  cp "$APP_DATA_DIR/github-token.json" "$GITHUB_TOKEN_BACKUP"
+  log_info "Backed up GitHub token"
+fi
+
 # Remove old files (except user data)
 log_info "Removing old files..."
 find "$INSTALL_DIR" -mindepth 1 \
@@ -192,6 +222,8 @@ log_info "Installing new files..."
 cp -r "$CLONE_DIR"/* "$INSTALL_DIR/"
 
 # Restore user data
+log_info "Restoring user settings..."
+
 if [[ -n "$ENV_BACKUP" ]] && [[ -f "$ENV_BACKUP" ]]; then
   cp "$ENV_BACKUP" "$INSTALL_DIR/.env"
   rm "$ENV_BACKUP"
@@ -215,6 +247,21 @@ if [[ -n "$TOKENS_BACKUP" ]] && [[ -f "$TOKENS_BACKUP" ]]; then
   cp "$TOKENS_BACKUP" "$INSTALL_DIR/.tokens"
   rm "$TOKENS_BACKUP"
   log_success "Restored OAuth tokens"
+fi
+
+# Restore .claude directory (MCP configs, agents, settings)
+if [[ -n "$CLAUDE_DIR_BACKUP" ]] && [[ -d "$CLAUDE_DIR_BACKUP" ]]; then
+  rm -rf "$INSTALL_DIR/.claude"
+  mv "$CLAUDE_DIR_BACKUP" "$INSTALL_DIR/.claude"
+  log_success "Restored .claude directory (MCP servers, agents, settings)"
+fi
+
+# Restore GitHub token
+if [[ -n "$GITHUB_TOKEN_BACKUP" ]] && [[ -f "$GITHUB_TOKEN_BACKUP" ]]; then
+  mkdir -p "$APP_DATA_DIR"
+  cp "$GITHUB_TOKEN_BACKUP" "$APP_DATA_DIR/github-token.json"
+  rm "$GITHUB_TOKEN_BACKUP"
+  log_success "Restored GitHub token"
 fi
 
 # Cleanup

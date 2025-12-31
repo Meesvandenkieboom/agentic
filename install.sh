@@ -385,44 +385,77 @@ install_application() {
   mkdir -p "$INSTALL_DIR" || fatal_error "Failed to create install directory" \
     "Check that you have write permissions to $(dirname "$INSTALL_DIR")"
 
-  # Backup .env, server/.env, data, and OAuth tokens BEFORE removing anything (extra safety)
+  # Backup ALL user settings BEFORE removing anything (extra safety)
   local ENV_FILE="$INSTALL_DIR/.env"
   local SERVER_ENV_FILE="$INSTALL_DIR/server/.env"
   local DATA_DIR="$INSTALL_DIR/data"
   local TOKENS_FILE="$INSTALL_DIR/.tokens"
+  local CLAUDE_DIR="$INSTALL_DIR/.claude"
   local ENV_BACKUP=""
   local SERVER_ENV_BACKUP=""
   local DATA_BACKUP=""
   local TOKENS_BACKUP=""
+  local CLAUDE_DIR_BACKUP=""
+  local GITHUB_TOKEN_BACKUP=""
+
+  # Determine app data directory for GitHub token
+  local APP_DATA_DIR=""
+  case $OS in
+    Darwin)
+      APP_DATA_DIR="$HOME/Documents/agent-smith-app"
+      ;;
+    Linux)
+      APP_DATA_DIR="$HOME/Documents/agent-smith-app"
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      APP_DATA_DIR="$USERPROFILE/Documents/agent-smith-app"
+      ;;
+  esac
+
+  log_info "Backing up user settings..."
 
   if [[ -f "$ENV_FILE" ]]; then
     ENV_BACKUP="/tmp/agent-smith-env-backup-$$"
     cp "$ENV_FILE" "$ENV_BACKUP"
-    log_info "Backed up .env to temporary location"
+    log_info "Backed up .env"
   fi
 
   if [[ -f "$SERVER_ENV_FILE" ]]; then
     SERVER_ENV_BACKUP="/tmp/agent-smith-server-env-backup-$$"
     cp "$SERVER_ENV_FILE" "$SERVER_ENV_BACKUP"
-    log_info "Backed up server/.env (GitHub credentials) to temporary location"
+    log_info "Backed up server/.env (GitHub credentials)"
   fi
 
   if [[ -d "$DATA_DIR" ]]; then
     DATA_BACKUP="/tmp/agent-smith-data-backup-$$"
     cp -r "$DATA_DIR" "$DATA_BACKUP"
-    log_info "Backed up data directory to temporary location"
+    log_info "Backed up data directory"
   fi
 
   if [[ -f "$TOKENS_FILE" ]]; then
     TOKENS_BACKUP="/tmp/agent-smith-tokens-backup-$$"
     cp "$TOKENS_FILE" "$TOKENS_BACKUP"
-    log_info "Backed up OAuth tokens to temporary location"
+    log_info "Backed up OAuth tokens"
   fi
 
-  # Remove old files but preserve .env, data, and .tokens
+  # Backup .claude directory (MCP configs, agents, settings)
+  if [[ -d "$CLAUDE_DIR" ]]; then
+    CLAUDE_DIR_BACKUP="/tmp/agent-smith-claude-backup-$$"
+    cp -r "$CLAUDE_DIR" "$CLAUDE_DIR_BACKUP"
+    log_info "Backed up .claude directory (MCP servers, agents, settings)"
+  fi
+
+  # Backup GitHub token from app data directory
+  if [[ -n "$APP_DATA_DIR" ]] && [[ -f "$APP_DATA_DIR/github-token.json" ]]; then
+    GITHUB_TOKEN_BACKUP="/tmp/agent-smith-github-token-backup-$$"
+    cp "$APP_DATA_DIR/github-token.json" "$GITHUB_TOKEN_BACKUP"
+    log_info "Backed up GitHub token"
+  fi
+
+  # Remove old files but preserve critical directories
   if [[ -d "$INSTALL_DIR" ]]; then
     log_info "Removing old files..."
-    find "$INSTALL_DIR" -mindepth 1 ! -name '.env' ! -name '.tokens' ! -name '.env.backup' ! -name 'data' ! -name 'data.backup' -delete 2>/dev/null || true
+    find "$INSTALL_DIR" -mindepth 1 ! -name '.env' ! -name '.tokens' ! -name '.env.backup' ! -name 'data' ! -name 'data.backup' ! -name '.claude' -delete 2>/dev/null || true
   fi
 
   # Copy new files
@@ -432,37 +465,50 @@ install_application() {
     fatal_error "Failed to install files" \
       "Check disk space and permissions"
 
+  log_info "Restoring user settings..."
+
   # Restore .env from temporary backup (this overwrites any .env from the clone)
   if [[ -n "$ENV_BACKUP" ]] && [[ -f "$ENV_BACKUP" ]]; then
-    log_info "Restoring your API key configuration..."
     cp "$ENV_BACKUP" "$ENV_FILE"
     rm "$ENV_BACKUP"
-    log_success "API keys preserved"
+    log_success "Restored API keys"
   fi
 
   # Restore server/.env from temporary backup
   if [[ -n "$SERVER_ENV_BACKUP" ]] && [[ -f "$SERVER_ENV_BACKUP" ]]; then
-    log_info "Restoring your GitHub credentials..."
     mkdir -p "$INSTALL_DIR/server"
     cp "$SERVER_ENV_BACKUP" "$SERVER_ENV_FILE"
     rm "$SERVER_ENV_BACKUP"
-    log_success "GitHub credentials preserved"
+    log_success "Restored GitHub credentials"
   fi
 
   # Restore data from temporary backup
   if [[ -n "$DATA_BACKUP" ]] && [[ -d "$DATA_BACKUP" ]]; then
-    log_info "Restoring your user data..."
     rm -rf "$DATA_DIR"
     mv "$DATA_BACKUP" "$DATA_DIR"
-    log_success "User data preserved"
+    log_success "Restored user data"
   fi
 
   # Restore OAuth tokens from temporary backup
   if [[ -n "$TOKENS_BACKUP" ]] && [[ -f "$TOKENS_BACKUP" ]]; then
-    log_info "Restoring your OAuth tokens..."
     cp "$TOKENS_BACKUP" "$TOKENS_FILE"
     rm "$TOKENS_BACKUP"
-    log_success "OAuth tokens preserved"
+    log_success "Restored OAuth tokens"
+  fi
+
+  # Restore .claude directory (MCP configs, agents, settings)
+  if [[ -n "$CLAUDE_DIR_BACKUP" ]] && [[ -d "$CLAUDE_DIR_BACKUP" ]]; then
+    rm -rf "$CLAUDE_DIR"
+    mv "$CLAUDE_DIR_BACKUP" "$CLAUDE_DIR"
+    log_success "Restored .claude directory (MCP servers, agents, settings)"
+  fi
+
+  # Restore GitHub token
+  if [[ -n "$GITHUB_TOKEN_BACKUP" ]] && [[ -f "$GITHUB_TOKEN_BACKUP" ]]; then
+    mkdir -p "$APP_DATA_DIR"
+    cp "$GITHUB_TOKEN_BACKUP" "$APP_DATA_DIR/github-token.json"
+    rm "$GITHUB_TOKEN_BACKUP"
+    log_success "Restored GitHub token"
   fi
 
   # Clean up old backup files from previous approach (if they exist)
