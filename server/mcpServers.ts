@@ -47,12 +47,22 @@ export const MCP_SERVERS_BY_PROVIDER: Record<ProviderType, Record<string, McpSer
       type: 'http',
       url: 'https://mcp.grep.app',
     },
+    // Context7 MCP - real-time library documentation lookup
+    'context7': {
+      type: 'http',
+      url: 'https://mcp.context7.com/mcp',
+    },
   },
   'z-ai': {
     // Grep.app MCP - code search across public GitHub repositories
     'grep': {
       type: 'http',
       url: 'https://mcp.grep.app',
+    },
+    // Context7 MCP - real-time library documentation lookup
+    'context7': {
+      type: 'http',
+      url: 'https://mcp.context7.com/mcp',
     },
     // GLM models use Z.AI MCP servers
     'web-search-prime': {
@@ -77,6 +87,11 @@ export const MCP_SERVERS_BY_PROVIDER: Record<ProviderType, Record<string, McpSer
     'grep': {
       type: 'http',
       url: 'https://mcp.grep.app',
+    },
+    // Context7 MCP - real-time library documentation lookup
+    'context7': {
+      type: 'http',
+      url: 'https://mcp.context7.com/mcp',
     },
   },
 };
@@ -104,15 +119,23 @@ export function getAllowedMcpTools(provider: ProviderType, _modelId?: string): s
     'mcp__grep__searchGitHub',
   ];
 
+  // Context7 MCP tools - real-time library documentation lookup
+  const context7Tools = [
+    'mcp__context7__resolve-library-id',
+    'mcp__context7__get-library-docs',
+  ];
+
   if (provider === 'anthropic') {
     return [
       ...grepTools,
+      ...context7Tools,
     ];
   }
 
   if (provider === 'z-ai') {
     return [
       ...grepTools,
+      ...context7Tools,
       'mcp__web-search-prime__search',
       'mcp__zai-mcp-server__image_analysis',
       'mcp__zai-mcp-server__video_analysis',
@@ -122,6 +145,7 @@ export function getAllowedMcpTools(provider: ProviderType, _modelId?: string): s
   if (provider === 'moonshot') {
     return [
       ...grepTools,
+      ...context7Tools,
     ];
   }
 
