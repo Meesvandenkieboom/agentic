@@ -270,7 +270,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
         {/* Header */}
         <div className="sidebar-header">
           <div className="sidebar-logo">
-            <img src="/client/agentic-icon.svg" alt="Agentic" className="sidebar-logo-icon" />
+            <object type="image/svg+xml" data="/client/agentic-icon.svg" className="sidebar-logo-icon" aria-label="Agentic">Agentic</object>
           </div>
           <button className="sidebar-toggle-btn" onClick={onToggle} aria-label="Toggle Sidebar">
             <Menu size={24} opacity={0.8} className={isOpen ? '' : 'rotate-180'} />
