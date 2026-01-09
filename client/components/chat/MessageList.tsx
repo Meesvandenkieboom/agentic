@@ -43,77 +43,109 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
   const [displayedTokenCount, setDisplayedTokenCount] = useState(0);
   const animationFrameRef = useRef<number | null>(null);
 
-  // Sticky scroll tracking - inspired by Vercel AI Chatbot & OpenHands
+  // Sticky scroll tracking - inspired by Vercel AI Chatbot & Discord
   const [isAtBottom, setIsAtBottom] = useState(true);
   const isAtBottomRef = useRef(true);
-  const prevScrollTopRef = useRef(0);
-  const userHasScrolledRef = useRef(false);
-  const lastContentHeightRef = useRef(0);
+  const userScrolledUpRef = useRef(false);
+  const scrollCooldownRef = useRef(false);
 
   // Keep ref in sync with state
   useEffect(() => {
     isAtBottomRef.current = isAtBottom;
   }, [isAtBottom]);
 
-  // Check if scroll position is at bottom (with small threshold)
+  // Check if scroll position is at bottom (with threshold)
   const checkIfAtBottom = useCallback(() => {
     const container = parentRef.current;
     if (!container) return true;
     const { scrollTop, scrollHeight, clientHeight } = container;
-    // Use a tight 30px threshold - if within 30px of bottom, consider "at bottom"
-    return scrollHeight - scrollTop - clientHeight <= 30;
+    // 50px threshold - slightly more forgiving
+    return scrollHeight - scrollTop - clientHeight <= 50;
   }, [parentRef]);
 
-  // Handle scroll events to detect user intent
+  // Detect user intent via WHEEL events (most reliable method)
+  // This fires when user actively scrolls with mouse/trackpad
+  useEffect(() => {
+    const container = parentRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // User scrolled UP (negative deltaY = scroll up on most systems)
+      if (e.deltaY < 0) {
+        userScrolledUpRef.current = true;
+        setIsAtBottom(false);
+
+        // Set a cooldown to prevent auto-scroll from fighting back
+        scrollCooldownRef.current = true;
+        setTimeout(() => {
+          scrollCooldownRef.current = false;
+        }, 150); // 150ms cooldown after wheel scroll
+      }
+    };
+
+    // Also handle touch scrolling for mobile
+    let touchStartY = 0;
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartY = e.touches[0].clientY;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      const touchY = e.touches[0].clientY;
+      const deltaY = touchStartY - touchY;
+
+      // User swiped UP (positive delta = scroll up)
+      if (deltaY < -10) { // 10px threshold
+        userScrolledUpRef.current = true;
+        setIsAtBottom(false);
+        scrollCooldownRef.current = true;
+        setTimeout(() => {
+          scrollCooldownRef.current = false;
+        }, 150);
+      }
+      touchStartY = touchY;
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: true });
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: true });
+
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [parentRef]);
+
+  // Check if user scrolled back to bottom (re-enable auto-scroll)
   useEffect(() => {
     const container = parentRef.current;
     if (!container) return;
 
     const handleScroll = () => {
-      const currentScrollTop = container.scrollTop;
-      const currentContentHeight = container.scrollHeight;
-      const isCurrentlyAtBottom = checkIfAtBottom();
-
-      // Detect if content grew (new message/streaming) vs user scroll
-      const contentGrew = currentContentHeight > lastContentHeightRef.current;
-      lastContentHeightRef.current = currentContentHeight;
-
-      // Detect scroll direction
-      const isScrollingUp = currentScrollTop < prevScrollTopRef.current - 5; // 5px threshold to avoid micro-movements
-
-      // If user scrolled UP manually (not due to content shrinking), disable auto-scroll
-      if (isScrollingUp && !contentGrew) {
-        userHasScrolledRef.current = true;
-        setIsAtBottom(false);
-      }
-
-      // If user scrolled back to bottom, re-enable auto-scroll
-      if (isCurrentlyAtBottom) {
-        userHasScrolledRef.current = false;
+      // Only check for "back to bottom" - wheel handles "scroll up"
+      if (checkIfAtBottom()) {
+        userScrolledUpRef.current = false;
         setIsAtBottom(true);
       }
-
-      prevScrollTopRef.current = currentScrollTop;
     };
 
     container.addEventListener('scroll', handleScroll, { passive: true });
-
-    // Initialize refs
-    prevScrollTopRef.current = container.scrollTop;
-    lastContentHeightRef.current = container.scrollHeight;
-
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-    };
+    return () => container.removeEventListener('scroll', handleScroll);
   }, [parentRef, checkIfAtBottom]);
 
-  // Reset user scroll state when loading completes (new response finished)
+  // Reset scroll state when a NEW response starts (not during)
+  const prevLoadingRef = useRef(isLoading);
   useEffect(() => {
-    if (!isLoading) {
-      // Don't force scroll, but allow auto-scroll on next message if at bottom
-      userHasScrolledRef.current = false;
+    // Only reset when loading STARTS (false -> true), not when it ends
+    if (isLoading && !prevLoadingRef.current) {
+      // New response starting - if user is at bottom, keep auto-scroll enabled
+      if (checkIfAtBottom()) {
+        userScrolledUpRef.current = false;
+        setIsAtBottom(true);
+      }
     }
-  }, [isLoading]);
+    prevLoadingRef.current = isLoading;
+  }, [isLoading, checkIfAtBottom]);
 
   // Track elapsed time when loading
   useEffect(() => {
@@ -199,15 +231,20 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
     const container = parentRef.current;
     if (!container) return;
 
-    // Only auto-scroll if:
-    // 1. User hasn't manually scrolled up, AND
-    // 2. We're still considered "at bottom" (or very close)
-    if (!userHasScrolledRef.current && isAtBottomRef.current) {
-      // Use requestAnimationFrame for smoother scrolling
-      requestAnimationFrame(() => {
-        container.scrollTop = container.scrollHeight;
-      });
+    // Don't auto-scroll if:
+    // 1. User has scrolled up, OR
+    // 2. We're in cooldown period (user just scrolled), OR
+    // 3. We're not at bottom
+    if (userScrolledUpRef.current || scrollCooldownRef.current || !isAtBottomRef.current) {
+      return;
     }
+
+    // Use requestAnimationFrame for smoother scrolling
+    requestAnimationFrame(() => {
+      if (!userScrolledUpRef.current && !scrollCooldownRef.current) {
+        container.scrollTop = container.scrollHeight;
+      }
+    });
   }, [messages, parentRef]);
 
   if (messages.length === 0 && !isLoading) {
