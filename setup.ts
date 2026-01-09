@@ -98,7 +98,7 @@ export async function runSetup() {
   console.log(colorize(`  Display Name: ${getUserDisplayName({ firstName, lastName })}`, 'blue'));
   console.log('');
   console.log(colorize('You can run this setup again anytime with:', 'yellow'));
-  console.log(colorize('  agent-smith --setup', 'cyan'));
+  console.log(colorize('  agentic --setup', 'cyan'));
   console.log(colorize('  bun run setup', 'cyan'));
   console.log('');
 }

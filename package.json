@@ -4,8 +4,7 @@
   "type": "module",
   "main": "index.js",
   "bin": {
-    "agentic": "./bin/agentic.js",
-    "agent-smith": "./bin/agent-smith-legacy.js"
+    "agentic": "./bin/agentic.js"
   },
   "scripts": {
     "dev": "bun run server/server.ts",
