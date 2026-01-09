@@ -1,96 +1,43 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
   <defs>
-    <!-- Gradient for the flowing petals -->
-    <linearGradient id="petal1" x1="0%" y1="0%" x2="100%" y2="100%">
+    <!-- Main gradient - matches blue accent -->
+    <linearGradient id="mainGradient" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#60a5fa"/>
-      <stop offset="100%" stop-color="#3b82f6"/>
+      <stop offset="50%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#2563eb"/>
     </linearGradient>
 
-    <linearGradient id="petal2" x1="100%" y1="0%" x2="0%" y2="100%">
+    <!-- Subtle inner gradient -->
+    <linearGradient id="innerGradient" x1="0%" y1="100%" x2="100%" y2="0%">
       <stop offset="0%" stop-color="#93c5fd"/>
       <stop offset="100%" stop-color="#60a5fa"/>
     </linearGradient>
-
-    <linearGradient id="petal3" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#3b82f6"/>
-      <stop offset="100%" stop-color="#1d4ed8"/>
-    </linearGradient>
-
-    <linearGradient id="petal4" x1="50%" y1="0%" x2="50%" y2="100%">
-      <stop offset="0%" stop-color="#bfdbfe"/>
-      <stop offset="100%" stop-color="#60a5fa"/>
-    </linearGradient>
-
-    <linearGradient id="petal5" x1="0%" y1="50%" x2="100%" y2="50%">
-      <stop offset="0%" stop-color="#2563eb"/>
-      <stop offset="100%" stop-color="#3b82f6"/>
-    </linearGradient>
-
-    <linearGradient id="petal6" x1="100%" y1="50%" x2="0%" y2="50%">
-      <stop offset="0%" stop-color="#60a5fa"/>
-      <stop offset="100%" stop-color="#93c5fd"/>
-    </linearGradient>
-
-    <!-- Center gradient -->
-    <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
-      <stop offset="60%" stop-color="#bfdbfe" stop-opacity="0.4"/>
-      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"/>
-    </radialGradient>
-
-    <!-- Soft glow filter -->
-    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="1.5" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-
-    <!-- Subtle breathing animation -->
-    <animate id="breathe" attributeName="opacity" values="0.85;1;0.85" dur="4s" repeatCount="indefinite"/>
   </defs>
 
-  <!-- Petal flower shape - OpenAI inspired but with curved petals -->
-  <g filter="url(#softGlow)">
-    <!-- Petal 1 - Top -->
-    <ellipse cx="50" cy="28" rx="12" ry="22" fill="url(#petal1)" opacity="0.9" transform="rotate(0 50 50)">
-      <animate attributeName="opacity" values="0.85;1;0.85" dur="4s" repeatCount="indefinite"/>
-    </ellipse>
+  <!-- Clean rounded square background -->
+  <rect x="8" y="8" width="84" height="84" rx="20" ry="20" fill="url(#mainGradient)"/>
 
-    <!-- Petal 2 - Top Right -->
-    <ellipse cx="50" cy="28" rx="12" ry="22" fill="url(#petal2)" opacity="0.85" transform="rotate(60 50 50)">
-      <animate attributeName="opacity" values="0.8;0.95;0.8" dur="4s" repeatCount="indefinite" begin="0.66s"/>
-    </ellipse>
+  <!-- Stylized "A" mark - clean, geometric, modern -->
+  <g fill="#ffffff">
+    <!-- Main A shape -->
+    <path d="
+      M 50 22
+      L 72 72
+      L 62 72
+      L 57 60
+      L 43 60
+      L 38 72
+      L 28 72
+      L 50 22
+      Z
+      M 50 36
+      L 46 52
+      L 54 52
+      L 50 36
+      Z
+    " fill-rule="evenodd"/>
 
-    <!-- Petal 3 - Bottom Right -->
-    <ellipse cx="50" cy="28" rx="12" ry="22" fill="url(#petal3)" opacity="0.9" transform="rotate(120 50 50)">
-      <animate attributeName="opacity" values="0.85;1;0.85" dur="4s" repeatCount="indefinite" begin="1.33s"/>
-    </ellipse>
-
-    <!-- Petal 4 - Bottom -->
-    <ellipse cx="50" cy="28" rx="12" ry="22" fill="url(#petal4)" opacity="0.85" transform="rotate(180 50 50)">
-      <animate attributeName="opacity" values="0.8;0.95;0.8" dur="4s" repeatCount="indefinite" begin="2s"/>
-    </ellipse>
-
-    <!-- Petal 5 - Bottom Left -->
-    <ellipse cx="50" cy="28" rx="12" ry="22" fill="url(#petal5)" opacity="0.9" transform="rotate(240 50 50)">
-      <animate attributeName="opacity" values="0.85;1;0.85" dur="4s" repeatCount="indefinite" begin="2.66s"/>
-    </ellipse>
-
-    <!-- Petal 6 - Top Left -->
-    <ellipse cx="50" cy="28" rx="12" ry="22" fill="url(#petal6)" opacity="0.85" transform="rotate(300 50 50)">
-      <animate attributeName="opacity" values="0.8;0.95;0.8" dur="4s" repeatCount="indefinite" begin="3.33s"/>
-    </ellipse>
+    <!-- Dot accent - represents "agent" intelligence -->
+    <circle cx="50" cy="78" r="4" fill="url(#innerGradient)"/>
   </g>
-
-  <!-- Center glow -->
-  <circle cx="50" cy="50" r="16" fill="url(#centerGlow)">
-    <animate attributeName="r" values="14;17;14" dur="4s" repeatCount="indefinite"/>
-  </circle>
-
-  <!-- Inner accent circle -->
-  <circle cx="50" cy="50" r="8" fill="#ffffff" opacity="0.7">
-    <animate attributeName="opacity" values="0.6;0.8;0.6" dur="4s" repeatCount="indefinite"/>
-  </circle>
 </svg>
