@@ -100,7 +100,7 @@ export function showClaudeResponseNotification(
   } = options;
 
   // Build absolute icon URL (required for notifications)
-  const iconUrl = icon || `${window.location.origin}/agentgirl.png`;
+  const iconUrl = icon || `${window.location.origin}/agentic-icon.svg`;
 
   // Debug logging
   console.log('[Notification] Attempting to show notification:', {

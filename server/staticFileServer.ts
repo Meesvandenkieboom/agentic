@@ -214,7 +214,7 @@ export async function handleStaticFile(
     }
   }
 
-  // Serve SVG files
+  // Serve SVG files from client directory
   if (url.pathname.startsWith('/client/') && url.pathname.endsWith('.svg')) {
     const filePath = path.join(binaryDir, url.pathname);
     const file = Bun.file(filePath);
@@ -226,6 +226,31 @@ export async function handleStaticFile(
         },
       });
     }
+  }
+
+  // Serve files from public directory (for notification icons, etc.)
+  const publicFilePath = path.join(binaryDir, 'public', url.pathname);
+  const publicFile = Bun.file(publicFilePath);
+
+  if (await publicFile.exists()) {
+    // Determine content type based on extension
+    const ext = path.extname(url.pathname).toLowerCase();
+    const contentTypes: Record<string, string> = {
+      '.svg': 'image/svg+xml',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.ico': 'image/x-icon',
+      '.webp': 'image/webp',
+    };
+    const contentType = contentTypes[ext] || 'application/octet-stream';
+
+    return new Response(publicFile, {
+      headers: {
+        'Content-Type': contentType,
+      },
+    });
   }
 
   // Not handled by this module
