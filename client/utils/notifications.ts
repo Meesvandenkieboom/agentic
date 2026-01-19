@@ -94,10 +94,13 @@ export function showClaudeResponseNotification(
   const {
     message,
     title = 'Agentic',
-    icon = '/agentgirl.png',
+    icon,
     maxPreviewLength = 100,
     forceShow = false,
   } = options;
+
+  // Build absolute icon URL (required for notifications)
+  const iconUrl = icon || `${window.location.origin}/agentgirl.png`;
 
   // Check if notifications are supported
   if (!('Notification' in window)) {
@@ -122,8 +125,8 @@ export function showClaudeResponseNotification(
   try {
     const notification = new Notification(title, {
       body,
-      icon,
-      badge: icon,
+      icon: iconUrl,
+      badge: iconUrl,
       tag: 'agentic-response', // Replaces previous notification
       requireInteraction: false, // Auto-dismiss after a few seconds
     });
