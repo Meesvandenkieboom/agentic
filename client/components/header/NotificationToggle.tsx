@@ -29,22 +29,20 @@ export function NotificationToggle() {
         return;
       }
 
-      const currentPermission = Notification.permission as NotificationPermissionStatus;
-      setPermissionStatus(currentPermission);
-
-      // If user previously enabled notifications but permission is 'default',
-      // automatically re-request permission on page load
-      if (isEnabled && currentPermission === 'default') {
-        console.log('[Notification] Re-requesting permission on page load...');
+      // Always re-request permission on page load to refresh browser state
+      // This fixes the issue where "granted" permission stops working after restart
+      if (isEnabled) {
+        console.log('[Notification] Refreshing permission on page load...');
         try {
           const result = await requestNotificationPermission();
           setPermissionStatus(result);
-          if (result === 'granted') {
-            console.log('[Notification] Permission re-granted on page load');
-          }
+          console.log('[Notification] Permission status after refresh:', result);
         } catch (error) {
-          console.error('[Notification] Failed to re-request permission:', error);
+          console.error('[Notification] Failed to refresh permission:', error);
+          setPermissionStatus(Notification.permission as NotificationPermissionStatus);
         }
+      } else {
+        setPermissionStatus(Notification.permission as NotificationPermissionStatus);
       }
     };
 
