@@ -144,7 +144,8 @@ export function showClaudeResponseNotification(
       icon: iconUrl,
       badge: iconUrl,
       tag: 'agentic-response', // Replaces previous notification
-      requireInteraction: false, // Auto-dismiss after a few seconds
+      requireInteraction: true, // Keep notification visible until user interacts
+      silent: false, // Play notification sound
     });
 
     console.log('[Notification] Notification created successfully');
