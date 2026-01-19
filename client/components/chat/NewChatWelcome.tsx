@@ -255,8 +255,8 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
     });
     fileData.preview = preview;
 
-    // Replace existing files (max 1 at a time)
-    setAttachedFiles([fileData]);
+    // Append to existing files (allow multiple attachments)
+    setAttachedFiles((prev) => [...prev, fileData]);
 
     // Reset file input
     if (fileInputRef.current) {
@@ -312,8 +312,8 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
     });
     fileData.preview = preview;
 
-    // Replace existing files (max 1 at a time)
-    setAttachedFiles([fileData]);
+    // Append to existing files (allow multiple attachments)
+    setAttachedFiles((prev) => [...prev, fileData]);
   };
 
   // Handle paste events for images (screenshots)
@@ -345,8 +345,8 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
     });
     fileData.preview = preview;
 
-    // Replace existing files (max 1 at a time)
-    setAttachedFiles([fileData]);
+    // Append to existing files (allow multiple attachments)
+    setAttachedFiles((prev) => [...prev, fileData]);
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -412,7 +412,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
             </div>
           )}
 
-          <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex gap-1.5 w-full">
+          <div className="flex gap-1.5 w-full">
             <div className="flex-1 flex flex-col relative w-full rounded-xl border-b-2 border-white/10 transition hover:bg-[#374151]" style={{ backgroundColor: 'rgb(38, 40, 42)' }}>
               {/* File attachments preview */}
               {attachedFiles.length > 0 && (
@@ -625,7 +625,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                 </div>
               </div>
             </div>
-          </form>
+          </div>
 
           {/* Mode Selector below input */}
           <div className="mt-6">

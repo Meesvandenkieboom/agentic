@@ -170,8 +170,8 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
     });
     fileData.preview = preview;
 
-    // Replace existing files (max 1 at a time)
-    setAttachedFiles([fileData]);
+    // Append to existing files (allow multiple attachments)
+    setAttachedFiles((prev) => [...prev, fileData]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -251,8 +251,8 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
     });
     fileData.preview = preview;
 
-    // Replace existing files (max 1 at a time)
-    setAttachedFiles([fileData]);
+    // Append to existing files (allow multiple attachments)
+    setAttachedFiles((prev) => [...prev, fileData]);
 
     // Reset file input
     if (fileInputRef.current) {
@@ -308,8 +308,8 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
     });
     fileData.preview = preview;
 
-    // Replace existing files (max 1 at a time)
-    setAttachedFiles([fileData]);
+    // Append to existing files (allow multiple attachments)
+    setAttachedFiles((prev) => [...prev, fileData]);
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -360,7 +360,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
           </div>
         )}
 
-        <form className="flex gap-1.5 w-full" onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>
+        <div className="flex gap-1.5 w-full">
         {/* Main input container with rounded border */}
         <div className={`input-field-wrapper ${isDraggingOver ? 'ring-2 ring-blue-500 ring-opacity-50' : ''}`}>
           {/* File attachments preview */}
@@ -710,7 +710,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
             </div>
           </div>
         </div>
-      </form>
+      </div>
       </div>
 
       {/* Style Configuration Modal */}

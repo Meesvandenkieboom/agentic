@@ -28,6 +28,7 @@ import { ModelSelector } from '../header/ModelSelector';
 import { WorkingDirectoryDisplay } from '../header/WorkingDirectoryDisplay';
 import { GitHubRepoIndicator } from '../header/GitHubRepoIndicator';
 import { AboutButton } from '../header/AboutButton';
+import { NotificationToggle } from '../header/NotificationToggle';
 import { PlanApprovalModal } from '../plan/PlanApprovalModal';
 import { BuildWizard } from '../build-wizard/BuildWizard';
 import { ScrollButton } from './ScrollButton';
@@ -37,6 +38,7 @@ import { Menu, Edit3 } from 'lucide-react';
 import type { Message } from '../message/types';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
+import { showClaudeResponseNotification } from '../../utils/notifications';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import type { SlashCommand } from '../../hooks/useWebSocket';
 
@@ -96,6 +98,9 @@ export function ChatContainer() {
 
   // Track active long-running command by bashId for updates
   const activeLongRunningCommandRef = useRef<string | null>(null);
+
+  // Track last assistant message content for notifications
+  const lastAssistantContentRef = useRef<string>('');
 
   // Build wizard state
   const [isBuildWizardOpen, setIsBuildWizardOpen] = useState(false);
@@ -433,12 +438,17 @@ export function ChatContainer() {
       // Handle incoming WebSocket messages
       if (message.type === 'assistant_message' && 'content' in message) {
         const assistantContent = message.content as string;
+
+        // Track content for desktop notifications
+        lastAssistantContentRef.current += assistantContent;
+
         setMessages((prev) => {
           const lastMessage = prev[prev.length - 1];
 
-          // Reset token count on first assistant message (start of new response)
+          // Reset token count and notification content on first assistant message (start of new response)
           if (!lastMessage || lastMessage.type !== 'assistant') {
             setLiveTokenCount(0);
+            lastAssistantContentRef.current = assistantContent; // Reset on new response
           }
 
           // If last message is from assistant, append to the last text block
@@ -651,6 +661,15 @@ export function ChatContainer() {
           console.log(`[Message Cache] Cleared cache for session ${currentSessionId} (stream completed)`);
           // Clear live token count when response completes
           setLiveTokenCount(0);
+
+          // Show desktop notification if user is away
+          if (lastAssistantContentRef.current) {
+            showClaudeResponseNotification({
+              message: lastAssistantContentRef.current,
+              title: 'Agentic',
+            });
+            lastAssistantContentRef.current = ''; // Reset for next response
+          }
         }
       } else if (message.type === 'timeout_warning') {
         // Handle timeout warning (60s elapsed)
@@ -1290,6 +1309,8 @@ export function ChatContainer() {
                   onChangeDirectory={handleChangeDirectory}
                 />
               )}
+              {/* Notification Toggle */}
+              <NotificationToggle />
               {/* About Button */}
               <AboutButton />
             </div>
