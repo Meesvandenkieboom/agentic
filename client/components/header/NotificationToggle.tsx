@@ -21,13 +21,34 @@ export function NotificationToggle() {
   });
   const [isRequesting, setIsRequesting] = useState(false);
 
-  // Check current permission status on mount
+  // Check and refresh permission status on mount
   useEffect(() => {
-    if ('Notification' in window) {
-      setPermissionStatus(Notification.permission as NotificationPermissionStatus);
-    } else {
-      setPermissionStatus('denied');
-    }
+    const initializePermission = async () => {
+      if (!('Notification' in window)) {
+        setPermissionStatus('denied');
+        return;
+      }
+
+      const currentPermission = Notification.permission as NotificationPermissionStatus;
+      setPermissionStatus(currentPermission);
+
+      // If user previously enabled notifications but permission is 'default',
+      // automatically re-request permission on page load
+      if (isEnabled && currentPermission === 'default') {
+        console.log('[Notification] Re-requesting permission on page load...');
+        try {
+          const result = await requestNotificationPermission();
+          setPermissionStatus(result);
+          if (result === 'granted') {
+            console.log('[Notification] Permission re-granted on page load');
+          }
+        } catch (error) {
+          console.error('[Notification] Failed to re-request permission:', error);
+        }
+      }
+    };
+
+    initializePermission();
   }, []);
 
   // Save enabled state to localStorage
