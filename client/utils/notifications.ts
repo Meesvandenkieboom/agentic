@@ -113,15 +113,13 @@ export function showClaudeResponseNotification(
     iconUrl,
   });
 
-  // Check if notifications are supported
-  if (!('Notification' in window)) {
-    console.log('[Notification] Browser does not support notifications');
-    return null;
-  }
-
-  // Check permission
-  if (Notification.permission !== 'granted') {
-    console.log('[Notification] Permission not granted:', Notification.permission);
+  // Check if notifications are supported and enabled
+  if (!canShowNotifications()) {
+    console.log('[Notification] Notifications not available:', {
+      supported: 'Notification' in window,
+      permission: 'Notification' in window ? Notification.permission : 'N/A',
+      userEnabled: areNotificationsEnabled(),
+    });
     return null;
   }
 
