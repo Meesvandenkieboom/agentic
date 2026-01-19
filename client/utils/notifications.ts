@@ -124,11 +124,12 @@ export function showClaudeResponseNotification(
     return null;
   }
 
+  // TEMPORARILY DISABLED: Always show notifications for debugging
   // Don't show if tab is focused (unless forced)
-  if (!forceShow && isTabFocused()) {
-    console.log('[Notification] Tab is focused, skipping notification');
-    return null;
-  }
+  // if (!forceShow && isTabFocused()) {
+  //   console.log('[Notification] Tab is focused, skipping notification');
+  //   return null;
+  // }
 
   // Prepare notification body
   const plainText = stripMarkdown(message);
