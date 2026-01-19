@@ -663,12 +663,15 @@ export function ChatContainer() {
           setLiveTokenCount(0);
 
           // Show desktop notification if user is away
+          console.log('[ChatContainer] Response complete, lastAssistantContent length:', lastAssistantContentRef.current.length);
           if (lastAssistantContentRef.current) {
             showClaudeResponseNotification({
               message: lastAssistantContentRef.current,
               title: 'Agentic',
             });
             lastAssistantContentRef.current = ''; // Reset for next response
+          } else {
+            console.log('[ChatContainer] No content to show in notification');
           }
         }
       } else if (message.type === 'timeout_warning') {

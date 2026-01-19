@@ -102,18 +102,30 @@ export function showClaudeResponseNotification(
   // Build absolute icon URL (required for notifications)
   const iconUrl = icon || `${window.location.origin}/agentgirl.png`;
 
+  // Debug logging
+  console.log('[Notification] Attempting to show notification:', {
+    permission: 'Notification' in window ? Notification.permission : 'not supported',
+    isTabFocused: isTabFocused(),
+    forceShow,
+    messageLength: message.length,
+    iconUrl,
+  });
+
   // Check if notifications are supported
   if (!('Notification' in window)) {
+    console.log('[Notification] Browser does not support notifications');
     return null;
   }
 
   // Check permission
   if (Notification.permission !== 'granted') {
+    console.log('[Notification] Permission not granted:', Notification.permission);
     return null;
   }
 
   // Don't show if tab is focused (unless forced)
   if (!forceShow && isTabFocused()) {
+    console.log('[Notification] Tab is focused, skipping notification');
     return null;
   }
 
