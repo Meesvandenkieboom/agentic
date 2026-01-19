@@ -180,5 +180,28 @@ export async function initializeNotifications(): Promise<NotificationPermissionS
  * @returns true if notifications can be shown
  */
 export function canShowNotifications(): boolean {
-  return 'Notification' in window && Notification.permission === 'granted';
+  return 'Notification' in window && Notification.permission === 'granted' && areNotificationsEnabled();
+}
+
+/**
+ * Check if user has enabled notifications (user preference)
+ * This is separate from browser permission
+ * @returns true if user wants notifications
+ */
+export function areNotificationsEnabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  const preference = localStorage.getItem('agentic-notifications-enabled');
+  // Default to true if permission is granted but no preference is set
+  if (preference === null && 'Notification' in window) {
+    return Notification.permission === 'granted';
+  }
+  return preference === 'true';
+}
+
+/**
+ * Set user's notification preference
+ * @param enabled - Whether user wants notifications
+ */
+export function setNotificationsEnabled(enabled: boolean): void {
+  localStorage.setItem('agentic-notifications-enabled', String(enabled));
 }
