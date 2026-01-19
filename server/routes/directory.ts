@@ -25,19 +25,51 @@ function isWSL(): boolean {
 }
 
 /**
+ * Get WSL distribution name
+ */
+function getWSLDistroName(): string {
+  try {
+    // WSL_DISTRO_NAME is set by WSL
+    if (process.env.WSL_DISTRO_NAME) {
+      return process.env.WSL_DISTRO_NAME;
+    }
+    // Fallback: try to read from /etc/os-release
+    if (fs.existsSync('/etc/os-release')) {
+      const osRelease = fs.readFileSync('/etc/os-release', 'utf8');
+      const idMatch = osRelease.match(/^ID=(.+)$/m);
+      if (idMatch) {
+        // Common distro mappings
+        const id = idMatch[1].replace(/"/g, '');
+        if (id === 'ubuntu') return 'Ubuntu';
+        if (id === 'debian') return 'Debian';
+        return id;
+      }
+    }
+  } catch {
+    // Ignore errors
+  }
+  // Default fallback
+  return 'Ubuntu';
+}
+
+/**
  * Convert WSL path to Windows path
  * Example: /mnt/c/Users/... -> C:\Users\...
+ * Example: /home/user/... -> \\wsl$\Ubuntu\home\user\...
  */
 function wslToWindowsPath(wslPath: string): string {
-  // Match /mnt/X/... pattern
-  const match = wslPath.match(/^\/mnt\/([a-z])\/(.*)/);
-  if (match) {
-    const driveLetter = match[1].toUpperCase();
-    const pathPart = match[2].replace(/\//g, '\\');
+  // Match /mnt/X/... pattern (Windows drive mounted in WSL)
+  const mntMatch = wslPath.match(/^\/mnt\/([a-z])\/(.*)/);
+  if (mntMatch) {
+    const driveLetter = mntMatch[1].toUpperCase();
+    const pathPart = mntMatch[2].replace(/\//g, '\\');
     return `${driveLetter}:\\${pathPart}`;
   }
-  // If not a /mnt path, return as-is
-  return wslPath;
+
+  // Native Linux path - use \\wsl$\<distro>\... format
+  const distroName = getWSLDistroName();
+  const windowsPath = wslPath.replace(/\//g, '\\');
+  return `\\\\wsl$\\${distroName}${windowsPath}`;
 }
 
 /**
