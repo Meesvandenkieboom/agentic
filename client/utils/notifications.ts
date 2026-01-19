@@ -99,8 +99,10 @@ export function showClaudeResponseNotification(
     forceShow = false,
   } = options;
 
-  // Build absolute icon URL (required for notifications)
-  const iconUrl = icon || `${window.location.origin}/agentic-icon.svg`;
+  // Build icon URL - use base64 data URL for maximum compatibility
+  // This is a simple blue circle icon that works in all browsers
+  const defaultIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAsTAAALEwEAmpwYAAABs0lEQVR4nO2WvUoDQRSFv0hsfEJrwUorC1/AwsLKB7CwsLCw0UJrGysfwMJKO7G0srCwsLCw0s7CRhsLLbQIJCHJrtzA7OzO7I9ZCfiBgWHn3nvmzNy5s/BPfQEtYBe4Ah6BD+C7wPVeAjaBCnAKvCWB14FFYAFoAFfAc0zAMzANrAErwBywHhfwBLSBQ+AQWI0L6AATwBqwAqwC8yEBHWAXOAN2gMW4gF6gH1gDloF5YDYk4B04Bm6BA2A+JOAHGALWgQVgFpgJCXgDjoBH4ACYCQnQMTgC3oC9kIAfYBTYBBaBaWAq5P4N6AaugBNgPuT+HRgDNoB5YBKoB92/As/AB7AHzITcfwAXgAbeBORiAtT8BnADHAJTcQE1RYCauxtz/wF0gQ/gJCD/KSCgCjwAV0A7JKAO3AId4Aw4DglQk3PAA3AKtEMC2sA10AEugJOQgJpS4B14Bi5D7gfABNABboDjkICaov4eWAYmgYmQ+1tgEqgD7cD9KzACNIG7gPu+5r4P3AfcfwHrQAu4C7h/BUZA/T8HPv0H8QvxW/zb3mU7JAAAAABJRU5ErkJggg==';
+  const iconUrl = icon || defaultIcon;
 
   // Debug logging
   console.log('[Notification] Attempting to show notification:', {
@@ -135,6 +137,8 @@ export function showClaudeResponseNotification(
 
   // Create notification
   try {
+    console.log('[Notification] Creating notification with body:', body.substring(0, 50) + '...');
+
     const notification = new Notification(title, {
       body,
       icon: iconUrl,
@@ -143,15 +147,25 @@ export function showClaudeResponseNotification(
       requireInteraction: false, // Auto-dismiss after a few seconds
     });
 
+    console.log('[Notification] Notification created successfully');
+
     // Focus window when notification is clicked
     notification.onclick = () => {
       window.focus();
       notification.close();
     };
 
+    notification.onerror = (e) => {
+      console.error('[Notification] Notification error event:', e);
+    };
+
+    notification.onshow = () => {
+      console.log('[Notification] Notification shown successfully');
+    };
+
     return notification;
   } catch (error) {
-    console.error('Error showing notification:', error);
+    console.error('[Notification] Error creating notification:', error);
     return null;
   }
 }
