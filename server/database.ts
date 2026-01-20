@@ -22,7 +22,7 @@ import { Database } from "bun:sqlite";
 import { randomUUID } from "crypto";
 import * as path from "path";
 import * as fs from "fs";
-import { getDefaultWorkingDirectory, expandPath, validateDirectory, getAppDataDirectory, getSessionPaths } from "./directoryUtils";
+import { getDefaultWorkingDirectory, expandPath, validateDirectory, getAppDataDirectory, getSessionPaths, getSessionPathsFromWorkingDir } from "./directoryUtils";
 import { deleteSessionPictures, deleteSessionFiles } from "./imageUtils";
 import { setupSessionCommands } from "./commandSetup";
 import { migrateSessionIfNeeded } from "./migrations/migrateSessionStructure";
@@ -774,6 +774,17 @@ class SessionDatabase {
         console.log('✅ Renamed folder:', { from: oldPath, to: newPath });
       }
 
+      // Ensure workspace subdirectory exists (in case of legacy structure)
+      const paths = getSessionPathsFromWorkingDir(newPath);
+      if (!fs.existsSync(paths.workspace)) {
+        fs.mkdirSync(paths.workspace, { recursive: true });
+        console.log('✅ Created workspace directory in renamed folder');
+      }
+      if (!fs.existsSync(paths.metadata)) {
+        fs.mkdirSync(paths.metadata, { recursive: true });
+        console.log('✅ Created metadata directory in renamed folder');
+      }
+
       // Update database
       const now = new Date().toISOString();
       const result = this.db.run(
@@ -918,6 +929,21 @@ class SessionDatabase {
 
     // Create new directory for branch
     const branchWorkingDir = this.createChatDirectory(id);
+
+    // Copy workspace files from parent session
+    const parentPaths = getSessionPathsFromWorkingDir(parentSession.working_directory);
+    const branchPaths = getSessionPaths(id);
+
+    if (fs.existsSync(parentPaths.workspace)) {
+      try {
+        // Copy entire workspace directory from parent to branch
+        fs.cpSync(parentPaths.workspace, branchPaths.workspace, { recursive: true });
+        console.log(`📁 Copied workspace files from parent session`);
+      } catch (error) {
+        console.warn(`⚠️  Could not copy workspace files:`, error);
+        // Continue without workspace files - not a fatal error
+      }
+    }
 
     // Use provided title or generate from parent
     const branchTitle = title || `${parentSession.title}-branch`;

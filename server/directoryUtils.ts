@@ -346,3 +346,22 @@ export function getSessionPaths(sessionId: string): SessionPaths {
     workspace: path.join(root, 'workspace'),
   };
 }
+
+/**
+ * Get session directory paths from an existing working directory path
+ * Use this when the session may have been renamed (working_directory != session ID-based path)
+ * @param workingDirectory - The stored working directory from the database
+ * @returns SessionPaths object with all relevant paths
+ */
+export function getSessionPathsFromWorkingDir(workingDirectory: string): SessionPaths {
+  const root = workingDirectory;
+
+  return {
+    root,
+    claudeDir: path.join(root, '.claude'),
+    metadata: path.join(root, 'metadata'),
+    claudeMd: path.join(root, 'metadata', 'CLAUDE.md'),
+    attachments: path.join(root, 'metadata', 'attachments'),
+    workspace: path.join(root, 'workspace'),
+  };
+}

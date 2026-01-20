@@ -13,7 +13,7 @@ import { configureProvider } from "../providers";
 import { getMcpServers } from "../mcpServers";
 import { mcpClientManager } from "../mcpClientManager";
 import { AGENT_REGISTRY } from "../agents";
-import { validateDirectory, getSessionPaths } from "../directoryUtils";
+import { validateDirectory, getSessionPathsFromWorkingDir } from "../directoryUtils";
 import { saveImageToSessionPictures, saveFileToSessionFiles } from "../imageUtils";
 import { backgroundProcessManager } from "../backgroundProcessManager";
 import { loadUserConfig } from "../userConfig";
@@ -294,8 +294,8 @@ async function handleChatMessage(
     await cleanupOrphanedMcpProcesses();
 
     // Phase 0.1: Get workspace path for actual work (workingDir is session root)
-    const sessionId = session.id;
-    const paths = getSessionPaths(sessionId);
+    // Use stored working_directory to support renamed sessions
+    const paths = getSessionPathsFromWorkingDir(workingDir);
     const workspaceDir = paths.workspace;
 
     // Load user configuration
