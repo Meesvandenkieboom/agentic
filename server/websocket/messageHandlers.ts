@@ -19,7 +19,7 @@ import { backgroundProcessManager } from "../backgroundProcessManager";
 import { loadUserConfig } from "../userConfig";
 import { parseApiError, getUserFriendlyMessage } from "../utils/apiErrors";
 import { TimeoutController } from "../utils/timeout";
-import { sessionStreamManager } from "../sessionStreamManager";
+import { sessionStreamManager, type ContentBlock, type MessageContent } from "../sessionStreamManager";
 import { expandSlashCommand } from "../slashCommandExpander";
 import { cleanupOrphanedMcpProcesses } from "../mcpCleanup";
 
@@ -109,6 +109,7 @@ async function handleChatMessage(
   // Process attachments (images and files)
   const imagePaths: string[] = [];
   const filePaths: string[] = [];
+  const imageBlocks: ContentBlock[] = []; // Keep image blocks for Claude
 
   // Check if content is an array (contains blocks like text/image/file)
   const contentIsArray = Array.isArray(content);
@@ -121,10 +122,20 @@ async function handleChatMessage(
       if (block.type === 'image' && typeof block.source === 'object') {
         const source = block.source as Record<string, unknown>;
         if (source.type === 'base64' && typeof source.data === 'string') {
-          // Save image to pictures folder
+          // Save image to pictures folder (for persistence/reference)
           const base64Data = `data:${source.media_type || 'image/png'};base64,${source.data}`;
           const imagePath = saveImageToSessionPictures(base64Data, sessionId as string, workingDir);
           imagePaths.push(imagePath);
+
+          // ALSO keep the image block for sending to Claude (multimodal support)
+          imageBlocks.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: (source.media_type as string) || 'image/png',
+              data: source.data as string,
+            },
+          });
         }
       }
 
@@ -221,12 +232,29 @@ async function handleChatMessage(
     }
   }
 
-  // Inject attachment paths into prompt if any
-  if (imagePaths.length > 0 || filePaths.length > 0) {
-    const attachmentLines: string[] = [];
-    imagePaths.forEach(p => attachmentLines.push(`[Image attached: ${p}]`));
-    filePaths.forEach(p => attachmentLines.push(`[File attached: ${p}]`));
-    promptText = attachmentLines.join('\n') + '\n\n' + promptText;
+  // Build multimodal content for Claude (images + text)
+  // Files still use text path injection since Claude can read them via Read tool
+  let messageContent: MessageContent = promptText;
+
+  if (imageBlocks.length > 0 || filePaths.length > 0) {
+    const contentParts: ContentBlock[] = [];
+
+    // Add images first (Claude sees them before the text)
+    contentParts.push(...imageBlocks);
+
+    // Add file path references as text (Claude reads these with Read tool)
+    if (filePaths.length > 0) {
+      const fileRefs = filePaths.map(p => `[File attached: ${p}]`).join('\n');
+      promptText = fileRefs + '\n\n' + promptText;
+    }
+
+    // Add the text content
+    if (promptText.trim()) {
+      contentParts.push({ type: 'text', text: promptText });
+    }
+
+    messageContent = contentParts;
+    console.log(`📷 Built multimodal message: ${imageBlocks.length} image(s), ${contentParts.filter(b => b.type === 'text').length} text block(s)`);
   }
 
   // Check if this is a new session or continuing existing
@@ -282,7 +310,7 @@ async function handleChatMessage(
   // Background response loop is already running
   if (!isNewStream) {
     sessionStreamManager.updateWebSocket(sessionId as string, ws);
-    sessionStreamManager.sendMessage(sessionId as string, promptText);
+    sessionStreamManager.sendMessage(sessionId as string, messageContent);
     return; // Background loop handles response
   }
 
@@ -739,7 +767,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
         sessionStreamManager.updateWebSocket(sessionId as string, ws);
 
         // Enqueue current message (SDK loads history via resume option)
-        sessionStreamManager.sendMessage(sessionId as string, promptText);
+        sessionStreamManager.sendMessage(sessionId as string, messageContent);
 
         // If session is in plan mode, immediately switch after spawn
         // (SDK always spawns with bypassPermissions to allow bidirectional mode switching)

@@ -7,8 +7,21 @@ import type { SDKUserMessage, Query } from "@anthropic-ai/claude-agent-sdk";
 import type { ServerWebSocket } from "bun";
 import { AsyncQueue } from "./utils/AsyncQueue";
 
+// Content block types for multimodal messages (text + images)
+export type TextBlock = { type: 'text'; text: string };
+export type ImageBlock = {
+  type: 'image';
+  source: {
+    type: 'base64';
+    media_type: string;
+    data: string;
+  };
+};
+export type ContentBlock = TextBlock | ImageBlock;
+export type MessageContent = string | ContentBlock[];
+
 interface SessionStream {
-  messageQueue: AsyncQueue<string>;
+  messageQueue: AsyncQueue<MessageContent>;
   sdkQuery: Query | null;
   abortController: AbortController;
   sessionId: string;
@@ -39,7 +52,7 @@ export class SessionStreamManager {
         this.cleanupOldestSession();
       }
 
-      const messageQueue = new AsyncQueue<string>();
+      const messageQueue = new AsyncQueue<MessageContent>();
       const abortController = new AbortController();
 
       this.streams.set(sessionId, {
@@ -58,9 +71,9 @@ export class SessionStreamManager {
   }
 
   /**
-   * Send message to session stream
+   * Send message to session stream (supports text or multimodal content with images)
    */
-  sendMessage(sessionId: string, content: string): void {
+  sendMessage(sessionId: string, content: MessageContent): void {
     const stream = this.streams.get(sessionId);
     if (!stream) {
       throw new Error(`Session stream not found: ${sessionId}`);
@@ -188,6 +201,7 @@ export class SessionStreamManager {
 
   /**
    * Create async iterator for session messages
+   * Supports both text-only and multimodal (text + images) content
    */
   private async *createMessageIterator(sessionId: string): AsyncIterable<SDKUserMessage> {
     const stream = this.streams.get(sessionId);
@@ -198,6 +212,13 @@ export class SessionStreamManager {
     try {
       for await (const content of stream.messageQueue) {
         stream.lastActivityAt = Date.now();
+
+        // Log if multimodal content is being sent
+        if (Array.isArray(content)) {
+          const imageCount = content.filter(b => b.type === 'image').length;
+          const textCount = content.filter(b => b.type === 'text').length;
+          console.log(`📷 Sending multimodal message: ${textCount} text block(s), ${imageCount} image(s)`);
+        }
 
         yield {
           type: 'user',
