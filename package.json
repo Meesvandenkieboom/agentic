@@ -8,7 +8,6 @@
   },
   "scripts": {
     "dev": "bun run server/server.ts",
-    "tunnel": "bun run server/tunnel.ts",
     "build:css": "bun run build-css.ts",
     "build:js": "bun build ./client/index.tsx --outdir=./dist --minify",
     "build": "bun run build:css && bun run build:js",

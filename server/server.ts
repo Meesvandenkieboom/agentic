@@ -45,6 +45,7 @@ if (cliFlag) {
 }
 
 import { watch } from "fs";
+import localtunnel from "localtunnel";
 import { getDefaultWorkingDirectory, ensureDirectory } from "./directoryUtils";
 import { handleStaticFile } from "./staticFileServer";
 import { initializeStartup, checkNodeAvailability } from "./startup";
@@ -220,6 +221,9 @@ const server = Bun.serve({
   },
 });
 
+// Check for --tunnel flag
+const ENABLE_TUNNEL = process.argv.includes('--tunnel') || process.argv.includes('-t');
+
 // ASCII Art Banner
 console.log('\n');
 console.log('  █████╗  ██████╗ ███████╗███╗   ██╗████████╗██╗ ██████╗');
@@ -229,7 +233,31 @@ console.log(' ██╔══██║██║   ██║██╔══╝  �
 console.log(' ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ██║╚██████╗');
 console.log(' ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝ ╚═════╝');
 console.log('\n');
-console.log(`  👉 Open here: http://localhost:${server.port}`);
+console.log(`  👉 Local:  http://localhost:${server.port}`);
+
+// Start tunnel if enabled
+if (ENABLE_TUNNEL) {
+  try {
+    const tunnel = await localtunnel({ port: 3001, local_host: 'localhost' });
+    console.log(`  📱 Public: ${tunnel.url}`);
+    console.log('\n');
+    console.log('  ⚠️  First visit may show a reminder page - click "Continue" to access.');
+
+    tunnel.on('close', () => {
+      console.log('\n  🔌 Tunnel closed.');
+    });
+
+    tunnel.on('error', (err: Error) => {
+      console.error('\n  ❌ Tunnel error:', err.message);
+    });
+  } catch (error) {
+    console.log('\n');
+    console.error('  ❌ Failed to start tunnel:', error);
+  }
+} else {
+  console.log('  💡 Tip: Run with --tunnel to access from your phone');
+}
+
 console.log('\n');
 console.log('  ═══════════════════════════════════════════════════════════════════════════════');
 console.log('\n');
