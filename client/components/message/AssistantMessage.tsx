@@ -1165,7 +1165,77 @@ function ExitPlanModeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
   );
 }
 
-// Edit/Write tool component matching edit-write-update.md design
+// Unified diff line component
+function DiffLine({
+  lineNumber,
+  content,
+  type,
+  language
+}: {
+  lineNumber: number;
+  content: string;
+  type: 'added' | 'removed' | 'unchanged';
+  language: string;
+}) {
+  const bgColor = type === 'added'
+    ? 'bg-green-500/15'
+    : type === 'removed'
+      ? 'bg-red-500/15'
+      : 'bg-transparent';
+
+  const lineNumColor = type === 'added'
+    ? 'text-green-500'
+    : type === 'removed'
+      ? 'text-red-500'
+      : 'text-white/30';
+
+  const prefix = type === 'added' ? '+' : type === 'removed' ? '-' : ' ';
+  const prefixColor = type === 'added'
+    ? 'text-green-500'
+    : type === 'removed'
+      ? 'text-red-500'
+      : 'text-white/30';
+
+  return (
+    <div className={`flex items-start ${bgColor} hover:bg-white/5 transition-colors`}>
+      {/* Line number */}
+      <span className={`select-none text-xs font-mono px-2 py-0.5 min-w-[3rem] text-right ${lineNumColor}`}>
+        {lineNumber}
+      </span>
+      {/* +/- prefix */}
+      <span className={`select-none text-xs font-mono px-1 py-0.5 font-bold ${prefixColor}`}>
+        {prefix}
+      </span>
+      {/* Code content */}
+      <div className="flex-1 overflow-x-auto">
+        <SyntaxHighlighter
+          language={language}
+          style={vscDarkPlus as { [key: string]: React.CSSProperties }}
+          PreTag="span"
+          customStyle={{
+            margin: 0,
+            padding: '0.125rem 0.5rem 0.125rem 0',
+            background: 'transparent',
+            fontSize: '0.75rem',
+            lineHeight: '1.4',
+            display: 'inline',
+          }}
+          codeTagProps={{
+            style: {
+              fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace',
+              textDecoration: type === 'removed' ? 'line-through' : 'none',
+              opacity: type === 'removed' ? 0.7 : 1,
+            },
+          }}
+        >
+          {content || ' '}
+        </SyntaxHighlighter>
+      </div>
+    </div>
+  );
+}
+
+// Edit/Write tool component with unified diff display
 function EditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const input = toolUse.input;
@@ -1221,6 +1291,33 @@ function EditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
 
   const stats = calculateStats();
 
+  // Generate unified diff lines
+  const generateDiffLines = () => {
+    const lines: { lineNumber: number; content: string; type: 'added' | 'removed' | 'unchanged' }[] = [];
+
+    if (toolUse.name === 'Edit' && input.old_string) {
+      const oldLines = (input.old_string as string).split('\n');
+      const newLines = (input.new_string as string || '').split('\n');
+
+      // Show removed lines first, then added lines (unified diff style)
+      oldLines.forEach((line, idx) => {
+        lines.push({ lineNumber: idx + 1, content: line, type: 'removed' });
+      });
+      newLines.forEach((line, idx) => {
+        lines.push({ lineNumber: idx + 1, content: line, type: 'added' });
+      });
+    } else if (toolUse.name === 'Write' && input.content) {
+      const contentLines = (input.content as string).split('\n');
+      contentLines.forEach((line, idx) => {
+        lines.push({ lineNumber: idx + 1, content: line, type: 'added' });
+      });
+    }
+
+    return lines;
+  };
+
+  const diffLines = generateDiffLines();
+
   return (
     <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
       {/* Header */}
@@ -1246,9 +1343,9 @@ function EditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
           </span>
         </div>
         <div className="flex gap-1 items-center whitespace-nowrap">
-          <span className="text-green-500">+ {stats.added}</span>
-          {' / '}
-          <span className="text-red-500">- {stats.removed}</span>
+          <span className="text-green-500">+{stats.added}</span>
+          <span className="text-white/40">-</span>
+          <span className="text-red-500">{stats.removed}</span>
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             data-collapsed={!isExpanded}
@@ -1261,74 +1358,18 @@ function EditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
         </div>
       </div>
 
-      {/* Diff Viewer */}
+      {/* Unified Diff Viewer */}
       {isExpanded && (
-        <div className="max-h-[124px] overflow-auto bg-black/30">
-          {/* Deleted chunk (old_string) */}
-          {input.old_string && (
-            <div className="bg-red-500/10 border-l-2 border-red-500">
-              <SyntaxHighlighter
-                language={language}
-                style={vscDarkPlus as { [key: string]: React.CSSProperties }}
-                PreTag="div"
-                customStyle={{
-                  margin: 0,
-                  padding: '0.5rem',
-                  background: 'transparent',
-                  fontSize: '0.75rem',
-                  lineHeight: '1.5',
-                }}
-                showLineNumbers={false}
-                wrapLines={true}
-                lineProps={(_lineNumber) => ({
-                  style: {
-                    textDecoration: 'line-through',
-                    opacity: 0.7,
-                    display: 'flex',
-                  },
-                })}
-                codeTagProps={{
-                  style: {
-                    fontFamily: 'monospace',
-                  },
-                }}
-              >
-                {input.old_string as string}
-              </SyntaxHighlighter>
-            </div>
-          )}
-
-          {/* Added/New content (new_string or content) */}
-          {(input.new_string || input.content) && (
-            <div className="bg-green-500/10 border-l-2 border-green-500">
-              <SyntaxHighlighter
-                language={language}
-                style={vscDarkPlus as { [key: string]: React.CSSProperties }}
-                PreTag="div"
-                showLineNumbers={true}
-                customStyle={{
-                  margin: 0,
-                  padding: '0.5rem',
-                  background: 'transparent',
-                  fontSize: '0.75rem',
-                  lineHeight: '1.5',
-                }}
-                lineNumberStyle={{
-                  minWidth: '2.5em',
-                  paddingRight: '1em',
-                  color: '#10b981',
-                  userSelect: 'none',
-                }}
-                codeTagProps={{
-                  style: {
-                    fontFamily: 'monospace',
-                  },
-                }}
-              >
-                {(input.new_string || input.content) as string}
-              </SyntaxHighlighter>
-            </div>
-          )}
+        <div className="max-h-[200px] overflow-auto bg-[#0d1117]">
+          {diffLines.map((line, idx) => (
+            <DiffLine
+              key={`${line.type}-${idx}`}
+              lineNumber={line.lineNumber}
+              content={line.content}
+              type={line.type}
+              language={language}
+            />
+          ))}
         </div>
       )}
     </div>
