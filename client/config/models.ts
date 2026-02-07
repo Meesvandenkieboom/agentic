@@ -50,16 +50,16 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
   },
   {
     id: 'opus',
-    name: 'Claude Opus 4.5',
+    name: 'Claude Opus 4.6',
     description: 'Powerful model with enhanced capabilities for advanced tasks',
-    apiModelId: 'claude-opus-4-5-20251101',
+    apiModelId: 'claude-opus-4-6',
     provider: 'anthropic',
   },
   {
     id: 'hive',
     name: 'Claude HIVE',
     description: 'Opus orchestrator with Sonnet worker swarm for complex tasks',
-    apiModelId: 'claude-opus-4-5-20251101',
+    apiModelId: 'claude-opus-4-6',
     provider: 'anthropic',
   },
   {
