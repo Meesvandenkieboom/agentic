@@ -997,7 +997,39 @@ IMPORTANT: Do not modify files outside the workspace directory.
                     })
                   );
                 } else {
-                  console.warn(`⚠️  Result message missing both modelUsage and usage fields - context percentage not updated`);
+                  // Fallback: Estimate context usage from stored messages when SDK provides no usage data
+                  // This ensures the context indicator ALWAYS updates after every response
+                  const storedMessages = sessionDb.getSessionMessages(sessionId as string);
+                  let totalChars = 0;
+                  for (const msg of storedMessages) {
+                    totalChars += msg.content.length;
+                  }
+                  const estimatedInputTokens = Math.floor(totalChars / 4);
+                  const estimatedOutputTokens = Math.floor(totalCharCount / 4);
+                  const DEFAULT_CONTEXT_WINDOW = 200000;
+                  const contextPercentage = Number(((estimatedInputTokens / DEFAULT_CONTEXT_WINDOW) * 100).toFixed(1));
+
+                  console.log(`📊 Context usage (estimated from messages): ${estimatedInputTokens.toLocaleString()}/${DEFAULT_CONTEXT_WINDOW.toLocaleString()} tokens (${contextPercentage}%)`);
+
+                  sessionDb.updateContextUsage(
+                    sessionId as string,
+                    estimatedInputTokens,
+                    DEFAULT_CONTEXT_WINDOW,
+                    contextPercentage,
+                    estimatedOutputTokens
+                  );
+
+                  sessionStreamManager.safeSend(
+                    sessionId as string,
+                    JSON.stringify({
+                      type: 'context_usage',
+                      inputTokens: estimatedInputTokens,
+                      outputTokens: estimatedOutputTokens,
+                      contextWindow: DEFAULT_CONTEXT_WINDOW,
+                      contextPercentage: contextPercentage,
+                      sessionId: sessionId,
+                    })
+                  );
                 }
 
                 // Send completion signal (safe send checks WebSocket readyState)
