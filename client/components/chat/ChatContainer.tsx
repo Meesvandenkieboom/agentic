@@ -462,9 +462,9 @@ export function ChatContainer() {
         setMessages((prev) => {
           const lastMessage = prev[prev.length - 1];
 
-          // Reset token count and notification content on first assistant message (start of new response)
+          // Reset notification content on first assistant message (start of new response)
+          // Note: liveTokenCount is NOT reset — it accumulates across all responses in the session
           if (!lastMessage || lastMessage.type !== 'assistant') {
-            setLiveTokenCount(0);
             lastAssistantContentRef.current = assistantContent; // Reset on new response
           }
 
@@ -709,8 +709,7 @@ export function ChatContainer() {
       } else if (message.type === 'error') {
         // Handle error messages from server
         if (currentSessionId) setSessionLoading(currentSessionId, false);
-        // Clear live token count on error
-        setLiveTokenCount(0);
+        // Don't reset liveTokenCount on error — it's cumulative across the session
 
         // Get error type and message
         const errorType = 'errorType' in message ? (message.errorType as string) : undefined;
@@ -1446,7 +1445,6 @@ export function ChatContainer() {
               onKillProcess={handleKillProcess}
               mode={currentSessionId ? currentSessionMode : undefined}
               availableCommands={availableCommands}
-              contextUsage={currentSessionId ? contextUsage.get(currentSessionId) : undefined}
               selectedModel={selectedModel}
               sessionId={currentSessionId}
               onRepoSelected={handleRepoSelected}

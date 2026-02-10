@@ -793,6 +793,10 @@ IMPORTANT: Do not modify files outside the workspace directory.
           let currentMessageContent: unknown[] = [];
           let currentTextResponse = '';
           let totalCharCount = 0;
+
+          // Load previous cumulative output tokens from DB so counter continues across requests
+          const sessionData = sessionDb.getSession(sessionId as string);
+          const baseOutputTokens = sessionData?.output_tokens || 0;
           let currentMessageId: string | null = null; // Track DB message ID for incremental saves
           let exitPlanModeSentThisTurn = false; // Prevent duplicate plan modals
           let toolUseCount = 0; // Track number of tools executed (for hang detection logging)
@@ -943,13 +947,14 @@ IMPORTANT: Do not modify files outside the workspace directory.
 
                     console.log(`📊 Context usage: ${totalInputTokens.toLocaleString()}/${usage.contextWindow.toLocaleString()} tokens (${contextPercentage}%) [input: ${usage.inputTokens}, cache_read: ${usage.cacheReadInputTokens || 0}, cache_creation: ${usage.cacheCreationInputTokens || 0}]`);
 
-                    // Save context usage to database for persistence
+                    // Save cumulative output tokens to database
+                    const cumulativeOutput = baseOutputTokens + (usage.outputTokens || 0);
                     sessionDb.updateContextUsage(
                       sessionId as string,
                       totalInputTokens,
                       usage.contextWindow,
                       contextPercentage,
-                      usage.outputTokens
+                      cumulativeOutput
                     );
 
                     sessionStreamManager.safeSend(
@@ -957,7 +962,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
                       JSON.stringify({
                         type: 'context_usage',
                         inputTokens: totalInputTokens,
-                        outputTokens: usage.outputTokens,
+                        outputTokens: cumulativeOutput,
                         contextWindow: usage.contextWindow,
                         contextPercentage: contextPercentage,
                         sessionId: sessionId,
@@ -973,16 +978,17 @@ IMPORTANT: Do not modify files outside the workspace directory.
                   const outputTokens = resultMessage.usage.output_tokens || 0;
                   const DEFAULT_CONTEXT_WINDOW = 200000; // Standard for most models
                   const contextPercentage = Number(((inputTokens / DEFAULT_CONTEXT_WINDOW) * 100).toFixed(1));
+                  const cumulativeOutput = baseOutputTokens + outputTokens;
 
                   console.log(`📊 Context usage (estimated): ${inputTokens.toLocaleString()}/${DEFAULT_CONTEXT_WINDOW.toLocaleString()} tokens (${contextPercentage}%)`);
 
-                  // Save estimated context usage to database
+                  // Save cumulative output tokens to database
                   sessionDb.updateContextUsage(
                     sessionId as string,
                     inputTokens,
                     DEFAULT_CONTEXT_WINDOW,
                     contextPercentage,
-                    outputTokens
+                    cumulativeOutput
                   );
 
                   sessionStreamManager.safeSend(
@@ -990,7 +996,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
                     JSON.stringify({
                       type: 'context_usage',
                       inputTokens: inputTokens,
-                      outputTokens: outputTokens,
+                      outputTokens: cumulativeOutput,
                       contextWindow: DEFAULT_CONTEXT_WINDOW,
                       contextPercentage: contextPercentage,
                       sessionId: sessionId,
@@ -1005,7 +1011,8 @@ IMPORTANT: Do not modify files outside the workspace directory.
                     totalChars += msg.content.length;
                   }
                   const estimatedInputTokens = Math.floor(totalChars / 4);
-                  const estimatedOutputTokens = Math.floor(totalCharCount / 4);
+                  const estimatedCurrentOutput = Math.floor(totalCharCount / 4);
+                  const cumulativeOutput = baseOutputTokens + estimatedCurrentOutput;
                   const DEFAULT_CONTEXT_WINDOW = 200000;
                   const contextPercentage = Number(((estimatedInputTokens / DEFAULT_CONTEXT_WINDOW) * 100).toFixed(1));
 
@@ -1016,7 +1023,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
                     estimatedInputTokens,
                     DEFAULT_CONTEXT_WINDOW,
                     contextPercentage,
-                    estimatedOutputTokens
+                    cumulativeOutput
                   );
 
                   sessionStreamManager.safeSend(
@@ -1024,7 +1031,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
                     JSON.stringify({
                       type: 'context_usage',
                       inputTokens: estimatedInputTokens,
-                      outputTokens: estimatedOutputTokens,
+                      outputTokens: cumulativeOutput,
                       contextWindow: DEFAULT_CONTEXT_WINDOW,
                       contextPercentage: contextPercentage,
                       sessionId: sessionId,
@@ -1133,14 +1140,16 @@ IMPORTANT: Do not modify files outside the workspace directory.
           // Update total character count and estimate tokens (~4 chars/token)
           totalCharCount += deltaChars;
           const estimatedTokens = Math.floor(totalCharCount / 4);
+          // Cumulative total = previous sessions' tokens + current request's estimated tokens
+          const cumulativeTokens = baseOutputTokens + estimatedTokens;
 
-          // Send estimated token count update
+          // Send cumulative token count update
           if (deltaChars > 0) {
             sessionStreamManager.safeSend(
               sessionId as string,
               JSON.stringify({
                 type: 'token_update',
-                outputTokens: estimatedTokens,
+                outputTokens: cumulativeTokens,
                 sessionId: sessionId,
               })
             );
