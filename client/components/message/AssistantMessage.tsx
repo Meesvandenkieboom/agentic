@@ -1197,13 +1197,13 @@ function DiffLine({
       : 'text-white/30';
 
   return (
-    <div className={`flex items-start ${bgColor} hover:bg-white/5 transition-colors`}>
+    <div className={`flex items-center ${bgColor} hover:bg-white/5 transition-colors`}>
       {/* Line number */}
-      <span className={`select-none text-xs font-mono px-2 py-0.5 min-w-[3rem] text-right ${lineNumColor}`}>
+      <span className={`select-none text-xs font-mono px-2 min-w-[3rem] text-right ${lineNumColor}`}>
         {lineNumber}
       </span>
       {/* +/- prefix */}
-      <span className={`select-none text-xs font-mono px-1 py-0.5 font-bold ${prefixColor}`}>
+      <span className={`select-none text-xs font-mono px-1 font-bold ${prefixColor}`}>
         {prefix}
       </span>
       {/* Code content */}
