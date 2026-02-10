@@ -233,11 +233,18 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
     const container = parentRef.current;
     if (!container) return;
 
-    // Don't auto-scroll if:
-    // 1. User has scrolled up, OR
-    // 2. We're in cooldown period (user just scrolled), OR
-    // 3. We're not at bottom
-    if (userScrolledUpRef.current || scrollCooldownRef.current || !isAtBottomRef.current) {
+    // Don't auto-scroll if user has explicitly scrolled up or we're in cooldown
+    if (userScrolledUpRef.current || scrollCooldownRef.current) {
+      return;
+    }
+
+    // Real-time check: only scroll if actually near the bottom.
+    // This catches cases where content height changed (e.g. expanding a tool call)
+    // without a wheel/touch event, which would leave isAtBottomRef stale.
+    if (!checkIfAtBottom()) {
+      // Content expanded above viewport (tool call opened, etc.) - stop auto-scrolling
+      userScrolledUpRef.current = true;
+      setIsAtBottom(false);
       return;
     }
 
@@ -247,7 +254,7 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
         container.scrollTop = container.scrollHeight;
       }
     });
-  }, [messages, parentRef]);
+  }, [messages, parentRef, checkIfAtBottom]);
 
   if (messages.length === 0 && !isLoading) {
     return (
