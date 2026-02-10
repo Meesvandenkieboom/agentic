@@ -34,6 +34,7 @@ export interface Session {
   context_input_tokens?: number;
   context_window?: number;
   context_percentage?: number;
+  output_tokens?: number;
   github_repo?: string; // GitHub repo full_name (e.g., "owner/repo") when connected
   // Branching support
   parent_session_id?: string; // Parent session ID (null for root sessions)

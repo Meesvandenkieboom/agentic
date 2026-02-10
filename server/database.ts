@@ -42,6 +42,7 @@ export interface Session {
   context_input_tokens?: number;
   context_window?: number;
   context_percentage?: number;
+  output_tokens?: number;
   github_repo?: string; // GitHub repo full_name (e.g., "owner/repo") when connected
   // Branching support
   parent_session_id?: string; // Parent session ID (null for root sessions)
@@ -169,6 +170,9 @@ class SessionDatabase {
 
     // Migration: Add github_repo column if it doesn't exist
     this.migrateGithubRepo();
+
+    // Migration: Add output_tokens column if it doesn't exist
+    this.migrateOutputTokens();
 
     // Migration: Add branching columns if they don't exist
     this.migrateBranching();
@@ -379,6 +383,32 @@ class SessionDatabase {
     }
   }
 
+  private migrateOutputTokens() {
+    try {
+      const columns = this.db.query<{ name: string }, []>(
+        "PRAGMA table_info(sessions)"
+      ).all();
+
+      const hasOutputTokens = columns.some(col => col.name === 'output_tokens');
+
+      if (!hasOutputTokens) {
+        console.log('📦 Migrating database: Adding output_tokens column');
+
+        this.db.run(`
+          ALTER TABLE sessions
+          ADD COLUMN output_tokens INTEGER DEFAULT 0
+        `);
+
+        console.log('✅ output_tokens column added successfully');
+      } else {
+        console.log('✅ output_tokens column already exists');
+      }
+    } catch (error) {
+      console.error('❌ Database migration failed:', error);
+      throw error;
+    }
+  }
+
   private migrateBranching() {
     try {
       const columns = this.db.query<{ name: string }, []>(
@@ -535,6 +565,7 @@ class SessionDatabase {
           s.context_input_tokens,
           s.context_window,
           s.context_percentage,
+          s.output_tokens,
           s.github_repo,
           s.parent_session_id,
           s.branch_point_message_id,
@@ -582,6 +613,7 @@ class SessionDatabase {
           s.context_input_tokens,
           s.context_window,
           s.context_percentage,
+          s.output_tokens,
           s.github_repo,
           s.parent_session_id,
           s.branch_point_message_id,
@@ -680,12 +712,12 @@ class SessionDatabase {
     }
   }
 
-  updateContextUsage(sessionId: string, inputTokens: number, contextWindow: number, contextPercentage: number): boolean {
+  updateContextUsage(sessionId: string, inputTokens: number, contextWindow: number, contextPercentage: number, outputTokens?: number): boolean {
     try {
       // Use SDK's reported inputTokens directly (it includes full context)
       const result = this.db.run(
-        "UPDATE sessions SET context_input_tokens = ?, context_window = ?, context_percentage = ?, updated_at = ? WHERE id = ?",
-        [inputTokens, contextWindow, contextPercentage, new Date().toISOString(), sessionId]
+        "UPDATE sessions SET context_input_tokens = ?, context_window = ?, context_percentage = ?, output_tokens = COALESCE(?, output_tokens, 0), updated_at = ? WHERE id = ?",
+        [inputTokens, contextWindow, contextPercentage, outputTokens ?? null, new Date().toISOString(), sessionId]
       );
 
       const success = result.changes > 0;

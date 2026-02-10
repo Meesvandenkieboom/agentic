@@ -72,6 +72,7 @@ export function ChatContainer() {
     inputTokens: number;
     contextWindow: number;
     contextPercentage: number;
+    outputTokens: number;
   }>>(new Map());
 
   // Message cache to preserve streaming state across session switches
@@ -180,6 +181,7 @@ export function ChatContainer() {
       inputTokens: number;
       contextWindow: number;
       contextPercentage: number;
+      outputTokens: number;
     }>();
 
     loadedSessions.forEach(session => {
@@ -188,6 +190,7 @@ export function ChatContainer() {
           inputTokens: session.context_input_tokens,
           contextWindow: session.context_window,
           contextPercentage: session.context_percentage,
+          outputTokens: session.output_tokens || 0,
         });
       }
     });
@@ -205,6 +208,10 @@ export function ChatContainer() {
     }
 
     setCurrentSessionId(sessionId);
+
+    // Restore persisted output token count for this session
+    const storedUsage = contextUsage.get(sessionId);
+    setLiveTokenCount(storedUsage?.outputTokens || 0);
 
     // Load session details to get permission mode and mode
     const sessions = await sessionAPI.fetchSessions();
@@ -428,6 +435,7 @@ export function ChatContainer() {
                 inputTokens: usageMsg.inputTokens,
                 contextWindow: usageMsg.contextWindow,
                 contextPercentage: usageMsg.contextPercentage,
+                outputTokens: usageMsg.outputTokens || prev.get(targetSessionId)?.outputTokens || 0,
               });
               return newMap;
             });
@@ -668,8 +676,8 @@ export function ChatContainer() {
           // Clear message cache for this session since messages are now saved to DB
           messageCache.current.delete(currentSessionId);
           console.log(`[Message Cache] Cleared cache for session ${currentSessionId} (stream completed)`);
-          // Clear live token count when response completes
-          setLiveTokenCount(0);
+          // Keep liveTokenCount (don't reset to 0) — it will be replaced by
+          // the actual output token count from context_usage event
 
           // Show desktop notification if user is away and notifications are enabled
           console.log('[ChatContainer] Response complete, lastAssistantContent length:', lastAssistantContentRef.current.length);
@@ -991,9 +999,15 @@ export function ChatContainer() {
               inputTokens: usageMsg.inputTokens,
               contextWindow: usageMsg.contextWindow,
               contextPercentage: usageMsg.contextPercentage,
+              outputTokens: usageMsg.outputTokens || prev.get(targetSessionId)?.outputTokens || 0,
             });
             return newMap;
           });
+
+          // Update liveTokenCount with actual output tokens from server
+          if (usageMsg.outputTokens && targetSessionId === currentSessionId) {
+            setLiveTokenCount(usageMsg.outputTokens);
+          }
 
           console.log(`📊 Context usage updated for session ${targetSessionId.substring(0, 8)}: ${usageMsg.contextPercentage}%`);
         }

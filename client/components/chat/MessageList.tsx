@@ -300,7 +300,7 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
                 );
               })}
             </div>
-            {isLoading && (
+            {isLoading ? (
               <div className="message-container">
                 <div className="loading-indicator-wrapper" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '0.75rem', flexWrap: 'nowrap' }}>
                   <div className="loading-dots">
@@ -353,7 +353,7 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
                     </div>
                   )}
 
-                  {/* Token count indicator */}
+                  {/* Token count indicator (live during streaming) */}
                   {displayedTokenCount > 0 && (
                     <div
                       style={{
@@ -390,6 +390,45 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
                       </span>
                     </div>
                   )}
+                </div>
+              </div>
+            ) : displayedTokenCount > 0 && (
+              /* Persisted token count — visible after streaming ends */
+              <div className="message-container">
+                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '0.5rem', flexWrap: 'nowrap' }}>
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.375rem',
+                      padding: '0.375rem 0.625rem',
+                      background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      borderRadius: '12px',
+                      opacity: 0.6,
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    }}
+                  >
+                    <Zap
+                      size={11}
+                      strokeWidth={2.5}
+                      style={{
+                        color: 'rgb(218, 238, 255)',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 500,
+                        color: 'rgb(218, 238, 255)',
+                        fontVariantNumeric: 'tabular-nums',
+                        letterSpacing: '0.02em',
+                      }}
+                    >
+                      {displayedTokenCount.toLocaleString()} tokens
+                    </span>
+                  </div>
                 </div>
               </div>
             )}

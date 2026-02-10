@@ -948,7 +948,8 @@ IMPORTANT: Do not modify files outside the workspace directory.
                       sessionId as string,
                       totalInputTokens,
                       usage.contextWindow,
-                      contextPercentage
+                      contextPercentage,
+                      usage.outputTokens
                     );
 
                     sessionStreamManager.safeSend(
@@ -980,7 +981,8 @@ IMPORTANT: Do not modify files outside the workspace directory.
                     sessionId as string,
                     inputTokens,
                     DEFAULT_CONTEXT_WINDOW,
-                    contextPercentage
+                    contextPercentage,
+                    outputTokens
                   );
 
                   sessionStreamManager.safeSend(
@@ -1007,10 +1009,9 @@ IMPORTANT: Do not modify files outside the workspace directory.
                 // Cancel timeout for this turn (will restart on next message)
                 timeoutController.cancel();
 
-                // Reset state for next turn
+                // Reset state for next turn (keep totalCharCount to accumulate across turns)
                 currentMessageContent = [];
                 currentTextResponse = '';
-                totalCharCount = 0;
                 currentMessageId = null; // Reset message ID for next turn
                 exitPlanModeSentThisTurn = false; // Reset plan mode flag for next turn
                 toolUseCount = 0; // Reset tool counter for next turn
