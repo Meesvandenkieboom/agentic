@@ -21,6 +21,7 @@
 import React, { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { diffLines, type Change } from 'diff';
 import { SyntaxHighlighter, vscDarkPlus } from '../../utils/syntaxHighlighter';
 import { AssistantMessage as AssistantMessageType, ToolUseBlock, TextBlock, TodoItem, LongRunningCommandBlock } from './types';
 import { ThinkingBlock } from './ThinkingBlock';
@@ -1165,14 +1166,16 @@ function ExitPlanModeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
   );
 }
 
-// Unified diff line component
+// Unified diff line component with dual line numbers
 function DiffLine({
-  lineNumber,
+  oldLineNumber,
+  newLineNumber,
   content,
   type,
   language
 }: {
-  lineNumber: number;
+  oldLineNumber?: number;
+  newLineNumber?: number;
   content: string;
   type: 'added' | 'removed' | 'unchanged';
   language: string;
@@ -1187,20 +1190,24 @@ function DiffLine({
     ? 'text-green-500'
     : type === 'removed'
       ? 'text-red-500'
-      : 'text-white/30';
+      : 'text-white/20';
 
   const prefix = type === 'added' ? '+' : type === 'removed' ? '-' : ' ';
   const prefixColor = type === 'added'
     ? 'text-green-500'
     : type === 'removed'
       ? 'text-red-500'
-      : 'text-white/30';
+      : 'text-white/20';
 
   return (
     <div className={`flex items-center ${bgColor} hover:bg-white/5 transition-colors`}>
-      {/* Line number */}
-      <span className={`select-none text-xs font-mono px-2 min-w-[3rem] text-right ${lineNumColor}`}>
-        {lineNumber}
+      {/* Old line number */}
+      <span className={`select-none text-xs font-mono px-1 min-w-[2.5rem] text-right ${lineNumColor} border-r border-white/5`}>
+        {oldLineNumber ?? ''}
+      </span>
+      {/* New line number */}
+      <span className={`select-none text-xs font-mono px-1 min-w-[2.5rem] text-right ${lineNumColor}`}>
+        {newLineNumber ?? ''}
       </span>
       {/* +/- prefix */}
       <span className={`select-none text-xs font-mono px-1 font-bold ${prefixColor}`}>
@@ -1233,6 +1240,89 @@ function DiffLine({
       </div>
     </div>
   );
+}
+
+// Number of context lines to show around each change (industry standard: 3)
+const DIFF_CONTEXT_LINES = 3;
+
+interface DiffLineData {
+  oldLineNumber?: number;
+  newLineNumber?: number;
+  content: string;
+  type: 'added' | 'removed' | 'unchanged';
+}
+
+// Build unified diff lines from jsdiff changes with context lines
+function buildDiffWithContext(changes: Change[], contextLines: number): DiffLineData[] {
+  // First, expand all changes into individual lines with types and line numbers
+  const allLines: DiffLineData[] = [];
+  let oldLine = 1;
+  let newLine = 1;
+
+  for (const change of changes) {
+    const lines = change.value.replace(/\n$/, '').split('\n');
+    // Handle empty change value (e.g. trailing newline only)
+    if (change.value === '' || (lines.length === 1 && lines[0] === '' && change.value === '\n')) {
+      if (!change.added && !change.removed) {
+        allLines.push({ oldLineNumber: oldLine, newLineNumber: newLine, content: '', type: 'unchanged' });
+        oldLine++;
+        newLine++;
+      }
+      continue;
+    }
+
+    for (const line of lines) {
+      if (change.added) {
+        allLines.push({ newLineNumber: newLine, content: line, type: 'added' });
+        newLine++;
+      } else if (change.removed) {
+        allLines.push({ oldLineNumber: oldLine, content: line, type: 'removed' });
+        oldLine++;
+      } else {
+        allLines.push({ oldLineNumber: oldLine, newLineNumber: newLine, content: line, type: 'unchanged' });
+        oldLine++;
+        newLine++;
+      }
+    }
+  }
+
+  // If all lines are changes (no context available), return as-is
+  const hasUnchanged = allLines.some(l => l.type === 'unchanged');
+  if (!hasUnchanged) return allLines;
+
+  // Find ranges of changed lines and compute which context lines to keep
+  const changedIndices = new Set<number>();
+  allLines.forEach((line, idx) => {
+    if (line.type !== 'unchanged') changedIndices.add(idx);
+  });
+
+  // Mark context lines to keep (N lines before/after each change)
+  const keepIndices = new Set<number>();
+  for (const idx of changedIndices) {
+    keepIndices.add(idx);
+    for (let c = 1; c <= contextLines; c++) {
+      if (idx - c >= 0) keepIndices.add(idx - c);
+      if (idx + c < allLines.length) keepIndices.add(idx + c);
+    }
+  }
+
+  // Build final output, inserting separator for skipped regions
+  const result: DiffLineData[] = [];
+  let lastIncludedIdx = -1;
+
+  for (let i = 0; i < allLines.length; i++) {
+    if (!keepIndices.has(i)) continue;
+
+    // If there's a gap, insert a separator line
+    if (lastIncludedIdx !== -1 && i > lastIncludedIdx + 1) {
+      result.push({ content: '...', type: 'unchanged' });
+    }
+
+    result.push(allLines[i]);
+    lastIncludedIdx = i;
+  }
+
+  return result;
 }
 
 // Edit/Write tool component with unified diff display
@@ -1270,53 +1360,33 @@ function EditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
 
   const language = getLanguageFromPath((input.file_path as string) || '');
 
-  // Calculate stats for Edit
-  const calculateStats = () => {
-    if (toolUse.name === 'Edit') {
-      const oldLines = (input.old_string as string)?.split('\n').length || 0;
-      const newLines = (input.new_string as string)?.split('\n').length || 0;
-      return {
-        added: newLines,
-        removed: oldLines,
-      };
-    } else if (toolUse.name === 'Write') {
-      const contentLines = (input.content as string)?.split('\n').length || 0;
-      return {
-        added: contentLines,
-        removed: 0,
-      };
-    }
-    return { added: 0, removed: 0 };
-  };
+  // Generate unified diff lines using jsdiff with context
+  const { diffResult, stats } = useMemo(() => {
+    if (toolUse.name === 'Edit' && input.old_string != null) {
+      const oldStr = input.old_string as string;
+      const newStr = (input.new_string as string) ?? '';
+      const changes = diffLines(oldStr, newStr);
+      const lines = buildDiffWithContext(changes, DIFF_CONTEXT_LINES);
 
-  const stats = calculateStats();
+      let added = 0;
+      let removed = 0;
+      for (const line of lines) {
+        if (line.type === 'added') added++;
+        else if (line.type === 'removed') removed++;
+      }
 
-  // Generate unified diff lines
-  const generateDiffLines = () => {
-    const lines: { lineNumber: number; content: string; type: 'added' | 'removed' | 'unchanged' }[] = [];
-
-    if (toolUse.name === 'Edit' && input.old_string) {
-      const oldLines = (input.old_string as string).split('\n');
-      const newLines = (input.new_string as string || '').split('\n');
-
-      // Show removed lines first, then added lines (unified diff style)
-      oldLines.forEach((line, idx) => {
-        lines.push({ lineNumber: idx + 1, content: line, type: 'removed' });
-      });
-      newLines.forEach((line, idx) => {
-        lines.push({ lineNumber: idx + 1, content: line, type: 'added' });
-      });
+      return { diffResult: lines, stats: { added, removed } };
     } else if (toolUse.name === 'Write' && input.content) {
       const contentLines = (input.content as string).split('\n');
-      contentLines.forEach((line, idx) => {
-        lines.push({ lineNumber: idx + 1, content: line, type: 'added' });
-      });
+      const lines: DiffLineData[] = contentLines.map((line, idx) => ({
+        newLineNumber: idx + 1,
+        content: line,
+        type: 'added' as const,
+      }));
+      return { diffResult: lines, stats: { added: contentLines.length, removed: 0 } };
     }
-
-    return lines;
-  };
-
-  const diffLines = generateDiffLines();
+    return { diffResult: [], stats: { added: 0, removed: 0 } };
+  }, [toolUse.name, input.old_string, input.new_string, input.content]);
 
   return (
     <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
@@ -1360,15 +1430,24 @@ function EditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
 
       {/* Unified Diff Viewer */}
       {isExpanded && (
-        <div className="max-h-[200px] overflow-auto bg-[#0d1117]">
-          {diffLines.map((line, idx) => (
-            <DiffLine
-              key={`${line.type}-${idx}`}
-              lineNumber={line.lineNumber}
-              content={line.content}
-              type={line.type}
-              language={language}
-            />
+        <div className="max-h-[400px] overflow-auto bg-[#0d1117]">
+          {diffResult.map((line, idx) => (
+            line.content === '...' && line.type === 'unchanged' ? (
+              <div key={`sep-${idx}`} className="flex items-center text-white/20 bg-white/[0.02] border-y border-white/5">
+                <span className="select-none text-xs font-mono px-1 min-w-[2.5rem] text-right border-r border-white/5">&nbsp;</span>
+                <span className="select-none text-xs font-mono px-1 min-w-[2.5rem] text-right">&nbsp;</span>
+                <span className="text-xs font-mono px-2 py-0.5">...</span>
+              </div>
+            ) : (
+              <DiffLine
+                key={`${line.type}-${idx}`}
+                oldLineNumber={line.oldLineNumber}
+                newLineNumber={line.newLineNumber}
+                content={line.content}
+                type={line.type}
+                language={language}
+              />
+            )
           ))}
         </div>
       )}
