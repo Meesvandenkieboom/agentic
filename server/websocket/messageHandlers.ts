@@ -939,9 +939,11 @@ IMPORTANT: Do not modify files outside the workspace directory.
                   }
 
                   if (usage) {
-                    // inputTokens already includes the full context size
-                    // cacheReadInputTokens and cacheCreationInputTokens are subsets for billing breakdown
-                    const totalInputTokens = usage.inputTokens;
+                    // Total context = uncached tokens + cached tokens (read + created)
+                    // inputTokens alone only shows the uncached portion after the last cache breakpoint
+                    const totalInputTokens = (usage.inputTokens || 0)
+                      + (usage.cacheReadInputTokens || 0)
+                      + (usage.cacheCreationInputTokens || 0);
 
                     const contextPercentage = Number(((totalInputTokens / usage.contextWindow) * 100).toFixed(1));
 
