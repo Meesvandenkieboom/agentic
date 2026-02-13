@@ -228,10 +228,32 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
     overscan: 5, // Render 5 extra items above/below viewport
   });
 
+  // Track previous message count to detect bulk loads (session switch, refresh, reconnect)
+  const prevMessageCountRef = useRef(0);
+
   // Scroll to bottom when messages change (only if user hasn't manually scrolled up)
   useEffect(() => {
     const container = parentRef.current;
-    if (!container) return;
+    if (!container || messages.length === 0) return;
+
+    const prevCount = prevMessageCountRef.current;
+    prevMessageCountRef.current = messages.length;
+
+    // Bulk load detected: messages jumped from 0/empty to many (session load, refresh, reconnect)
+    // Always scroll to bottom and reset scroll tracking state
+    const isBulkLoad = prevCount === 0 && messages.length > 0;
+    if (isBulkLoad) {
+      userScrolledUpRef.current = false;
+      scrollCooldownRef.current = false;
+      setIsAtBottom(true);
+      // Use double-rAF to ensure DOM has rendered the new messages before scrolling
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          container.scrollTop = container.scrollHeight;
+        });
+      });
+      return;
+    }
 
     // Don't auto-scroll if user has explicitly scrolled up or we're in cooldown
     if (userScrolledUpRef.current || scrollCooldownRef.current) {
