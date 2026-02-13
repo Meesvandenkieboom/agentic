@@ -217,8 +217,8 @@ export function useWebSocket({
   onConnect,
   onDisconnect,
   onError,
-  reconnectDelay = 3000,
-  maxReconnectAttempts = 5,
+  reconnectDelay = 1000,
+  maxReconnectAttempts = Infinity,
 }: UseWebSocketOptions) {
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -247,9 +247,7 @@ export function useWebSocket({
       return;
     }
 
-    if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-      return;
-    }
+    // No max reconnect limit - always try to reconnect
 
     try {
       const ws = new WebSocket(url);
@@ -286,12 +284,14 @@ export function useWebSocket({
         onDisconnectRef.current?.();
         wsRef.current = null;
 
-        // Only attempt reconnection if still mounted
-        if (isMountedRef.current && reconnectAttemptsRef.current < maxReconnectAttempts) {
+        // Always attempt reconnection with exponential backoff (never give up)
+        if (isMountedRef.current) {
           reconnectAttemptsRef.current += 1;
+          // Exponential backoff: 1s, 2s, 4s, 8s, 16s, capped at 30s
+          const delay = Math.min(reconnectDelay * Math.pow(2, reconnectAttemptsRef.current - 1), 30000);
           reconnectTimeoutRef.current = setTimeout(() => {
             connect();
-          }, reconnectDelay);
+          }, delay);
         }
       };
     } catch {
@@ -329,13 +329,29 @@ export function useWebSocket({
     });
   }, [sendMessage]);
 
-  // Initialize connection
+  // Initialize connection and handle visibility changes (sleep/wake recovery)
   useEffect(() => {
     isMountedRef.current = true;
     connect();
 
+    // When tab becomes visible again (e.g. after sleep/lock), immediately reconnect
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !wsRef.current?.readyState) {
+        // Clear any pending reconnect timeout and try immediately
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        reconnectAttemptsRef.current = 0; // Reset backoff
+        connect();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       isMountedRef.current = false;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       // Clear reconnection timeout on unmount
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);

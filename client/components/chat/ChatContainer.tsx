@@ -57,7 +57,9 @@ export function ChatContainer() {
 
   // Session management
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => {
+    return localStorage.getItem('agentic-active-session');
+  });
   const [_isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [currentSessionMode, setCurrentSessionMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'hive'>('general');
 
@@ -77,6 +79,15 @@ export function ChatContainer() {
 
   // Message cache to preserve streaming state across session switches
   const messageCache = useRef<Map<string, Message[]>>(new Map());
+
+  // Persist active session ID to localStorage for sleep/wake recovery
+  useEffect(() => {
+    if (currentSessionId) {
+      localStorage.setItem('agentic-active-session', currentSessionId);
+    } else {
+      localStorage.removeItem('agentic-active-session');
+    }
+  }, [currentSessionId]);
 
   // Automatically cache messages as they update during streaming
   // IMPORTANT: Only depend on messages, NOT currentSessionId
@@ -197,6 +208,12 @@ export function ChatContainer() {
 
     setContextUsage(newContextUsage);
     setIsLoadingSessions(false);
+
+    // Restore persisted active session on initial load (sleep/wake recovery)
+    const persistedSessionId = localStorage.getItem('agentic-active-session');
+    if (persistedSessionId && !currentSessionId && loadedSessions.some(s => s.id === persistedSessionId)) {
+      handleSessionSelect(persistedSessionId);
+    }
   };
 
   // Handle session switching
@@ -410,6 +427,20 @@ export function ChatContainer() {
   const { isConnected, sendMessage, stopGeneration } = useWebSocket({
     // Use dynamic URL based on current window location (works on any port)
     url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
+    onConnect: () => {
+      // On reconnection after sleep/wake, reload the active session's messages from DB
+      const persistedSessionId = localStorage.getItem('agentic-active-session');
+      if (persistedSessionId) {
+        console.log(`🔄 WebSocket reconnected — reloading session ${persistedSessionId.substring(0, 8)}`);
+        // Clear loading state for any sessions that were "loading" before disconnect
+        setLoadingSessions(new Set());
+        // Reload messages from database (they may have been updated server-side)
+        handleSessionSelect(persistedSessionId);
+      }
+    },
+    onDisconnect: () => {
+      console.log('🔌 WebSocket disconnected — will auto-reconnect');
+    },
     onMessage: (message) => {
       // Session isolation: Ignore messages from other sessions
       if (message.sessionId && message.sessionId !== currentSessionId) {

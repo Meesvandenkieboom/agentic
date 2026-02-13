@@ -32,6 +32,7 @@ interface SessionStream {
 
 export class SessionStreamManager {
   private streams = new Map<string, SessionStream>();
+  private disconnectGraceTimers = new Map<string, Timer>();
   private readonly SESSION_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours (SDK pre-flight checks can be slow on WSL)
   private readonly MAX_CONCURRENT_SESSIONS = 100;
   private cleanupInterval: Timer | null = null;
@@ -100,6 +101,8 @@ export class SessionStreamManager {
     const stream = this.streams.get(sessionId);
     if (stream) {
       stream.activeWebSocket = ws;
+      // Client reconnected — cancel any pending disconnect abort
+      this.cancelDisconnectGracePeriod(sessionId);
     }
   }
 
@@ -165,6 +168,35 @@ export class SessionStreamManager {
     } catch (error) {
       console.error(`❌ WebSocket send error: ${sessionId.substring(0, 8)}`, error);
       return false;
+    }
+  }
+
+  /**
+   * Start a grace period before aborting a disconnected session.
+   * If the client reconnects (via updateWebSocket), the timer is cancelled.
+   */
+  startDisconnectGracePeriod(sessionId: string, onExpire: () => void, delayMs: number = 10000): void {
+    // Cancel any existing timer first
+    this.cancelDisconnectGracePeriod(sessionId);
+
+    const timer = setTimeout(() => {
+      this.disconnectGraceTimers.delete(sessionId);
+      onExpire();
+    }, delayMs);
+
+    this.disconnectGraceTimers.set(sessionId, timer);
+    console.log(`⏳ Disconnect grace period started for session ${sessionId.substring(0, 8)} (${delayMs / 1000}s)`);
+  }
+
+  /**
+   * Cancel a pending disconnect grace period (client reconnected)
+   */
+  cancelDisconnectGracePeriod(sessionId: string): void {
+    const timer = this.disconnectGraceTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.disconnectGraceTimers.delete(sessionId);
+      console.log(`✅ Disconnect grace period cancelled for session ${sessionId.substring(0, 8)} (client reconnected)`);
     }
   }
 
@@ -281,6 +313,12 @@ export class SessionStreamManager {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
     }
+
+    // Clear all disconnect grace timers
+    for (const timer of this.disconnectGraceTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.disconnectGraceTimers.clear();
 
     for (const sessionId of Array.from(this.streams.keys())) {
       this.cleanupSession(sessionId, 'server_shutdown');

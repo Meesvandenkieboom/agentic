@@ -60,6 +60,7 @@ import { handleGitHubRoutes } from "./routes/github";
 import { handleAgentRoutes } from "./routes/agents";
 import { handleMCPServerRoutes } from "./routes/mcpServers";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
+import { sessionStreamManager } from "./sessionStreamManager";
 import { runStartupMigrations } from "./utils/configMigration";
 import { cleanupOrphanedMcpProcesses } from "./mcpCleanup";
 import type { ServerWebSocket, Server as ServerType } from "bun";
@@ -133,7 +134,16 @@ const server = Bun.serve({
       if (ws.data?.type === 'hot-reload') {
         hotReloadClients.delete(ws);
       } else if (ws.data?.type === 'chat' && ws.data?.sessionId) {
-        console.log(`🔌 WebSocket disconnected: session ${ws.data.sessionId.substring(0, 8)}`);
+        const sid = ws.data.sessionId;
+        console.log(`🔌 WebSocket disconnected: session ${sid.substring(0, 8)}`);
+
+        // Start grace period — abort generation only if client doesn't reconnect within 10s
+        sessionStreamManager.startDisconnectGracePeriod(sid, () => {
+          console.log(`⏱️ Grace period expired for session ${sid.substring(0, 8)} — aborting generation`);
+          sessionStreamManager.abortSession(sid);
+          sessionStreamManager.cleanupSession(sid, 'websocket_disconnected');
+          activeQueries.delete(sid);
+        }, 10000);
       }
     }
   },
