@@ -210,8 +210,10 @@ export function ChatContainer() {
     setIsLoadingSessions(false);
 
     // Restore persisted active session on initial load (sleep/wake recovery)
+    // Note: currentSessionId may already be set from localStorage initializer,
+    // but messages are still empty on a fresh page load, so always restore.
     const persistedSessionId = localStorage.getItem('agentic-active-session');
-    if (persistedSessionId && !currentSessionId && loadedSessions.some(s => s.id === persistedSessionId)) {
+    if (persistedSessionId && loadedSessions.some(s => s.id === persistedSessionId)) {
       handleSessionSelect(persistedSessionId);
     }
   };
@@ -427,21 +429,22 @@ export function ChatContainer() {
   const { isConnected, sendMessage, stopGeneration } = useWebSocket({
     // Use dynamic URL based on current window location (works on any port)
     url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
-    onConnect: () => {
+    onConnect: async () => {
       // On reconnection after sleep/wake, re-associate with the active session
       const persistedSessionId = localStorage.getItem('agentic-active-session');
       if (persistedSessionId) {
         console.log(`🔄 WebSocket reconnected — re-associating session ${persistedSessionId.substring(0, 8)}`);
-        // Tell the server to re-associate this WebSocket with the session
-        // This cancels the grace period timer and keeps generation alive
+        // Clear loading state for any sessions that were "loading" before disconnect
+        setLoadingSessions(new Set());
+        // IMPORTANT: Load messages from DB FIRST, so history is in state
+        // before the server resumes streaming tokens into the WebSocket
+        await handleSessionSelect(persistedSessionId);
+        // NOW tell the server to re-associate this WebSocket with the session
+        // This cancels the grace period timer and resumes streaming
         sendMessage({
           type: 'reconnect',
           sessionId: persistedSessionId,
         });
-        // Clear loading state for any sessions that were "loading" before disconnect
-        setLoadingSessions(new Set());
-        // Reload messages from database (they may have been updated server-side)
-        handleSessionSelect(persistedSessionId);
       }
     },
     onDisconnect: () => {
