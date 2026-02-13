@@ -71,6 +71,20 @@ export async function handleWebSocketMessage(
       await handleKillBackgroundProcess(ws, data);
     } else if (data.type === 'stop_generation') {
       await handleStopGeneration(ws, data);
+    } else if (data.type === 'reconnect') {
+      // Client reconnected after sleep/refresh — re-associate WebSocket and cancel grace period
+      const { sessionId } = data;
+      if (sessionId && typeof sessionId === 'string') {
+        ws.data = { type: 'chat', sessionId };
+        sessionStreamManager.updateWebSocket(sessionId, ws);
+        const isActive = sessionStreamManager.hasStream(sessionId);
+        console.log(`🔄 Client reconnected for session ${sessionId.substring(0, 8)} (stream ${isActive ? 'active' : 'idle'})`);
+        ws.send(JSON.stringify({
+          type: 'reconnect_ack',
+          sessionId,
+          isGenerating: isActive,
+        }));
+      }
     }
   } catch (error) {
     console.error('WebSocket message error:', error);

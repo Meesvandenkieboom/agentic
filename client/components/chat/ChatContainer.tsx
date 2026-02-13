@@ -428,10 +428,16 @@ export function ChatContainer() {
     // Use dynamic URL based on current window location (works on any port)
     url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
     onConnect: () => {
-      // On reconnection after sleep/wake, reload the active session's messages from DB
+      // On reconnection after sleep/wake, re-associate with the active session
       const persistedSessionId = localStorage.getItem('agentic-active-session');
       if (persistedSessionId) {
-        console.log(`🔄 WebSocket reconnected — reloading session ${persistedSessionId.substring(0, 8)}`);
+        console.log(`🔄 WebSocket reconnected — re-associating session ${persistedSessionId.substring(0, 8)}`);
+        // Tell the server to re-associate this WebSocket with the session
+        // This cancels the grace period timer and keeps generation alive
+        sendMessage({
+          type: 'reconnect',
+          sessionId: persistedSessionId,
+        });
         // Clear loading state for any sessions that were "loading" before disconnect
         setLoadingSessions(new Set());
         // Reload messages from database (they may have been updated server-side)
@@ -1040,6 +1046,13 @@ export function ChatContainer() {
           }
 
           console.log(`📊 Context usage updated for session ${targetSessionId.substring(0, 8)}: ${usageMsg.contextPercentage}%`);
+        }
+      } else if (message.type === 'reconnect_ack') {
+        // Server acknowledged our reconnection — restore loading state if generation is still active
+        const ack = message as { type: 'reconnect_ack'; sessionId: string; isGenerating: boolean };
+        if (ack.isGenerating && ack.sessionId) {
+          console.log(`🔄 Server confirms generation still active for session ${ack.sessionId.substring(0, 8)}`);
+          setSessionLoading(ack.sessionId, true);
         }
       } else if (message.type === 'keepalive') {
         // Keepalive messages are sent every 30s to prevent WebSocket idle timeout
