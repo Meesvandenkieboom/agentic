@@ -464,13 +464,35 @@ export function ChatContainer() {
       console.log('🔌 WebSocket disconnected — will auto-reconnect');
     },
     onMessage: (message) => {
-      // Session isolation: Ignore messages from other sessions
-      if (message.sessionId && message.sessionId !== currentSessionId) {
-        console.log(`[Session Filter] Ignoring message from session ${message.sessionId} (current: ${currentSessionId})`);
+      // --- Multi-session message routing ---
+      // Determine which session this message belongs to
+      const msgSessionId = (message.sessionId as string | undefined) || currentSessionId;
+      const isBackgroundSession = msgSessionId !== currentSessionId;
 
+      // Helper: apply a message updater to the correct session (state or cache)
+      const updateMsgs = (updater: (prev: Message[]) => Message[]) => {
+        if (!isBackgroundSession) {
+          setMessages(updater);
+        } else if (msgSessionId) {
+          const cached = messageCache.current.get(msgSessionId) || [];
+          messageCache.current.set(msgSessionId, updater(cached));
+        }
+      };
+
+      // Helper: apply with flushSync for current session, normal for background
+      const updateMsgsSync = (updater: (prev: Message[]) => Message[]) => {
+        if (!isBackgroundSession) {
+          flushSync(() => setMessages(updater));
+        } else if (msgSessionId) {
+          const cached = messageCache.current.get(msgSessionId) || [];
+          messageCache.current.set(msgSessionId, updater(cached));
+        }
+      };
+
+      // --- Session filter for non-content messages ---
+      if (isBackgroundSession) {
         // Allow certain message types through for background session updates
         if (message.type === 'context_usage') {
-          // Process context_usage for any session
           const usageMsg = message as {
             type: 'context_usage';
             inputTokens: number;
@@ -492,32 +514,49 @@ export function ChatContainer() {
               });
               return newMap;
             });
-
-            console.log(`📊 Context usage updated for session ${targetSessionId.substring(0, 8)}: ${usageMsg.contextPercentage}%`);
           }
           return;
         }
 
-        // Clear loading state for filtered session if it's a completion message
-        if ((message.type === 'result' || message.type === 'error') && message.sessionId) {
-          setSessionLoading(message.sessionId, false);
+        // For background result/error: clear loading, clear cache (messages now in DB)
+        if (message.type === 'result' && msgSessionId) {
+          setSessionLoading(msgSessionId, false);
+          messageCache.current.delete(msgSessionId);
+          return;
         }
-        return;
+        if (message.type === 'error' && msgSessionId) {
+          setSessionLoading(msgSessionId, false);
+          // Don't return - let error message be added to cache below
+        }
+
+        // Skip non-content messages for background sessions (toasts, UI-only)
+        const backgroundContentTypes = [
+          'assistant_message', 'thinking_start', 'thinking_delta',
+          'tool_use', 'error',
+        ];
+        if (!backgroundContentTypes.includes(message.type as string)) {
+          return; // Skip token_update, timeout_warning, compact, etc. for background
+        }
+
+        // Content messages (assistant_message, thinking, tool_use, error)
+        // fall through to the handlers below which use updateMsgs/updateMsgsSync
       }
 
       // Handle incoming WebSocket messages
       if (message.type === 'assistant_message' && 'content' in message) {
         const assistantContent = message.content as string;
 
-        // Track content for desktop notifications
-        lastAssistantContentRef.current += assistantContent;
+        // Track content for desktop notifications (current session only)
+        if (!isBackgroundSession) {
+          lastAssistantContentRef.current += assistantContent;
+        }
 
-        setMessages((prev) => {
+        updateMsgs((prev) => {
           const lastMessage = prev[prev.length - 1];
 
           // Reset notification content on first assistant message (start of new response)
           // Note: liveTokenCount is NOT reset — it accumulates across all responses in the session
-          if (!lastMessage || lastMessage.type !== 'assistant') {
+          if (!isBackgroundSession && (!lastMessage || lastMessage.type !== 'assistant')) {
             lastAssistantContentRef.current = assistantContent; // Reset on new response
           }
 
@@ -561,7 +600,7 @@ export function ChatContainer() {
       } else if (message.type === 'thinking_start') {
         console.log('💭 Thinking block started');
         // Create a new thinking block when thinking starts
-        setMessages((prev) => {
+        updateMsgs((prev) => {
           const lastMessage = prev[prev.length - 1];
 
           if (lastMessage && lastMessage.type === 'assistant') {
@@ -588,7 +627,7 @@ export function ChatContainer() {
         const thinkingContent = message.content as string;
         console.log('💭 Thinking delta:', thinkingContent.slice(0, 50) + (thinkingContent.length > 50 ? '...' : ''));
 
-        setMessages((prev) => {
+        updateMsgs((prev) => {
           const lastMessage = prev[prev.length - 1];
 
           if (lastMessage && lastMessage.type === 'assistant') {
@@ -618,8 +657,7 @@ export function ChatContainer() {
         // Use flushSync to prevent React batching from causing tools to be lost
         // When multiple tool_use messages arrive rapidly, React batches setState calls
         // causing all but the last update to be overwritten. flushSync forces synchronous updates.
-        flushSync(() => {
-          setMessages((prev) => {
+        updateMsgsSync((prev) => {
           const lastMessage = prev[prev.length - 1];
 
           const toolUseBlock = {
@@ -717,32 +755,34 @@ export function ChatContainer() {
               timestamp: new Date().toISOString(),
             },
           ];
-          });
         });
       } else if (message.type === 'token_update' && 'outputTokens' in message) {
         // Update live token count during streaming
         const tokenUpdate = message as { type: 'token_update'; outputTokens: number };
         setLiveTokenCount(tokenUpdate.outputTokens);
       } else if (message.type === 'result') {
-        if (currentSessionId) {
-          setSessionLoading(currentSessionId, false);
+        const resultSessionId = msgSessionId || currentSessionId;
+        if (resultSessionId) {
+          setSessionLoading(resultSessionId, false);
           // Clear message cache for this session since messages are now saved to DB
-          messageCache.current.delete(currentSessionId);
-          console.log(`[Message Cache] Cleared cache for session ${currentSessionId} (stream completed)`);
+          messageCache.current.delete(resultSessionId);
+          console.log(`[Message Cache] Cleared cache for session ${resultSessionId} (stream completed)`);
           // Keep liveTokenCount (don't reset to 0) — it will be replaced by
           // the actual output token count from context_usage event
 
-          // Show desktop notification if user is away and notifications are enabled
-          console.log('[ChatContainer] Response complete, lastAssistantContent length:', lastAssistantContentRef.current.length);
-          if (lastAssistantContentRef.current && areNotificationsEnabled()) {
-            showClaudeResponseNotification({
-              message: lastAssistantContentRef.current,
-              title: 'Agentic',
-            });
-            lastAssistantContentRef.current = ''; // Reset for next response
-          } else {
-            console.log('[ChatContainer] Skipping notification - content empty or notifications disabled');
-            lastAssistantContentRef.current = ''; // Still reset
+          // Show desktop notification if user is away and notifications are enabled (current session only)
+          if (!isBackgroundSession) {
+            console.log('[ChatContainer] Response complete, lastAssistantContent length:', lastAssistantContentRef.current.length);
+            if (lastAssistantContentRef.current && areNotificationsEnabled()) {
+              showClaudeResponseNotification({
+                message: lastAssistantContentRef.current,
+                title: 'Agentic',
+              });
+              lastAssistantContentRef.current = ''; // Reset for next response
+            } else {
+              console.log('[ChatContainer] Skipping notification - content empty or notifications disabled');
+              lastAssistantContentRef.current = ''; // Still reset
+            }
           }
         }
       } else if (message.type === 'timeout_warning') {
@@ -761,7 +801,8 @@ export function ChatContainer() {
         });
       } else if (message.type === 'error') {
         // Handle error messages from server
-        if (currentSessionId) setSessionLoading(currentSessionId, false);
+        const errorSessionId = msgSessionId || currentSessionId;
+        if (errorSessionId) setSessionLoading(errorSessionId, false);
         // Don't reset liveTokenCount on error — it's cumulative across the session
 
         // Get error type and message
@@ -781,14 +822,16 @@ export function ChatContainer() {
           'network_error': 'API_NETWORK',
         };
 
-        // Show appropriate toast notification
-        if (errorType && errorCodeMap[errorType]) {
-          const errorCode = errorCodeMap[errorType] as keyof typeof import('../../utils/errorMessages').ErrorMessages;
-          showError(errorCode, errorMessage);
-        } else {
-          toast.error('Error', {
-            description: errorMessage
-          });
+        // Show appropriate toast notification (current session only)
+        if (!isBackgroundSession) {
+          if (errorType && errorCodeMap[errorType]) {
+            const errorCode = errorCodeMap[errorType] as keyof typeof import('../../utils/errorMessages').ErrorMessages;
+            showError(errorCode, errorMessage);
+          } else {
+            toast.error('Error', {
+              description: errorMessage
+            });
+          }
         }
 
         // Display error as assistant message
@@ -797,7 +840,7 @@ export function ChatContainer() {
                          errorType === 'authentication_error' ? '🔑' :
                          errorType === 'network_error' ? '🌐' : '❌';
 
-        setMessages((prev) => [
+        updateMsgs((prev) => [
           ...prev,
           {
             id: Date.now().toString(),
