@@ -80,6 +80,11 @@ export function ChatContainer() {
   // Message cache to preserve streaming state across session switches
   const messageCache = useRef<Map<string, Message[]>>(new Map());
 
+  // Ref tracking the latest currentSessionId for use in async callbacks
+  // (avoids stale closures when session changes during async operations)
+  const currentSessionIdRef = useRef<string | null>(currentSessionId);
+  currentSessionIdRef.current = currentSessionId;
+
   // Persist active session ID to localStorage for sleep/wake recovery
   useEffect(() => {
     if (currentSessionId) {
@@ -222,22 +227,38 @@ export function ChatContainer() {
   };
 
   // Handle session switching
+  // CRITICAL: All synchronous state (session ID + messages) must be set ATOMICALLY
+  // before any async operations, to prevent streaming messages from the new session
+  // being appended to the old session's messages during the async gap.
   const handleSessionSelect = async (sessionId: string) => {
     // IMPORTANT: Cache current session's messages BEFORE switching
     if (currentSessionId && messages.length > 0) {
       messageCache.current.set(currentSessionId, messages);
-      console.log(`[Message Cache] Cached ${messages.length} messages for session ${currentSessionId}`);
+      console.log(`[Session Switch] Cached ${messages.length} messages for outgoing session ${currentSessionId}`);
     }
 
-    setCurrentSessionId(sessionId);
-
-    // Restore persisted output token count for this session
+    // --- ATOMIC BLOCK: Set session ID and messages together, BEFORE any await ---
+    const cachedMessages = messageCache.current.get(sessionId);
     const storedUsage = contextUsage.get(sessionId);
-    setLiveTokenCount(storedUsage?.outputTokens || 0);
+
+    // Use flushSync to ensure React processes both state updates synchronously
+    // so there's no render frame where sessionId has changed but messages haven't
+    flushSync(() => {
+      setCurrentSessionId(sessionId);
+      setMessages(cachedMessages || []);
+      setLiveTokenCount(storedUsage?.outputTokens || 0);
+    });
+
+    console.log(`[Session Switch] Switched to ${sessionId} with ${cachedMessages?.length || 0} cached messages`);
+    // --- END ATOMIC BLOCK ---
+
+    // Now do async work (session details, commands, DB fetch)
+    // At this point, messages are already correct for the new session,
+    // so streaming messages arriving during these awaits will be appended correctly.
 
     // Load session details to get permission mode and mode
-    const sessions = await sessionAPI.fetchSessions();
-    const session = sessions.find(s => s.id === sessionId);
+    const fetchedSessions = await sessionAPI.fetchSessions();
+    const session = fetchedSessions.find(s => s.id === sessionId);
     if (session) {
       setIsPlanMode(session.permission_mode === 'plan');
       setCurrentSessionMode(session.mode);
@@ -256,15 +277,12 @@ export function ChatContainer() {
       console.error('Failed to load slash commands:', error);
     }
 
-    // Check cache first before loading from database
-    const cachedMessages = messageCache.current.get(sessionId);
+    // If we had cached messages, we're done — they're already in state
     if (cachedMessages) {
-      console.log(`[Message Cache] Restored ${cachedMessages.length} cached messages for session ${sessionId}`);
-      setMessages(cachedMessages);
       return;
     }
 
-    // Load messages from database
+    // No cache — load messages from database
     const sessionMessages = await sessionAPI.fetchSessionMessages(sessionId);
 
     // Convert session messages to Message format
@@ -302,7 +320,23 @@ export function ChatContainer() {
       }
     });
 
-    setMessages(convertedMessages);
+    // SAFETY: Only set DB messages if we're still on the same session
+    // (user might have switched again during the DB fetch)
+    // Use ref to get the LATEST session ID, not the stale closure value
+    if (sessionId === currentSessionIdRef.current) {
+      setMessages(prev => {
+        // If streaming has already added messages, merge: DB messages + streaming messages
+        if (prev.length > 0) {
+          console.log(`[Session Switch] Merging ${convertedMessages.length} DB messages with ${prev.length} streaming messages`);
+          return [...convertedMessages, ...prev];
+        }
+        return convertedMessages;
+      });
+    } else {
+      // Session changed — put DB messages in cache instead
+      messageCache.current.set(sessionId, convertedMessages);
+      console.log(`[Session Switch] Session changed during DB fetch, cached ${convertedMessages.length} messages for ${sessionId}`);
+    }
   };
 
   // Handle new chat creation
@@ -465,9 +499,11 @@ export function ChatContainer() {
     },
     onMessage: (message) => {
       // --- Multi-session message routing ---
+      // Use the ref to get the LATEST session ID (avoids stale closures)
+      const activeSessionId = currentSessionIdRef.current;
       // Determine which session this message belongs to
-      const msgSessionId = (message.sessionId as string | undefined) || currentSessionId;
-      const isBackgroundSession = msgSessionId !== currentSessionId;
+      const msgSessionId = (message.sessionId as string | undefined) || activeSessionId;
+      const isBackgroundSession = msgSessionId !== activeSessionId;
 
       // Helper: apply a message updater to the correct session (state or cache)
       const updateMsgs = (updater: (prev: Message[]) => Message[]) => {
@@ -502,7 +538,7 @@ export function ChatContainer() {
             sessionId?: string;
           };
 
-          const targetSessionId = usageMsg.sessionId || currentSessionId;
+          const targetSessionId = usageMsg.sessionId || activeSessionId;
           if (targetSessionId) {
             setContextUsage(prev => {
               const newMap = new Map(prev);
@@ -761,7 +797,7 @@ export function ChatContainer() {
         const tokenUpdate = message as { type: 'token_update'; outputTokens: number };
         setLiveTokenCount(tokenUpdate.outputTokens);
       } else if (message.type === 'result') {
-        const resultSessionId = msgSessionId || currentSessionId;
+        const resultSessionId = msgSessionId || activeSessionId;
         if (resultSessionId) {
           setSessionLoading(resultSessionId, false);
           // Clear message cache for this session since messages are now saved to DB
@@ -801,7 +837,7 @@ export function ChatContainer() {
         });
       } else if (message.type === 'error') {
         // Handle error messages from server
-        const errorSessionId = msgSessionId || currentSessionId;
+        const errorSessionId = msgSessionId || activeSessionId;
         if (errorSessionId) setSessionLoading(errorSessionId, false);
         // Don't reset liveTokenCount on error — it's cumulative across the session
 
@@ -867,7 +903,7 @@ export function ChatContainer() {
         setIsPlanMode(mode === 'plan');
       } else if (message.type === 'background_process_started' && 'bashId' in message && 'command' in message && 'description' in message) {
         // Handle background process started
-        const sessionId = message.sessionId || currentSessionId;
+        const sessionId = message.sessionId || activeSessionId;
         if (sessionId) {
           setBackgroundProcesses(prev => {
             const newMap = new Map(prev);
@@ -883,7 +919,7 @@ export function ChatContainer() {
         }
       } else if (message.type === 'background_process_killed' && 'bashId' in message) {
         // Handle background process killed confirmation
-        const sessionId = message.sessionId || currentSessionId;
+        const sessionId = message.sessionId || activeSessionId;
         if (sessionId) {
           setBackgroundProcesses(prev => {
             const newMap = new Map(prev);
@@ -894,7 +930,7 @@ export function ChatContainer() {
         }
       } else if (message.type === 'background_process_exited' && 'bashId' in message && 'exitCode' in message) {
         // Handle background process that exited on its own
-        const sessionId = message.sessionId || currentSessionId;
+        const sessionId = message.sessionId || activeSessionId;
         if (sessionId) {
           console.log(`Background process exited: ${message.bashId}, exitCode: ${message.exitCode}`);
           setBackgroundProcesses(prev => {
@@ -918,7 +954,7 @@ export function ChatContainer() {
         activeLongRunningCommandRef.current = longRunningMsg.bashId;
 
         // Add a new assistant message with the long-running command block
-        setMessages(prev => [
+        updateMsgs(prev => [
           ...prev,
           {
             id: `msg-${Date.now()}`,
@@ -939,7 +975,7 @@ export function ChatContainer() {
         // Handle streaming output from long-running command - update message block
         const outputMsg = message as { type: 'command_output_chunk'; bashId: string; output: string };
 
-        setMessages(prev => {
+        updateMsgs(prev => {
           const lastMessage = prev[prev.length - 1];
           if (lastMessage?.type === 'assistant' && lastMessage.content.length > 0) {
             const lastBlock = lastMessage.content[lastMessage.content.length - 1];
@@ -966,15 +1002,17 @@ export function ChatContainer() {
         // Handle long-running command completion - update message block status
         const completedMsg = message as { type: 'long_running_command_completed'; bashId: string; exitCode: number };
 
-        setMessages(prev => {
+        updateMsgs(prev => {
           const lastMessage = prev[prev.length - 1];
           if (lastMessage?.type === 'assistant' && lastMessage.content.length > 0) {
             const lastBlock = lastMessage.content[lastMessage.content.length - 1];
             if (lastBlock.type === 'long_running_command' && lastBlock.bashId === completedMsg.bashId) {
-              toast.success('Command completed', {
-                description: 'Installation finished successfully',
-                duration: 3000,
-              });
+              if (!isBackgroundSession) {
+                toast.success('Command completed', {
+                  description: 'Installation finished successfully',
+                  duration: 3000,
+                });
+              }
 
               activeLongRunningCommandRef.current = null;
 
@@ -1000,15 +1038,17 @@ export function ChatContainer() {
         // Handle long-running command failure - update message block status
         const failedMsg = message as { type: 'long_running_command_failed'; bashId: string; error: string };
 
-        setMessages(prev => {
+        updateMsgs(prev => {
           const lastMessage = prev[prev.length - 1];
           if (lastMessage?.type === 'assistant' && lastMessage.content.length > 0) {
             const lastBlock = lastMessage.content[lastMessage.content.length - 1];
             if (lastBlock.type === 'long_running_command' && lastBlock.bashId === failedMsg.bashId) {
-              toast.error('Command failed', {
-                description: failedMsg.error,
-                duration: 5000,
-              });
+              if (!isBackgroundSession) {
+                toast.error('Command failed', {
+                  description: failedMsg.error,
+                  duration: 5000,
+                });
+              }
 
               activeLongRunningCommandRef.current = null;
 
@@ -1046,8 +1086,8 @@ export function ChatContainer() {
         }
       } else if (message.type === 'compact_loading') {
         // Handle /compact loading state - add temporary loading message with shimmer effect
-        const targetSessionId = message.sessionId || currentSessionId;
-        if (targetSessionId === currentSessionId) {
+        const targetSessionId = message.sessionId || activeSessionId;
+        if (targetSessionId === activeSessionId) {
           const loadingMessage: Message = {
             id: 'compact-loading',
             type: 'assistant',
@@ -1058,8 +1098,8 @@ export function ChatContainer() {
         }
       } else if (message.type === 'compact_complete' && 'preTokens' in message) {
         // Handle /compact completion - remove loading message and add final divider
-        const targetSessionId = message.sessionId || currentSessionId;
-        if (targetSessionId === currentSessionId) {
+        const targetSessionId = message.sessionId || activeSessionId;
+        if (targetSessionId === activeSessionId) {
           const compactMsg = message as { type: 'compact_complete'; preTokens: number };
           const tokenCount = compactMsg.preTokens.toLocaleString();
 
@@ -1086,7 +1126,7 @@ export function ChatContainer() {
           sessionId?: string;
         };
 
-        const targetSessionId = usageMsg.sessionId || currentSessionId;
+        const targetSessionId = usageMsg.sessionId || activeSessionId;
         if (targetSessionId) {
           setContextUsage(prev => {
             const newMap = new Map(prev);
@@ -1100,7 +1140,7 @@ export function ChatContainer() {
           });
 
           // Update liveTokenCount with actual output tokens from server
-          if (usageMsg.outputTokens && targetSessionId === currentSessionId) {
+          if (usageMsg.outputTokens && targetSessionId === activeSessionId) {
             setLiveTokenCount(usageMsg.outputTokens);
           }
 
