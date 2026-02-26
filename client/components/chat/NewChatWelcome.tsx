@@ -19,7 +19,7 @@
  */
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Send, Plus, X, Square, FileUp, Github, ChevronDown, GitBranch, FolderOpen } from 'lucide-react';
+import { Send, Plus, X, Square, FileUp, Github, ChevronDown, GitBranch, FolderOpen, Edit3 } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import { ModeSelector } from './ModeSelector';
 import { ModeIndicator } from './ModeIndicator';
@@ -63,6 +63,9 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
   const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
   const [isRepoSelectorOpen, setIsRepoSelectorOpen] = useState(false);
   const [isPickingDirectory, setIsPickingDirectory] = useState(false);
+  const [showPathInput, setShowPathInput] = useState(false);
+  const [pathInputValue, setPathInputValue] = useState('');
+  const [isValidatingPath, setIsValidatingPath] = useState(false);
 
   const handlePickDirectory = async () => {
     if (!onDirectorySelected) return;
@@ -80,6 +83,33 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
       console.error('Directory picker error:', error);
     } finally {
       setIsPickingDirectory(false);
+    }
+  };
+
+  const handlePathSubmit = async () => {
+    if (!onDirectorySelected || !pathInputValue.trim()) return;
+    setIsValidatingPath(true);
+    try {
+      const response = await fetch(`${window.location.protocol}//${window.location.host}/api/validate-directory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ directory: pathInputValue.trim() }),
+      });
+      const result = await response.json() as { valid: boolean; expanded: string; error?: string };
+      if (result.valid) {
+        onDirectorySelected(result.expanded);
+        setPathInputValue('');
+        setShowPathInput(false);
+        setIsPlusMenuOpen(false);
+      } else {
+        // Show the error inline - just alert for now
+        setPathInputValue('');
+        console.error('Invalid directory:', result.error);
+      }
+    } catch (error) {
+      console.error('Path validation error:', error);
+    } finally {
+      setIsValidatingPath(false);
     }
   };
 
@@ -149,6 +179,8 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
     const handleClickOutside = (e: MouseEvent) => {
       if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node)) {
         setIsPlusMenuOpen(false);
+        setShowPathInput(false);
+        setPathInputValue('');
       }
     };
 
@@ -594,8 +626,44 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                             className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-white/5 transition-colors border-t border-white/5"
                           >
                             <FolderOpen size={18} className="text-gray-400" />
-                            <span>{isPickingDirectory ? 'Selecting...' : 'Custom Directory'}</span>
+                            <span>{isPickingDirectory ? 'Selecting...' : 'Browse Directory'}</span>
                           </button>
+                          {!showPathInput ? (
+                            <button
+                              onClick={() => setShowPathInput(true)}
+                              type="button"
+                              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-white/5 transition-colors border-t border-white/5"
+                            >
+                              <Edit3 size={18} className="text-gray-400" />
+                              <span>Enter Path</span>
+                            </button>
+                          ) : (
+                            <div className="px-3 py-2 border-t border-white/5">
+                              <div className="flex gap-1.5">
+                                <input
+                                  type="text"
+                                  value={pathInputValue}
+                                  onChange={(e) => setPathInputValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') { e.preventDefault(); handlePathSubmit(); }
+                                    if (e.key === 'Escape') { setShowPathInput(false); setPathInputValue(''); }
+                                  }}
+                                  placeholder="/home/user/project"
+                                  autoFocus
+                                  disabled={isValidatingPath}
+                                  className="flex-1 px-2 py-1.5 text-xs bg-white/5 border border-white/10 rounded text-gray-200 placeholder:text-gray-500 outline-none focus:border-white/20"
+                                />
+                                <button
+                                  onClick={handlePathSubmit}
+                                  type="button"
+                                  disabled={isValidatingPath || !pathInputValue.trim()}
+                                  className="px-2 py-1.5 text-xs bg-white/10 hover:bg-white/15 text-gray-200 rounded transition-colors disabled:opacity-50"
+                                >
+                                  {isValidatingPath ? '...' : 'Set'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
