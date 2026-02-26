@@ -1111,9 +1111,9 @@ export function ChatContainer() {
 
     if (!isConnected) return;
 
-    // Show toast if another chat is in progress
-    if (isLoading) {
-      toast.info('Another chat is in progress. Wait for it to complete first.');
+    // Block double-submit for the CURRENT session only (allow parallel chats)
+    if (currentSessionId && isSessionLoading(currentSessionId)) {
+      toast.info('This chat is already generating. Wait for it to complete or stop it first.');
       return;
     }
 
@@ -1280,12 +1280,11 @@ export function ChatContainer() {
   };
 
   const handleStop = () => {
-    // Stop ALL actively generating sessions (normally just one)
-    loadingSessions.forEach(sessionId => {
-      stopGeneration(sessionId);
-    });
-    // Clear all loading states
-    setLoadingSessions(new Set());
+    // Stop the CURRENT session only (multi-chat: other sessions keep running)
+    if (currentSessionId && isSessionLoading(currentSessionId)) {
+      stopGeneration(currentSessionId);
+      setSessionLoading(currentSessionId, false);
+    }
   };
 
   // Build wizard handlers
@@ -1483,7 +1482,7 @@ export function ChatContainer() {
             onInputChange={setInputValue}
             onSubmit={handleSubmit}
             onStop={handleStop}
-            disabled={!isConnected || isAnySessionLoading}
+            disabled={!isConnected}
             isGenerating={isCurrentSessionLoading}
             isPlanMode={isPlanMode}
             onTogglePlanMode={handleTogglePlanMode}
@@ -1514,7 +1513,7 @@ export function ChatContainer() {
               onChange={setInputValue}
               onSubmit={handleSubmit}
               onStop={handleStop}
-              disabled={!isConnected || isAnySessionLoading}
+              disabled={!isConnected || isCurrentSessionLoading}
               isGenerating={isCurrentSessionLoading}
               isPlanMode={isPlanMode}
               onTogglePlanMode={handleTogglePlanMode}

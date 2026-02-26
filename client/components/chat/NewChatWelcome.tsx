@@ -655,7 +655,8 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                     </button>
                   ) : (
                     <button
-                      type="submit"
+                      type="button"
+                      onClick={handleSubmit}
                       disabled={disabled || !inputValue.trim()}
                       className={`transition rounded-lg p-2 self-center ${
                         !disabled && inputValue.trim()
