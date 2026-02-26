@@ -145,6 +145,18 @@ export async function handleWebSocketMessage(
       // Client reconnected after sleep/refresh — re-associate WebSocket and cancel grace period
       const { sessionId } = data;
       if (sessionId && typeof sessionId === 'string') {
+        // Validate session still exists
+        const session = sessionDb.getSession(sessionId);
+        if (!session) {
+          console.warn(`⚠️ Reconnect for non-existent session: ${sessionId.substring(0, 8)}`);
+          ws.send(JSON.stringify({
+            type: 'reconnect_ack',
+            sessionId,
+            isGenerating: false,
+          }));
+          return;
+        }
+
         ws.data = { type: 'chat', sessionId };
         sessionStreamManager.updateWebSocket(sessionId, ws);
         const isActive = sessionStreamManager.hasStream(sessionId);

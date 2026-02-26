@@ -135,6 +135,12 @@ export class SessionStreamManager {
       return false;
     }
 
+    // Prevent double-abort
+    if (stream.abortController.signal.aborted) {
+      console.log(`⚠️ Session already aborted: ${sessionId.substring(0, 8)}`);
+      return true;
+    }
+
     console.log(`🛑 Generation stopped: ${sessionId.substring(0, 8)}`);
     stream.abortController.abort();
 
@@ -207,8 +213,13 @@ export class SessionStreamManager {
     const stream = this.streams.get(sessionId);
     if (!stream) return;
 
-    // Abort SDK subprocess
-    stream.abortController.abort();
+    // Cancel any pending disconnect grace period
+    this.cancelDisconnectGracePeriod(sessionId);
+
+    // Abort SDK subprocess (safe to call even if already aborted)
+    if (!stream.abortController.signal.aborted) {
+      stream.abortController.abort();
+    }
 
     // Complete message queue (stops iteration)
     stream.messageQueue.complete();

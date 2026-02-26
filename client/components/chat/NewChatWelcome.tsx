@@ -19,7 +19,7 @@
  */
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Send, Plus, X, Square, FileUp, Github, ChevronDown, GitBranch } from 'lucide-react';
+import { Send, Plus, X, Square, FileUp, Github, ChevronDown, GitBranch, FolderOpen } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import { ModeSelector } from './ModeSelector';
 import { ModeIndicator } from './ModeIndicator';
@@ -42,6 +42,8 @@ interface NewChatWelcomeProps {
   onRepoSelected?: (repoUrl: string, repoName: string) => void;
   selectedRepo?: { url: string; name: string } | null;
   selectedModel?: string;
+  onDirectorySelected?: (path: string) => void;
+  selectedDirectory?: string | null;
 }
 
 const CAPABILITIES = [
@@ -52,7 +54,7 @@ const CAPABILITIES = [
   "I can analyze data and files"
 ];
 
-export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard, mode, onRepoSelected, selectedRepo, selectedModel }: NewChatWelcomeProps) {
+export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard, mode, onRepoSelected, selectedRepo, selectedModel, onDirectorySelected, selectedDirectory }: NewChatWelcomeProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusMenuRef = useRef<HTMLDivElement>(null);
@@ -60,6 +62,26 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
   const [_isDraggingOver, setIsDraggingOver] = useState(false);
   const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
   const [isRepoSelectorOpen, setIsRepoSelectorOpen] = useState(false);
+  const [isPickingDirectory, setIsPickingDirectory] = useState(false);
+
+  const handlePickDirectory = async () => {
+    if (!onDirectorySelected) return;
+    setIsPickingDirectory(true);
+    try {
+      const response = await fetch(`${window.location.protocol}//${window.location.host}/api/pick-directory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const result = await response.json() as { success: boolean; path?: string; cancelled?: boolean; error?: string };
+      if (result.success && result.path) {
+        onDirectorySelected(result.path);
+      }
+    } catch (error) {
+      console.error('Directory picker error:', error);
+    } finally {
+      setIsPickingDirectory(false);
+    }
+  };
 
   // Mode selection state (synchronized with parent via props)
   const [selectedMode, setSelectedMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'hive'>(mode || 'general');
@@ -562,6 +584,18 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                             <Github size={18} className="text-gray-400" />
                             <span>GitHub Repository</span>
                           </button>
+                          <button
+                            onClick={() => {
+                              handlePickDirectory();
+                              setIsPlusMenuOpen(false);
+                            }}
+                            type="button"
+                            disabled={isPickingDirectory}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-200 hover:bg-white/5 transition-colors border-t border-white/5"
+                          >
+                            <FolderOpen size={18} className="text-gray-400" />
+                            <span>{isPickingDirectory ? 'Selecting...' : 'Custom Directory'}</span>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -574,6 +608,17 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                       >
                         <GitBranch size={12} className="text-gray-500" />
                         <span className="max-w-[120px] truncate">{selectedRepo.name.split('/')[1] || selectedRepo.name}</span>
+                      </div>
+                    )}
+
+                    {/* Directory indicator */}
+                    {selectedDirectory && (
+                      <div
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-400"
+                        title={selectedDirectory}
+                      >
+                        <FolderOpen size={12} className="text-gray-500" />
+                        <span className="max-w-[120px] truncate">{selectedDirectory.split('/').filter(Boolean).pop()}</span>
                       </div>
                     )}
 

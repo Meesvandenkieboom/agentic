@@ -220,12 +220,15 @@ export function useWebSocket({
   reconnectDelay = 1000,
   maxReconnectAttempts = Infinity,
 }: UseWebSocketOptions) {
+  const MAX_QUEUE_SIZE = 50;
+
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messageQueueRef = useRef<string[]>([]);
   const reconnectAttemptsRef = useRef(0);
   const isMountedRef = useRef(false);
+  const connectionIdRef = useRef(0);
 
   // Use refs for callbacks to prevent reconnections when they change
   const onMessageRef = useRef(onMessage);
@@ -256,6 +259,7 @@ export function useWebSocket({
       ws.onopen = () => {
         setIsConnected(true);
         reconnectAttemptsRef.current = 0;
+        connectionIdRef.current += 1;
         onConnectRef.current?.();
 
         // Send any queued messages
@@ -303,10 +307,23 @@ export function useWebSocket({
     const messageStr = JSON.stringify(message);
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(messageStr);
+      try {
+        wsRef.current.send(messageStr);
+      } catch {
+        // Send failed, queue for retry on reconnect
+        if (messageQueueRef.current.length < MAX_QUEUE_SIZE) {
+          messageQueueRef.current.push(messageStr);
+        } else {
+          console.warn('[WebSocket] Message queue full, dropping message');
+        }
+      }
     } else {
       // Queue the message if not connected
-      messageQueueRef.current.push(messageStr);
+      if (messageQueueRef.current.length < MAX_QUEUE_SIZE) {
+        messageQueueRef.current.push(messageStr);
+      } else {
+        console.warn('[WebSocket] Message queue full, dropping message');
+      }
     }
   }, []);
 
@@ -322,6 +339,10 @@ export function useWebSocket({
   }, []);
 
   const stopGeneration = useCallback((sessionId: string) => {
+    if (!sessionId) {
+      console.warn('[WebSocket] stopGeneration called without sessionId');
+      return;
+    }
     // Send proper stop_generation message to trigger SDK AbortController
     sendMessage({
       type: 'stop_generation',
@@ -336,7 +357,7 @@ export function useWebSocket({
 
     // When tab becomes visible again (e.g. after sleep/lock), immediately reconnect
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && !wsRef.current?.readyState) {
+      if (document.visibilityState === 'visible' && (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED)) {
         // Clear any pending reconnect timeout and try immediately
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);

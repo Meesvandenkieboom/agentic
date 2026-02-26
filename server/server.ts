@@ -133,17 +133,21 @@ const server = Bun.serve({
     close(ws: ServerWebSocket<ChatWebSocketData>) {
       if (ws.data?.type === 'hot-reload') {
         hotReloadClients.delete(ws);
-      } else if (ws.data?.type === 'chat' && ws.data?.sessionId) {
+      } else if (ws.data?.type === 'chat') {
         const sid = ws.data.sessionId;
-        console.log(`🔌 WebSocket disconnected: session ${sid.substring(0, 8)}`);
+        if (sid) {
+          console.log(`🔌 WebSocket disconnected: session ${sid.substring(0, 8)}`);
 
-        // Start grace period — abort generation only if client doesn't reconnect within 10s
-        sessionStreamManager.startDisconnectGracePeriod(sid, () => {
-          console.log(`⏱️ Grace period expired for session ${sid.substring(0, 8)} — aborting generation`);
-          sessionStreamManager.abortSession(sid);
-          sessionStreamManager.cleanupSession(sid, 'websocket_disconnected');
-          activeQueries.delete(sid);
-        }, 10000);
+          // Only start grace period if the session actually has an active stream
+          if (sessionStreamManager.hasStream(sid)) {
+            sessionStreamManager.startDisconnectGracePeriod(sid, () => {
+              console.log(`⏱️ Grace period expired for session ${sid.substring(0, 8)} — aborting generation`);
+              sessionStreamManager.abortSession(sid);
+              sessionStreamManager.cleanupSession(sid, 'websocket_disconnected');
+              activeQueries.delete(sid);
+            }, 10000);
+          }
+        }
       }
     }
   },

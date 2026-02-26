@@ -123,7 +123,7 @@ export function useSessionAPI() {
   /**
    * Create a new session
    */
-  const createSession = useCallback(async (title?: string, mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive', githubRepo?: string): Promise<Session | null> => {
+  const createSession = useCallback(async (title?: string, mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive', githubRepo?: string, workingDirectory?: string): Promise<Session | null> => {
     setIsLoading(true);
     setError(null);
 
@@ -133,7 +133,7 @@ export function useSessionAPI() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ title: title || 'New Chat', mode: mode || 'general', githubRepo }),
+        body: JSON.stringify({ title: title || 'New Chat', mode: mode || 'general', githubRepo, workingDirectory }),
       });
 
       if (!response.ok) {

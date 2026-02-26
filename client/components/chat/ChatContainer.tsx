@@ -124,6 +124,9 @@ export function ChatContainer() {
   // GitHub repository selected for session
   const [selectedRepo, setSelectedRepo] = useState<{ url: string; name: string } | null>(null);
 
+  // Custom working directory selected before chat starts
+  const [selectedDirectory, setSelectedDirectory] = useState<string | null>(null);
+
   // Branch dialog state
   const [branchDialogOpen, setBranchDialogOpen] = useState(false);
   const [branchingSessionId, setBranchingSessionId] = useState<string | null>(null);
@@ -309,6 +312,8 @@ export function ChatContainer() {
     setCurrentSessionMode('general'); // Reset to default for UI
     setMessages([]);
     setInputValue('');
+    setSelectedRepo(null);
+    setSelectedDirectory(null);
     // Session will be created in handleSubmit when user sends first message
   };
 
@@ -399,6 +404,14 @@ export function ChatContainer() {
     setSelectedRepo({ url: repoUrl, name: repoName });
     toast.success(`Selected ${repoName}`, {
       description: 'Repository will be cloned when chat starts'
+    });
+  };
+
+  // Handle pre-chat directory selection
+  const handleDirectorySelected = (path: string) => {
+    setSelectedDirectory(path);
+    toast.success(`Directory selected`, {
+      description: path.split('/').filter(Boolean).pop() || path
     });
   };
 
@@ -1057,6 +1070,14 @@ export function ChatContainer() {
           console.log(`🔄 Server confirms generation still active for session ${ack.sessionId.substring(0, 8)}`);
           setSessionLoading(ack.sessionId, true);
         }
+      } else if (message.type === 'generation_stopped') {
+        // Server confirmed generation was stopped
+        const stoppedSessionId = message.sessionId;
+        if (stoppedSessionId) {
+          setSessionLoading(stoppedSessionId as string, false);
+          // Clear message cache for stopped session
+          messageCache.current.delete(stoppedSessionId as string);
+        }
       } else if (message.type === 'keepalive') {
         // Keepalive messages are sent every 30s to prevent WebSocket idle timeout
         // during long-running operations. No action needed - just acknowledge receipt.
@@ -1106,7 +1127,7 @@ export function ChatContainer() {
       let sessionId = currentSessionId;
       if (!sessionId) {
         // Pass GitHub repo if selected (selectedRepo.name is the full_name like "owner/repo")
-        const newSession = await sessionAPI.createSession(undefined, mode || 'general', selectedRepo?.name);
+        const newSession = await sessionAPI.createSession(undefined, mode || 'general', selectedRepo?.name, selectedDirectory || undefined);
         if (!newSession) {
           // Error already shown by sessionAPI
           setSessionLoading(tempSessionId, false);
@@ -1162,6 +1183,11 @@ export function ChatContainer() {
             toast.error('Failed to clone repository');
           }
           setSelectedRepo(null);
+        }
+
+        // Clear selected directory after session creation
+        if (selectedDirectory) {
+          setSelectedDirectory(null);
         }
 
         // Update state and load sessions
@@ -1254,10 +1280,12 @@ export function ChatContainer() {
   };
 
   const handleStop = () => {
-    if (currentSessionId) {
-      stopGeneration(currentSessionId);
-      setSessionLoading(currentSessionId, false);
-    }
+    // Stop ALL actively generating sessions (normally just one)
+    loadingSessions.forEach(sessionId => {
+      stopGeneration(sessionId);
+    });
+    // Clear all loading states
+    setLoadingSessions(new Set());
   };
 
   // Build wizard handlers
@@ -1455,8 +1483,8 @@ export function ChatContainer() {
             onInputChange={setInputValue}
             onSubmit={handleSubmit}
             onStop={handleStop}
-            disabled={!isConnected || isLoading}
-            isGenerating={isLoading}
+            disabled={!isConnected || isAnySessionLoading}
+            isGenerating={isCurrentSessionLoading}
             isPlanMode={isPlanMode}
             onTogglePlanMode={handleTogglePlanMode}
             availableCommands={availableCommands}
@@ -1465,6 +1493,8 @@ export function ChatContainer() {
             onRepoSelected={handleRepoSelected}
             selectedRepo={selectedRepo}
             selectedModel={selectedModel}
+            onDirectorySelected={handleDirectorySelected}
+            selectedDirectory={selectedDirectory}
           />
         ) : (
           // Chat Interface
@@ -1484,8 +1514,8 @@ export function ChatContainer() {
               onChange={setInputValue}
               onSubmit={handleSubmit}
               onStop={handleStop}
-              disabled={!isConnected || isLoading}
-              isGenerating={isLoading}
+              disabled={!isConnected || isAnySessionLoading}
+              isGenerating={isCurrentSessionLoading}
               isPlanMode={isPlanMode}
               onTogglePlanMode={handleTogglePlanMode}
               backgroundProcesses={backgroundProcesses.get(currentSessionId || '') || []}
