@@ -43,9 +43,9 @@ export interface ModelConfig {
 export const AVAILABLE_MODELS: ModelConfig[] = [
   {
     id: 'sonnet',
-    name: 'Claude Sonnet 4.5',
+    name: 'Claude Sonnet 4.6',
     description: 'Anthropic\'s most intelligent model for complex agents and coding',
-    apiModelId: 'claude-sonnet-4-5-20250929',
+    apiModelId: 'claude-sonnet-4-6',
     provider: 'anthropic',
   },
   {
