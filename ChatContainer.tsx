@@ -95,11 +95,17 @@ export function ChatContainer() {
   }, [currentSessionId]);
 
   // Automatically cache messages as they update during streaming
-  // IMPORTANT: Only depend on messages, NOT currentSessionId
-  // (otherwise it fires when session changes with old messages)
+  // Uses a ref to snapshot the session ID at the time messages are set,
+  // preventing cross-session cache writes when messages arrive after a session switch
+  const messageBelongsToSessionRef = useRef<string | null>(currentSessionId);
   useEffect(() => {
-    if (currentSessionId && messages.length > 0) {
-      messageCache.current.set(currentSessionId, messages);
+    messageBelongsToSessionRef.current = currentSessionId;
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    const targetSession = messageBelongsToSessionRef.current;
+    if (targetSession && messages.length > 0) {
+      messageCache.current.set(targetSession, messages);
     }
   }, [messages]);
 
@@ -365,16 +371,21 @@ export function ChatContainer() {
     if (sessionId === currentSessionIdRef.current) {
       setMessages(prev => {
         // If streaming has already added messages, merge: DB messages + streaming messages
-        // Deduplicate by checking content to prevent first-message duplication
+        // Deduplicate by ID first (most reliable), then by content as fallback
         if (prev.length > 0) {
+          const existingIds = new Set(prev.map(m => m.id));
           const existingContents = new Set(prev.map(m =>
             typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
           ));
           const newDbMessages = convertedMessages.filter(m => {
+            // Skip if same ID exists
+            if (existingIds.has(m.id)) return false;
+            // Skip if same content exists (catches optimistic duplicates)
             const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
             return !existingContents.has(content);
           });
           console.log(`[Session Switch] Merging ${newDbMessages.length} new DB messages with ${prev.length} existing messages (filtered ${convertedMessages.length - newDbMessages.length} duplicates)`);
+          // DB messages (history) go FIRST, then streaming messages (new content)
           return [...newDbMessages, ...prev];
         }
         return convertedMessages;
@@ -525,19 +536,29 @@ export function ChatContainer() {
     url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
     onConnect: async () => {
       // On reconnection after sleep/wake, re-associate with the active session
+      // CRITICAL: Only reload if persisted session matches current session
+      // Otherwise reconnect overwrites the user's current view (session merging bug)
       const persistedSessionId = localStorage.getItem('agentic-active-session');
+      const currentSession = currentSessionIdRef.current;
+
       if (persistedSessionId) {
-        console.log(`🔄 WebSocket reconnected — re-associating session ${persistedSessionId.substring(0, 8)}`);
         // Clear loading state for any sessions that were "loading" before disconnect
         setLoadingSessions(new Set());
-        // IMPORTANT: Load messages from DB FIRST, so history is in state
-        // before the server resumes streaming tokens into the WebSocket
-        await handleSessionSelect(persistedSessionId);
-        // NOW tell the server to re-associate this WebSocket with the session
-        // This cancels the grace period timer and resumes streaming
+
+        if (persistedSessionId === currentSession) {
+          // Same session — safe to reload messages from DB
+          console.log(`🔄 WebSocket reconnected — re-associating session ${persistedSessionId.substring(0, 8)}`);
+          await handleSessionSelect(persistedSessionId);
+        } else {
+          // Session changed during disconnect — do NOT reload, just log
+          console.log(`⚠️ WebSocket reconnected — session changed (persisted: ${persistedSessionId.substring(0, 8)}, current: ${currentSession?.substring(0, 8) || 'none'})`);
+        }
+
+        // Tell the server to re-associate with the CURRENT session (not persisted)
+        const reconnectSessionId = currentSession || persistedSessionId;
         sendMessage({
           type: 'reconnect',
-          sessionId: persistedSessionId,
+          sessionId: reconnectSessionId,
         });
       }
     },
@@ -549,7 +570,12 @@ export function ChatContainer() {
       // Use the ref to get the LATEST session ID (avoids stale closures)
       const activeSessionId = currentSessionIdRef.current;
       // Determine which session this message belongs to
+      // CRITICAL: Do NOT fallback to activeSessionId — that causes cross-session contamination
+      // Messages without sessionId are treated as current-session (backwards compat for global events)
       const msgSessionId = (message.sessionId as string | undefined) || activeSessionId;
+
+      // Safety: Drop content messages that have an explicit sessionId different from any known session
+      // This prevents ghost messages from deleted or stale sessions
       const isBackgroundSession = msgSessionId !== activeSessionId;
 
       // Helper: apply a message updater to the correct session (state or cache)

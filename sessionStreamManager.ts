@@ -1,0 +1,353 @@
+/**
+ * SessionStreamManager - Manages per-session SDK streams for multi-turn conversations
+ * Based on Microsoft VSCode and chatcode patterns
+ */
+
+import type { SDKUserMessage, Query } from "@anthropic-ai/claude-agent-sdk";
+import type { ServerWebSocket } from "bun";
+import { AsyncQueue } from "./utils/AsyncQueue";
+
+// Content block types for multimodal messages (text + images)
+export type TextBlock = { type: 'text'; text: string };
+export type ImageBlock = {
+  type: 'image';
+  source: {
+    type: 'base64';
+    media_type: string;
+    data: string;
+  };
+};
+export type ContentBlock = TextBlock | ImageBlock;
+export type MessageContent = string | ContentBlock[];
+
+interface SessionStream {
+  messageQueue: AsyncQueue<MessageContent>;
+  sdkQuery: Query | null;
+  abortController: AbortController;
+  sessionId: string;
+  createdAt: number;
+  lastActivityAt: number;
+  activeWebSocket: ServerWebSocket<unknown> | null;
+}
+
+export class SessionStreamManager {
+  private streams = new Map<string, SessionStream>();
+  private disconnectGraceTimers = new Map<string, Timer>();
+  private readonly SESSION_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours (SDK pre-flight checks can be slow on WSL)
+  private readonly MAX_CONCURRENT_SESSIONS = 100;
+  private cleanupInterval: Timer | null = null;
+
+  constructor() {
+    // Start cleanup interval for idle sessions
+    this.startCleanupInterval();
+  }
+
+  /**
+   * Get or create AsyncIterable stream for a session
+   */
+  getOrCreateStream(sessionId: string): AsyncIterable<SDKUserMessage> {
+    if (!this.streams.has(sessionId)) {
+      // Check session limit
+      if (this.streams.size >= this.MAX_CONCURRENT_SESSIONS) {
+        console.warn(`⚠️ Max sessions (${this.MAX_CONCURRENT_SESSIONS}) reached, cleaning up oldest`);
+        this.cleanupOldestSession();
+      }
+
+      const messageQueue = new AsyncQueue<MessageContent>();
+      const abortController = new AbortController();
+
+      this.streams.set(sessionId, {
+        messageQueue,
+        sdkQuery: null,
+        abortController,
+        sessionId,
+        createdAt: Date.now(),
+        lastActivityAt: Date.now(),
+        activeWebSocket: null,
+      });
+
+    }
+
+    return this.createMessageIterator(sessionId);
+  }
+
+  /**
+   * Send message to session stream (supports text or multimodal content with images)
+   */
+  sendMessage(sessionId: string, content: MessageContent): void {
+    const stream = this.streams.get(sessionId);
+    if (!stream) {
+      throw new Error(`Session stream not found: ${sessionId}`);
+    }
+
+    stream.lastActivityAt = Date.now();
+    stream.messageQueue.enqueue(content);
+  }
+
+  /**
+   * Register SDK query for session
+   */
+  registerQuery(sessionId: string, query: Query): void {
+    const stream = this.streams.get(sessionId);
+    if (stream) {
+      stream.sdkQuery = query;
+    }
+  }
+
+  /**
+   * Update active WebSocket for session (on reconnection or first connect)
+   */
+  updateWebSocket(sessionId: string, ws: ServerWebSocket<unknown>): void {
+    const stream = this.streams.get(sessionId);
+    if (stream) {
+      stream.activeWebSocket = ws;
+      // Client reconnected — cancel any pending disconnect abort
+      this.cancelDisconnectGracePeriod(sessionId);
+    }
+  }
+
+  /**
+   * Get active WebSocket for session
+   */
+  getWebSocket(sessionId: string): ServerWebSocket<unknown> | null {
+    return this.streams.get(sessionId)?.activeWebSocket || null;
+  }
+
+  /**
+   * Get AbortController for session (for manual abort/stop generation)
+   */
+  getAbortController(sessionId: string): AbortController | null {
+    const stream = this.streams.get(sessionId);
+    if (!stream) {
+      console.warn(`⚠️ AbortController requested for non-existent session: ${sessionId.substring(0, 8)}`);
+      return null;
+    }
+    return stream.abortController;
+  }
+
+  /**
+   * Abort/stop generation for session (user-triggered stop)
+   */
+  abortSession(sessionId: string): boolean {
+    const stream = this.streams.get(sessionId);
+    if (!stream) {
+      console.warn(`⚠️ Abort requested for non-existent session: ${sessionId.substring(0, 8)}`);
+      return false;
+    }
+
+    // Prevent double-abort
+    if (stream.abortController.signal.aborted) {
+      console.log(`⚠️ Session already aborted: ${sessionId.substring(0, 8)}`);
+      return true;
+    }
+
+    console.log(`🛑 Generation stopped: ${sessionId.substring(0, 8)}`);
+    stream.abortController.abort();
+
+    // Send abort signal to client
+    this.safeSend(sessionId, JSON.stringify({
+      type: 'generation_stopped',
+      sessionId: sessionId,
+    }));
+
+    return true;
+  }
+
+  /**
+   * Safe send to WebSocket (checks readyState)
+   * Auto-injects sessionId into JSON messages to ensure proper client-side routing
+   */
+  safeSend(sessionId: string, data: string): boolean {
+    const stream = this.streams.get(sessionId);
+    if (!stream || !stream.activeWebSocket) {
+      return false;
+    }
+
+    try {
+      // Check if WebSocket is open
+      if (stream.activeWebSocket.readyState === 1) { // 1 = OPEN
+        // Auto-inject sessionId into JSON messages for reliable client-side routing
+        let messageToSend = data;
+        try {
+          const parsed = JSON.parse(data);
+          if (typeof parsed === 'object' && parsed !== null && !parsed.sessionId) {
+            parsed.sessionId = sessionId;
+            messageToSend = JSON.stringify(parsed);
+          }
+        } catch {
+          // Not valid JSON, send as-is
+        }
+        stream.activeWebSocket.send(messageToSend);
+        return true;
+      } else {
+        // Silently skip - WebSocket closed/closing is normal (user switched tabs, etc.)
+        return false;
+      }
+    } catch (error) {
+      console.error(`❌ WebSocket send error: ${sessionId.substring(0, 8)}`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Start a grace period before aborting a disconnected session.
+   * If the client reconnects (via updateWebSocket), the timer is cancelled.
+   */
+  startDisconnectGracePeriod(sessionId: string, onExpire: () => void, delayMs: number = 10000): void {
+    // Cancel any existing timer first
+    this.cancelDisconnectGracePeriod(sessionId);
+
+    const timer = setTimeout(() => {
+      this.disconnectGraceTimers.delete(sessionId);
+      onExpire();
+    }, delayMs);
+
+    this.disconnectGraceTimers.set(sessionId, timer);
+    console.log(`⏳ Disconnect grace period started for session ${sessionId.substring(0, 8)} (${delayMs / 1000}s)`);
+  }
+
+  /**
+   * Cancel a pending disconnect grace period (client reconnected)
+   */
+  cancelDisconnectGracePeriod(sessionId: string): void {
+    const timer = this.disconnectGraceTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.disconnectGraceTimers.delete(sessionId);
+      console.log(`✅ Disconnect grace period cancelled for session ${sessionId.substring(0, 8)} (client reconnected)`);
+    }
+  }
+
+  /**
+   * Clean up session stream
+   */
+  cleanupSession(sessionId: string, _reason: string = 'manual'): void {
+    const stream = this.streams.get(sessionId);
+    if (!stream) return;
+
+    // Cancel any pending disconnect grace period
+    this.cancelDisconnectGracePeriod(sessionId);
+
+    // Abort SDK subprocess (safe to call even if already aborted)
+    if (!stream.abortController.signal.aborted) {
+      stream.abortController.abort();
+    }
+
+    // Complete message queue (stops iteration)
+    stream.messageQueue.complete();
+
+    // Remove from registry
+    this.streams.delete(sessionId);
+  }
+
+  /**
+   * Check if session has active stream
+   */
+  hasStream(sessionId: string): boolean {
+    return this.streams.has(sessionId);
+  }
+
+  /**
+   * Get session count
+   */
+  get sessionCount(): number {
+    return this.streams.size;
+  }
+
+  /**
+   * Create async iterator for session messages
+   * Supports both text-only and multimodal (text + images) content
+   */
+  private async *createMessageIterator(sessionId: string): AsyncIterable<SDKUserMessage> {
+    const stream = this.streams.get(sessionId);
+    if (!stream) {
+      throw new Error(`Session stream not found: ${sessionId}`);
+    }
+
+    try {
+      for await (const content of stream.messageQueue) {
+        stream.lastActivityAt = Date.now();
+
+        // Log if multimodal content is being sent
+        if (Array.isArray(content)) {
+          const imageCount = content.filter(b => b.type === 'image').length;
+          const textCount = content.filter(b => b.type === 'text').length;
+          console.log(`📷 Sending multimodal message: ${textCount} text block(s), ${imageCount} image(s)`);
+        }
+
+        yield {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: content,
+          },
+          session_id: sessionId,
+          parent_tool_use_id: null,
+        };
+      }
+    } catch (error) {
+      console.error(`❌ Stream error for session ${sessionId.substring(0, 8)}:`, error);
+      this.cleanupSession(sessionId, 'error');
+    }
+  }
+
+  /**
+   * Start cleanup interval for idle sessions
+   */
+  private startCleanupInterval(): void {
+    this.cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      for (const [sessionId, stream] of Array.from(this.streams.entries())) {
+        const idleTime = now - stream.lastActivityAt;
+        if (idleTime > this.SESSION_TIMEOUT_MS) {
+          console.log(`⏱️ Session timeout: ${sessionId.substring(0, 8)} (idle: ${Math.floor(idleTime / 1000)}s)`);
+          this.cleanupSession(sessionId, 'timeout');
+        }
+      }
+    }, 60000); // Check every minute
+  }
+
+  /**
+   * Clean up oldest session by creation time
+   */
+  private cleanupOldestSession(): void {
+    let oldestSessionId: string | null = null;
+    let oldestTime = Infinity;
+
+    for (const [sessionId, stream] of Array.from(this.streams.entries())) {
+      if (stream.createdAt < oldestTime) {
+        oldestTime = stream.createdAt;
+        oldestSessionId = sessionId;
+      }
+    }
+
+    if (oldestSessionId) {
+      this.cleanupSession(oldestSessionId, 'max_sessions_reached');
+    }
+  }
+
+  /**
+   * Shutdown all sessions (for graceful server shutdown)
+   */
+  shutdown(): void {
+    console.log(`🛑 Shutting down ${this.streams.size} session streams`);
+
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+
+    // Clear all disconnect grace timers
+    for (const timer of this.disconnectGraceTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.disconnectGraceTimers.clear();
+
+    for (const sessionId of Array.from(this.streams.keys())) {
+      this.cleanupSession(sessionId, 'server_shutdown');
+    }
+  }
+}
+
+// Singleton instance
+export const sessionStreamManager = new SessionStreamManager();
