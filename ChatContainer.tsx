@@ -85,6 +85,9 @@ export function ChatContainer() {
   const currentSessionIdRef = useRef<string | null>(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
 
+  // Track whether initial session load is complete (prevents double-load on page reload)
+  const initialLoadDoneRef = useRef(false);
+
   // Persist active session ID to localStorage for sleep/wake recovery
   useEffect(() => {
     if (currentSessionId) {
@@ -245,10 +248,12 @@ export function ChatContainer() {
     // Restore persisted active session on initial load (sleep/wake recovery)
     // Note: currentSessionId may already be set from localStorage initializer,
     // but messages are still empty on a fresh page load, so always restore.
+    // CRITICAL: await to prevent race condition with onConnect calling handleSessionSelect again
     const persistedSessionId = localStorage.getItem('agentic-active-session');
     if (persistedSessionId && loadedSessions.some(s => s.id === persistedSessionId)) {
-      handleSessionSelect(persistedSessionId);
+      await handleSessionSelect(persistedSessionId);
     }
+    initialLoadDoneRef.current = true;
   };
 
   // Handle session switching
@@ -545,12 +550,15 @@ export function ChatContainer() {
         // Clear loading state for any sessions that were "loading" before disconnect
         setLoadingSessions(new Set());
 
-        if (persistedSessionId === currentSession) {
-          // Same session — safe to reload messages from DB
-          console.log(`🔄 WebSocket reconnected — re-associating session ${persistedSessionId.substring(0, 8)}`);
+        // Only reload messages on RECONNECTION (not initial page load)
+        // loadSessions() already handles the initial load — calling handleSessionSelect
+        // here too causes a double-load race condition
+        if (initialLoadDoneRef.current && persistedSessionId === currentSession) {
+          console.log(`🔄 WebSocket reconnected — reloading session ${persistedSessionId.substring(0, 8)}`);
           await handleSessionSelect(persistedSessionId);
+        } else if (!initialLoadDoneRef.current) {
+          console.log(`🔄 WebSocket connected (initial load in progress, skipping reload)`);
         } else {
-          // Session changed during disconnect — do NOT reload, just log
           console.log(`⚠️ WebSocket reconnected — session changed (persisted: ${persistedSessionId.substring(0, 8)}, current: ${currentSession?.substring(0, 8) || 'none'})`);
         }
 
