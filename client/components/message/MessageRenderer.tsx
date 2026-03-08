@@ -56,16 +56,41 @@ export const MessageRenderer = React.memo(function MessageRenderer({ message }: 
     }
   }
 }, (prevProps, nextProps) => {
-  // Custom comparison function for memo
-  // Only re-render if message content actually changed
+  // Custom comparison: avoid JSON.stringify during streaming for performance
   if (prevProps.message.id !== nextProps.message.id) return false;
   if (prevProps.message.type !== nextProps.message.type) return false;
 
-  // For assistant messages, do deep comparison of content
-  if (nextProps.message.type === 'assistant') {
-    const prevContent = JSON.stringify(prevProps.message.content);
-    const nextContent = JSON.stringify(nextProps.message.content);
-    return prevContent === nextContent;
+  // For assistant messages, use shallow + tail comparison instead of full JSON.stringify
+  if (nextProps.message.type === 'assistant' && prevProps.message.type === 'assistant') {
+    const prevContent = prevProps.message.content;
+    const nextContent = nextProps.message.content;
+
+    // Different number of blocks = definitely changed
+    if (prevContent.length !== nextContent.length) return false;
+    if (prevContent.length === 0) return true;
+
+    // Compare the LAST block only (the one actively streaming)
+    const prevLast = prevContent[prevContent.length - 1];
+    const nextLast = nextContent[nextContent.length - 1];
+
+    if (prevLast.type !== nextLast.type) return false;
+
+    if (prevLast.type === 'text' && nextLast.type === 'text') {
+      return prevLast.text === nextLast.text;
+    }
+    if (prevLast.type === 'thinking' && nextLast.type === 'thinking') {
+      return prevLast.thinking === nextLast.thinking;
+    }
+    if (prevLast.type === 'tool_use' && nextLast.type === 'tool_use') {
+      // Tool use blocks: compare id + nested tools length
+      if (prevLast.id !== nextLast.id) return false;
+      const prevNested = prevLast.nestedTools?.length ?? 0;
+      const nextNested = nextLast.nestedTools?.length ?? 0;
+      return prevNested === nextNested;
+    }
+
+    // For other block types, fall back to reference equality
+    return prevLast === nextLast;
   }
 
   // For user/system messages, compare content directly

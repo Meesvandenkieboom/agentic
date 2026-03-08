@@ -172,7 +172,8 @@ export async function handleWebSocketMessage(
     console.error('WebSocket message error:', error);
     ws.send(JSON.stringify({
       type: 'error',
-      error: error instanceof Error ? error.message : 'Invalid message format'
+      error: error instanceof Error ? error.message : 'Invalid message format',
+      sessionId: ws.data?.sessionId
     }));
   }
 }
@@ -185,7 +186,7 @@ async function handleChatMessage(
   const { content, sessionId, model, timezone } = data;
 
   if (!content || !sessionId) {
-    ws.send(JSON.stringify({ type: 'error', error: 'Missing content or sessionId' }));
+    ws.send(JSON.stringify({ type: 'error', error: 'Missing content or sessionId', sessionId }));
     return;
   }
 
@@ -195,7 +196,8 @@ async function handleChatMessage(
     console.error('❌ Session not found:', sessionId);
     ws.send(JSON.stringify({
       type: 'error',
-      message: 'Session not found'
+      message: 'Session not found',
+      sessionId
     }));
     return;
   }
@@ -371,7 +373,8 @@ async function handleChatMessage(
     console.error('❌ Provider configuration error:', errorMessage);
     ws.send(JSON.stringify({
       type: 'error',
-      message: errorMessage
+      message: errorMessage,
+      sessionId
     }));
     return;
   }
@@ -389,7 +392,8 @@ async function handleChatMessage(
     console.error('❌ Working directory invalid:', validation.error);
     ws.send(JSON.stringify({
       type: 'error',
-      message: `Working directory error: ${validation.error}`
+      message: `Working directory error: ${validation.error}`,
+      sessionId
     }));
     return;
   }
@@ -643,6 +647,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
               commandType,
               description,
               startedAt: Date.now(),
+              sessionId,
             }));
 
             let accumulatedOutput = '';
@@ -670,6 +675,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
                     type: 'command_output_chunk',
                     bashId,
                     output: chunk,
+                    sessionId,
                   }));
                 },
               });
@@ -691,6 +697,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
                 type: 'long_running_command_completed',
                 bashId,
                 exitCode: result.exitCode,
+                sessionId,
               }));
 
 
@@ -720,6 +727,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
                 type: 'long_running_command_failed',
                 bashId,
                 error: error instanceof Error ? error.message : String(error),
+                sessionId,
               }));
 
               // Return error to Claude
@@ -770,6 +778,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
               command,
               description,
               startedAt: Date.now(),
+              sessionId,
             }));
 
             // Replace the command with an echo so the SDK gets a successful result
@@ -858,7 +867,8 @@ IMPORTANT: Do not modify files outside the workspace directory.
           console.error('❌ No AbortController found for session:', sessionId);
           ws.send(JSON.stringify({
             type: 'error',
-            message: 'Session initialization error'
+            message: 'Session initialization error',
+            sessionId
           }));
           return;
         }
@@ -1479,7 +1489,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
           delayMs: delayMs,
           errorType: parsedError.type,
           message: `Retrying... (attempt ${attemptNumber}/${MAX_RETRIES})`,
-          sessionId: sessionId,
+          sessionId,
         }));
 
         // Wait before retrying
@@ -1512,7 +1522,7 @@ async function handleApprovePlan(
   const { sessionId } = data;
 
   if (!sessionId) {
-    ws.send(JSON.stringify({ type: 'error', error: 'Missing sessionId' }));
+    ws.send(JSON.stringify({ type: 'error', error: 'Missing sessionId', sessionId }));
     return;
   }
 
@@ -1537,7 +1547,8 @@ async function handleApprovePlan(
     // Send confirmation to client
     ws.send(JSON.stringify({
       type: 'permission_mode_changed',
-      mode: 'bypassPermissions'
+      mode: 'bypassPermissions',
+      sessionId
     }));
 
     console.log('✅ Plan approved, database updated to bypassPermissions');
@@ -1549,7 +1560,8 @@ async function handleApprovePlan(
 
     ws.send(JSON.stringify({
       type: 'error',
-      error: error instanceof Error ? error.message : 'Failed to approve plan'
+      error: error instanceof Error ? error.message : 'Failed to approve plan',
+      sessionId
     }));
   }
 }
@@ -1562,7 +1574,7 @@ async function handleSetPermissionMode(
   const { sessionId, mode } = data;
 
   if (!sessionId || !mode) {
-    ws.send(JSON.stringify({ type: 'error', error: 'Missing sessionId or mode' }));
+    ws.send(JSON.stringify({ type: 'error', error: 'Missing sessionId or mode', sessionId }));
     return;
   }
 
@@ -1580,13 +1592,15 @@ async function handleSetPermissionMode(
 
     ws.send(JSON.stringify({
       type: 'permission_mode_changed',
-      mode
+      mode,
+      sessionId
     }));
   } catch (error) {
     console.error('Failed to update permission mode:', error);
     ws.send(JSON.stringify({
       type: 'error',
-      error: 'Failed to update permission mode'
+      error: 'Failed to update permission mode',
+      sessionId
     }));
   }
 }
@@ -1598,7 +1612,7 @@ async function handleKillBackgroundProcess(
   const { bashId } = data;
 
   if (!bashId) {
-    ws.send(JSON.stringify({ type: 'error', error: 'Missing bashId' }));
+    ws.send(JSON.stringify({ type: 'error', error: 'Missing bashId', sessionId: data.sessionId }));
     return;
   }
 
@@ -1610,19 +1624,22 @@ async function handleKillBackgroundProcess(
     if (success) {
       ws.send(JSON.stringify({
         type: 'background_process_killed',
-        bashId
+        bashId,
+        sessionId: data.sessionId
       }));
     } else {
       ws.send(JSON.stringify({
         type: 'error',
-        error: 'Process not found'
+        error: 'Process not found',
+        sessionId: data.sessionId
       }));
     }
   } catch (error) {
     console.error('Failed to kill background process:', error);
     ws.send(JSON.stringify({
       type: 'error',
-      error: error instanceof Error ? error.message : 'Failed to kill background process'
+      error: error instanceof Error ? error.message : 'Failed to kill background process',
+      sessionId: data.sessionId
     }));
   }
 }
@@ -1634,7 +1651,7 @@ async function handleStopGeneration(
   const { sessionId } = data;
 
   if (!sessionId) {
-    ws.send(JSON.stringify({ type: 'error', error: 'Missing sessionId' }));
+    ws.send(JSON.stringify({ type: 'error', error: 'Missing sessionId', sessionId }));
     return;
   }
 
@@ -1647,20 +1664,22 @@ async function handleStopGeneration(
       console.log(`✅ Generation stopped successfully: ${sessionId.toString().substring(0, 8)}`);
       ws.send(JSON.stringify({
         type: 'generation_stopped',
-        sessionId: sessionId
+        sessionId
       }));
     } else {
       console.warn(`⚠️ Failed to stop generation (session not found): ${sessionId.toString().substring(0, 8)}`);
       ws.send(JSON.stringify({
         type: 'error',
-        error: 'Session not found or already stopped'
+        error: 'Session not found or already stopped',
+        sessionId
       }));
     }
   } catch (error) {
     console.error('❌ Error stopping generation:', error);
     ws.send(JSON.stringify({
       type: 'error',
-      error: error instanceof Error ? error.message : 'Failed to stop generation'
+      error: error instanceof Error ? error.message : 'Failed to stop generation',
+      sessionId
     }));
   }
 }

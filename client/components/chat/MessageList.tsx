@@ -31,7 +31,7 @@ interface MessageListProps {
   scrollContainerRef?: React.RefObject<HTMLDivElement>;
 }
 
-export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef }: MessageListProps) {
+export const MessageList = React.memo(function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef }: MessageListProps) {
   const parentRef = scrollContainerRef || useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -461,4 +461,4 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
       </div>
     </div>
   );
-}
+});
