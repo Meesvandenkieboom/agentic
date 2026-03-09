@@ -33,6 +33,13 @@ interface CodexSDKConstructor {
   new (): CodexSDKInstance;
 }
 
+interface CodexThreadOptions {
+  workingDirectory?: string;
+  skipGitRepoCheck?: boolean;
+  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access';
+  approvalPolicy?: 'never' | 'on-request' | 'on-failure' | 'untrusted';
+}
+
 interface CodexSDKInstance {
   startThread(): CodexThread;
 }
@@ -140,121 +147,115 @@ export async function runCodexStream(
     // Load SDK
     const Codex = await loadCodexSDK();
 
-    // Initialize Codex with working directory if supported
-    // Note: As of v0.112.0, Codex SDK may not support cwd in constructor
-    // The CLI will inherit the process cwd, so we change it before spawning
-    const originalCwd = process.cwd();
+    const codex = new Codex();
+    const thread = codex.startThread({
+      workingDirectory: workingDir,
+      skipGitRepoCheck: true,
+      sandboxMode: 'workspace-write',
+      approvalPolicy: 'never',
+    });
 
-    try {
-      process.chdir(workingDir);
-      const codex = new Codex();
-      const thread = codex.startThread();
+    console.log("🤖 Running Codex with prompt:", prompt.slice(0, 100) + "...");
 
-      console.log("🤖 Running Codex with prompt:", prompt.slice(0, 100) + "...");
+    // Start streaming
+    const { events } = await thread.runStreamed(prompt);
 
-      // Start streaming
-      const { events } = await thread.runStreamed(prompt);
+    let currentItemType: string | null = null;
 
-      let currentItemType: string | null = null;
+    for await (const event of events) {
+      console.log("🤖 Codex event:", event.type);
 
-      for await (const event of events) {
-        console.log("🤖 Codex event:", event.type);
+      switch (event.type) {
+        case "thread.started":
+          console.log("🤖 Thread started");
+          break;
 
-        switch (event.type) {
-          case "thread.started":
-            console.log("🤖 Thread started");
-            break;
+        case "turn.started":
+          console.log("🤖 Turn started");
+          break;
 
-          case "turn.started":
-            console.log("🤖 Turn started");
-            break;
-
-          case "item.started":
-            currentItemType = event.item?.type ?? null;
-            if (currentItemType === "agent_message") {
-              // Some models emit thinking/reasoning traces
-              if (event.item?.isThinking) {
-                onEvent({ type: "thinking_start" });
-              }
+        case "item.started":
+          currentItemType = event.item?.type ?? null;
+          if (currentItemType === "agent_message") {
+            // Some models emit thinking/reasoning traces
+            if (event.item?.isThinking) {
+              onEvent({ type: "thinking_start" });
             }
-            break;
+          }
+          break;
 
-          case "item.updated":
-            if (event.item?.type === "agent_message" && event.item?.text) {
-              if (event.item?.isThinking) {
-                onEvent({
-                  type: "thinking_delta",
-                  content: event.item.text,
-                });
-              } else {
-                onEvent({
-                  type: "assistant_message",
-                  content: event.item.text,
-                });
-              }
-            }
-            break;
-
-          case "item.completed":
-            if (event.item?.type === "agent_message" && event.item?.text) {
-              // Final message chunk
+        case "item.updated":
+          if (event.item?.type === "agent_message" && event.item?.text) {
+            if (event.item?.isThinking) {
+              onEvent({
+                type: "thinking_delta",
+                content: event.item.text,
+              });
+            } else {
               onEvent({
                 type: "assistant_message",
                 content: event.item.text,
               });
-            } else if (event.item?.type === "command_execution") {
-              // Tool/command execution
-              onEvent({
-                type: "tool_use",
-                toolName: event.item.command || "unknown_command",
-                toolInput: {
-                  command: event.item.command,
-                  exitCode: event.item.exitCode,
-                  output: event.item.output,
-                },
-              });
             }
-            break;
+          }
+          break;
 
-          case "turn.completed":
-            console.log("🤖 Turn completed with usage:", event.usage);
+        case "item.completed":
+          if (event.item?.type === "agent_message" && event.item?.text) {
+            // Final message chunk
             onEvent({
-              type: "result",
-              success: true,
-              usage: event.usage ? {
-                input_tokens: event.usage.input_tokens || 0,
-                output_tokens: event.usage.output_tokens || 0,
-                cached_input_tokens: event.usage.cached_input_tokens,
-              } : undefined,
+              type: "assistant_message",
+              content: event.item.text,
             });
-            break;
-
-          case "turn.failed":
-            console.error("🤖 Turn failed:", event.error);
+          } else if (event.item?.type === "command_execution") {
+            // Tool/command execution
             onEvent({
-              type: "error",
-              message: event.error?.message || "Codex turn failed",
+              type: "tool_use",
+              toolName: event.item.command || "unknown_command",
+              toolInput: {
+                command: event.item.command,
+                exitCode: event.item.exitCode,
+                output: event.item.output,
+              },
             });
-            break;
+          }
+          break;
 
-          case "error":
-            console.error("🤖 Codex error:", event.error);
-            onEvent({
-              type: "error",
-              message: event.error?.message || "Unknown Codex error",
-            });
-            break;
+        case "turn.completed":
+          console.log("🤖 Turn completed with usage:", event.usage);
+          onEvent({
+            type: "result",
+            success: true,
+            usage: event.usage ? {
+              input_tokens: event.usage.input_tokens || 0,
+              output_tokens: event.usage.output_tokens || 0,
+              cached_input_tokens: event.usage.cached_input_tokens,
+            } : undefined,
+          });
+          break;
 
-          default:
-            console.log("🤖 Unhandled event type:", event.type);
-        }
+        case "turn.failed":
+          console.error("🤖 Turn failed:", event.error);
+          onEvent({
+            type: "error",
+            message: event.error?.message || "Codex turn failed",
+          });
+          break;
+
+        case "error":
+          console.error("🤖 Codex error:", event.error);
+          onEvent({
+            type: "error",
+            message: event.error?.message || "Unknown Codex error",
+          });
+          break;
+
+        default:
+          console.log("🤖 Unhandled event type:", event.type);
       }
-
-      console.log("🤖 Codex stream completed successfully");
-    } finally {
-      // Restore original working directory
-      process.chdir(originalCwd);
     }
+
+    console.log("🤖 Codex stream completed successfully");
   } catch (error) {
     console.error("🤖 Codex stream error:", error);
 
