@@ -13,6 +13,10 @@ const LEGACY_TOKEN_FILE = path.join(LEGACY_CONFIG_DIR, 'oauth-tokens.json');
 
 export interface StoredAuth {
   anthropic?: OAuthTokens;
+  codex?: {
+    loggedIn: boolean;
+    loginDate: number; // Unix timestamp
+  };
 }
 
 /**
@@ -80,22 +84,67 @@ export async function getAnthropicTokens(): Promise<OAuthTokens | null> {
 }
 
 /**
- * Clear all OAuth tokens (logout)
+ * Save Codex login marker
  */
-export async function clearTokens(): Promise<void> {
-  try {
-    await fs.unlink(TOKEN_FILE);
-    console.log('✅ Logged out successfully');
-  } catch {
-    // File might not exist, that's OK
-    console.log('✅ Logged out successfully');
+export async function saveCodexLoginMarker(): Promise<void> {
+  await ensureConfigDir();
+  const auth: StoredAuth = await loadTokens();
+  auth.codex = { loggedIn: true, loginDate: Date.now() };
+  await fs.writeFile(TOKEN_FILE, JSON.stringify(auth, null, 2), 'utf-8');
+  console.log('✅ Codex login marker saved');
+}
+
+/**
+ * Check if user is logged in with Codex
+ */
+export async function isCodexLoggedIn(): Promise<boolean> {
+  const auth = await loadTokens();
+  return auth.codex?.loggedIn === true;
+}
+
+/**
+ * Clear Codex login marker
+ */
+export async function clearCodexTokens(): Promise<void> {
+  const auth = await loadTokens();
+  delete auth.codex;
+  await fs.writeFile(TOKEN_FILE, JSON.stringify(auth, null, 2), 'utf-8');
+  console.log('✅ Codex login marker cleared');
+}
+
+/**
+ * Clear OAuth tokens (logout)
+ */
+export async function clearTokens(provider?: 'anthropic' | 'codex' | 'all'): Promise<void> {
+  if (provider === 'codex') {
+    await clearCodexTokens();
+    return;
+  }
+  if (provider === 'anthropic' || !provider || provider === 'all') {
+    try {
+      if (provider === 'all') {
+        await fs.unlink(TOKEN_FILE);
+      } else {
+        // Only clear anthropic
+        const auth = await loadTokens();
+        delete auth.anthropic;
+        await fs.writeFile(TOKEN_FILE, JSON.stringify(auth, null, 2), 'utf-8');
+      }
+      console.log('✅ Logged out successfully');
+    } catch {
+      console.log('✅ Logged out successfully');
+    }
   }
 }
 
 /**
  * Check if user is logged in with OAuth
  */
-export async function isLoggedIn(): Promise<boolean> {
+export async function isLoggedIn(provider?: 'anthropic' | 'codex'): Promise<boolean> {
+  if (provider === 'codex') {
+    return isCodexLoggedIn();
+  }
+  // Default: check Anthropic (backward compatible)
   const tokens = await getAnthropicTokens();
   return tokens !== null;
 }

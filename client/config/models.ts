@@ -25,7 +25,7 @@
  * Add new models here to make them available in the UI.
  */
 
-export type ProviderType = 'anthropic' | 'z-ai' | 'moonshot';
+export type ProviderType = 'anthropic' | 'codex';
 
 export interface ModelConfig {
   id: string;
@@ -70,25 +70,11 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     provider: 'anthropic',
   },
   {
-    id: 'glm-4.6',
-    name: 'GLM 4.6',
-    description: 'Z.AI\'s flagship model for powerful reasoning and coding',
-    apiModelId: 'glm-4.6',
-    provider: 'z-ai',
-  },
-  {
-    id: 'kimi-k2-thinking',
-    name: 'Kimi K2 Thinking',
-    description: 'Extended thinking model for complex reasoning tasks',
-    apiModelId: 'kimi-k2-thinking',
-    provider: 'moonshot',
-  },
-  {
-    id: 'kimi-k2-thinking-turbo',
-    name: 'Kimi K2 Thinking Turbo',
-    description: 'Fast thinking model for rapid complex reasoning',
-    apiModelId: 'kimi-k2-thinking-turbo',
-    provider: 'moonshot',
+    id: 'codex',
+    name: 'Codex',
+    description: 'OpenAI Codex via ChatGPT subscription - coding agent',
+    apiModelId: 'codex',
+    provider: 'codex',
   },
 ];
 

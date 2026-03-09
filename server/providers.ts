@@ -32,8 +32,6 @@ export interface ProviderConfig {
 // Cache for API keys to avoid repeated reads from process.env
 // This cache is populated on first call to getProviders() AFTER .env is loaded
 let cachedAnthropicKey: string | null = null;
-let cachedZaiKey: string | null = null;
-let cachedMoonshotKey: string | null = null;
 
 /**
  * Provider configurations
@@ -45,8 +43,6 @@ export async function getProviders(): Promise<Record<ProviderType, ProviderConfi
   // Populate cache on first call (AFTER .env is loaded by initializeStartup)
   if (cachedAnthropicKey === null) {
     cachedAnthropicKey = process.env.ANTHROPIC_API_KEY || '';
-    cachedZaiKey = process.env.ZAI_API_KEY || '';
-    cachedMoonshotKey = process.env.MOONSHOT_API_KEY || '';
   }
 
   // Check for OAuth tokens for Anthropic provider
@@ -59,17 +55,11 @@ export async function getProviders(): Promise<Record<ProviderType, ProviderConfi
       name: 'Anthropic',
       oauthTokens,
     },
-    'z-ai': {
-      baseUrl: 'https://api.z.ai/api/anthropic',
-      apiKey: cachedZaiKey || '',
-      name: 'Z.AI',
-      oauthTokens: null, // Z.AI doesn't support OAuth
-    },
-    'moonshot': {
-      baseUrl: 'https://api.moonshot.ai/anthropic/',
-      apiKey: cachedMoonshotKey || '',
-      name: 'Moonshot AI',
-      oauthTokens: null, // Moonshot doesn't support OAuth
+    'codex': {
+      // Codex uses its own CLI authentication, no API key needed
+      apiKey: '',
+      name: 'OpenAI Codex',
+      oauthTokens: null,
     },
   };
 }
@@ -120,32 +110,26 @@ export async function configureProvider(provider: ProviderType): Promise<void> {
     }
   }
 
-  // Fall back to API key authentication
+  // Codex uses its own CLI authentication
+  if (provider === 'codex') {
+    console.log('ℹ️  Codex uses its own CLI authentication (no API key needed)');
+    return;
+  }
+
+  // Fall back to API key authentication for other providers
   if (!config.apiKey || config.apiKey.trim() === '') {
     let providerName: string;
     let keyName: string;
     let instructions: string;
 
-    switch (provider) {
-      case 'anthropic':
-        providerName = 'Anthropic';
-        keyName = 'ANTHROPIC_API_KEY';
-        instructions = 'Get your API key from https://console.anthropic.com/ or run "bun run login" to use OAuth';
-        break;
-      case 'z-ai':
-        providerName = 'Z.AI';
-        keyName = 'ZAI_API_KEY';
-        instructions = 'Get your API key from https://z.ai';
-        break;
-      case 'moonshot':
-        providerName = 'Moonshot AI';
-        keyName = 'MOONSHOT_API_KEY';
-        instructions = 'Get your API key from https://platform.moonshot.ai/';
-        break;
-      default:
-        providerName = 'Unknown';
-        keyName = 'API_KEY';
-        instructions = 'Check provider documentation';
+    if (provider === 'anthropic') {
+      providerName = 'Anthropic';
+      keyName = 'ANTHROPIC_API_KEY';
+      instructions = 'Get your API key from https://console.anthropic.com/ or run "bun run login" to use OAuth';
+    } else {
+      providerName = 'Unknown';
+      keyName = 'API_KEY';
+      instructions = 'Check provider documentation';
     }
 
     throw new Error(
@@ -162,14 +146,8 @@ export async function configureProvider(provider: ProviderType): Promise<void> {
     delete process.env.ANTHROPIC_BASE_URL;
   }
 
-  // Z.AI and Moonshot use Bearer token (ANTHROPIC_AUTH_TOKEN), not x-api-key
-  if (provider === 'z-ai' || provider === 'moonshot') {
-    process.env.ANTHROPIC_AUTH_TOKEN = config.apiKey;
-    process.env.ANTHROPIC_API_KEY = '';
-  } else {
-    // Standard Anthropic API uses x-api-key header
-    process.env.ANTHROPIC_API_KEY = config.apiKey;
-  }
+  // Standard Anthropic API uses x-api-key header
+  process.env.ANTHROPIC_API_KEY = config.apiKey;
 }
 
 /**

@@ -299,7 +299,7 @@ echo -e "${BLUE}📍 Installation:${NC} $INSTALL_DIR"
 echo ""
 
 # Check configuration status
-if [[ -f "$INSTALL_DIR/.env" ]] && grep -q "^ANTHROPIC_API_KEY=sk-ant-\|^ZAI_API_KEY=\|^MOONSHOT_API_KEY=" "$INSTALL_DIR/.env" 2>/dev/null; then
+if [[ -f "$INSTALL_DIR/.env" ]] && grep -q "^ANTHROPIC_API_KEY=sk-ant-" "$INSTALL_DIR/.env" 2>/dev/null; then
   echo -e "${GREEN}✓${NC} API keys configured"
 elif [[ -f "$INSTALL_DIR/.tokens" ]]; then
   echo -e "${GREEN}✓${NC} OAuth authentication active"

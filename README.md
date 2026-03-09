@@ -80,7 +80,7 @@ Agentic is a **desktop-first chat interface** that brings the power of Anthropic
 
 ### 🌐 Multi-Provider Support
 - **Anthropic** - Direct Claude API access
-- **Z.AI** - Alternative provider with GLM models + web search
+- **OpenAI Codex** - ChatGPT subscription via Codex SDK
 - **Easy Switching** - Change providers via dropdown
 
 ### 🐙 GitHub Integration
@@ -225,9 +225,9 @@ agentic --update
 - **Claude Sonnet 4.6** ⭐ - Best for complex tasks
 - Direct API access to latest Claude models
 
-**Z.AI Models:**
-- **GLM 4.6** - Alternative with web search MCP
-- Great for research tasks
+**OpenAI Codex:**
+- **Codex** - OpenAI models via ChatGPT subscription
+- No API key needed - uses CLI auth
 
 Switch anytime via header dropdown.
 
@@ -430,8 +430,8 @@ Create `.env` in app directory:
 # Anthropic (Claude models)
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 
-# Z.AI (GLM models, optional)
-ZAI_API_KEY=your-zai-key-here
+# OpenAI Codex: Uses ChatGPT subscription via CLI auth
+# Run: bun run login → select Codex
 ```
 
 ### Advanced Configuration

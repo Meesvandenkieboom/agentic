@@ -115,7 +115,7 @@ export async function initializeStartup(): Promise<StartupConfig> {
         process.env[key] = value;
         keysLoaded++;
         // Only log the key name, not the value (for security)
-        if (key === 'ANTHROPIC_API_KEY' || key === 'ZAI_API_KEY' || key === 'GITHUB_CLIENT_ID') {
+        if (key === 'ANTHROPIC_API_KEY' || key === 'GITHUB_CLIENT_ID') {
           debugLog(`  - Loaded ${key}: ${value.substring(0, 10)}...`);
         }
       }
@@ -155,8 +155,6 @@ export async function initializeStartup(): Promise<StartupConfig> {
   }
 
   debugLog(`  - ANTHROPIC_API_KEY set: ${!!process.env.ANTHROPIC_API_KEY}`);
-  debugLog(`  - ZAI_API_KEY set: ${!!process.env.ZAI_API_KEY}`);
-  debugLog(`  - MOONSHOT_API_KEY set: ${!!process.env.MOONSHOT_API_KEY}`);
   debugLog(`  - GITHUB_CLIENT_ID set: ${!!process.env.GITHUB_CLIENT_ID}`);
   debugLog(`  - GITHUB_CLIENT_SECRET set: ${!!process.env.GITHUB_CLIENT_SECRET}`);
 

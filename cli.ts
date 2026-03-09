@@ -1,13 +1,44 @@
 #!/usr/bin/env bun
 import { startOAuthFlow, exchangeCodeForTokens } from './server/oauth';
-import { saveTokens, clearTokens, isLoggedIn, getAnthropicTokens } from './server/tokenStorage';
+import { saveTokens, clearTokens, isLoggedIn, getAnthropicTokens, saveCodexLoginMarker, isCodexLoggedIn, clearCodexTokens } from './server/tokenStorage';
 import * as readline from 'readline';
+import { execSync } from 'child_process';
 
 const args = process.argv.slice(2);
 const command = args[0];
 
 async function handleLogin() {
-  console.log('\n🔐 Agentic - Claude OAuth Login\n');
+  console.log('\n🔐 Agentic - Login\n');
+
+  // Provider selection menu
+  console.log('Select provider:');
+  console.log('  1) Claude (Anthropic subscription)');
+  console.log('  2) Codex (ChatGPT subscription)\n');
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  const choice = await new Promise<string>((resolve) => {
+    rl.question('Choice (1/2): ', resolve);
+  });
+  rl.close();
+
+  if (choice !== '1' && choice !== '2') {
+    console.error('\n❌ Invalid choice. Login cancelled.');
+    process.exit(1);
+  }
+
+  if (choice === '1') {
+    await handleClaudeLogin();
+  } else {
+    await handleCodexLogin();
+  }
+}
+
+async function handleClaudeLogin() {
+  console.log('\n🔐 Claude OAuth Login\n');
 
   // Check if already logged in
   const alreadyLoggedIn = await isLoggedIn();
@@ -78,22 +109,87 @@ async function handleLogin() {
   }
 }
 
-async function handleLogout() {
-  console.log('\n👋 Agentic - Claude OAuth Logout\n');
+async function handleCodexLogin() {
+  console.log('\n🔐 Codex Login\n');
 
-  const loggedIn = await isLoggedIn();
-  if (!loggedIn) {
-    console.log('ℹ️  You are not logged in.');
+  // Check if Codex CLI is installed
+  let codexInstalled = false;
+  try {
+    execSync('codex --version', { encoding: 'utf8', stdio: 'pipe' });
+    codexInstalled = true;
+  } catch {
+    codexInstalled = false;
+  }
+
+  if (!codexInstalled) {
+    console.error('❌ Codex CLI is not installed.');
+    console.log('\nTo install Codex CLI, run:');
+    console.log('  npm install -g @openai/codex\n');
+    console.log('After installation, run this command again.\n');
+    process.exit(1);
+  }
+
+  try {
+    console.log('🔄 Starting Codex login flow...\n');
+
+    // Run codex login with inherited stdio
+    const proc = Bun.spawn(['codex', 'login'], {
+      stdout: 'inherit',
+      stderr: 'inherit',
+      stdin: 'inherit',
+    });
+
+    const exitCode = await proc.exited;
+
+    if (exitCode === 0) {
+      // Save marker indicating Codex is logged in
+      await saveCodexLoginMarker();
+      console.log('\n✅ Successfully logged in with Codex!\n');
+    } else {
+      console.error(`\n❌ Codex login failed with exit code ${exitCode}\n`);
+      process.exit(exitCode);
+    }
+
+  } catch (error) {
+    console.error('\n❌ Codex login failed:', error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}
+
+async function handleLogout() {
+  console.log('\n👋 Agentic - Logout\n');
+
+  const claudeLoggedIn = await isLoggedIn();
+  const codexLoggedIn = await isCodexLoggedIn();
+
+  if (!claudeLoggedIn && !codexLoggedIn) {
+    console.log('ℹ️  You are not logged in to any provider.');
     process.exit(0);
   }
+
+  // Provider selection menu
+  console.log('Select provider to log out:');
+  console.log('  1) Claude');
+  console.log('  2) Codex');
+  console.log('  3) Both\n');
 
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
   });
 
+  const choice = await new Promise<string>((resolve) => {
+    rl.question('Choice (1/2/3): ', resolve);
+  });
+
+  if (choice !== '1' && choice !== '2' && choice !== '3') {
+    rl.close();
+    console.error('\n❌ Invalid choice. Logout cancelled.');
+    process.exit(1);
+  }
+
   const answer = await new Promise<string>((resolve) => {
-    rl.question('Are you sure you want to log out? (y/N): ', resolve);
+    rl.question('\nAre you sure you want to log out? (y/N): ', resolve);
   });
   rl.close();
 
@@ -102,29 +198,80 @@ async function handleLogout() {
     process.exit(0);
   }
 
-  await clearTokens();
-  console.log('\n💡 You will now use your API key (if set) for authentication.\n');
+  try {
+    if (choice === '1' || choice === '3') {
+      if (claudeLoggedIn) {
+        await clearTokens();
+        console.log('\n✅ Logged out from Claude.');
+      }
+    }
+
+    if (choice === '2' || choice === '3') {
+      if (codexLoggedIn) {
+        // Run codex logout
+        const proc = Bun.spawn(['codex', 'logout'], {
+          stdout: 'inherit',
+          stderr: 'inherit',
+          stdin: 'inherit',
+        });
+        await proc.exited;
+        await clearCodexTokens();
+        console.log('\n✅ Logged out from Codex.');
+      }
+    }
+
+    if (choice === '1') {
+      console.log('\n💡 You will now use your API key (if set) for Claude authentication.\n');
+    } else if (choice === '3') {
+      console.log('\n💡 You will now use your API key (if set) for authentication.\n');
+    } else {
+      console.log('');
+    }
+
+  } catch (error) {
+    console.error('\n❌ Logout failed:', error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 }
 
 async function handleStatus() {
   console.log('\n📊 Agentic - Auth Status\n');
 
-  const loggedIn = await isLoggedIn();
-
-  if (loggedIn) {
+  // Claude status
+  const claudeLoggedIn = await isLoggedIn();
+  console.log('Claude:');
+  if (claudeLoggedIn) {
     const tokens = await getAnthropicTokens();
     if (tokens) {
       const expiresDate = new Date(tokens.expiresAt).toLocaleString();
       const isExpired = Date.now() >= tokens.expiresAt;
 
-      console.log('✅ Logged in with Claude OAuth');
-      console.log(`   Status: ${isExpired ? '❌ Expired (will auto-refresh)' : '✅ Active'}`);
-      console.log(`   Expires: ${expiresDate}`);
-      console.log(`\n💡 API key usage: Disabled (using Claude Pro/Max subscription)\n`);
+      console.log('  ✅ Logged in with OAuth');
+      console.log(`  Status: ${isExpired ? '❌ Expired (will auto-refresh)' : '✅ Active'}`);
+      console.log(`  Expires: ${expiresDate}`);
     }
   } else {
-    console.log('❌ Not logged in with OAuth');
-    console.log(`\n💡 Authentication method: ${process.env.ANTHROPIC_API_KEY ? 'API Key' : 'Not configured'}\n`);
+    console.log('  ❌ Not logged in');
+    console.log(`  💡 Run: bun run login → select Claude`);
+  }
+
+  console.log('');
+
+  // Codex status
+  const codexLoggedIn = await isCodexLoggedIn();
+  console.log('Codex:');
+  if (codexLoggedIn) {
+    console.log('  ✅ Codex CLI authenticated');
+  } else {
+    console.log('  ❌ Not logged in');
+    console.log(`  💡 Run: bun run login → select Codex`);
+  }
+
+  console.log('');
+
+  // Show API key fallback info
+  if (!claudeLoggedIn) {
+    console.log(`💡 Claude authentication method: ${process.env.ANTHROPIC_API_KEY ? 'API Key' : 'Not configured'}\n`);
   }
 }
 
@@ -197,17 +344,21 @@ function showHelp() {
 🤖 Agentic - CLI
 
 Commands:
-  --login        Log in with Claude Pro/Max subscription (OAuth)
-  --logout       Log out and clear OAuth tokens
-  --status       Show current authentication status
+  --login        Log in with provider (Claude or Codex)
+  --logout       Log out and clear tokens
+  --status       Show authentication status for all providers
   --update       Update to the latest version from GitHub
   --help         Show this help message
 
 Examples:
-  bun run cli.ts --login
-  bun run cli.ts --logout
-  bun run cli.ts --status
+  bun run cli.ts --login    # Select Claude or Codex provider
+  bun run cli.ts --logout   # Logout from one or all providers
+  bun run cli.ts --status   # Check auth status
   bun run cli.ts --update
+
+Providers:
+  Claude         Anthropic subscription (OAuth)
+  Codex          ChatGPT subscription (requires @openai/codex CLI)
 
 Note: Use 'agentic' command to launch the app (standalone binary).
 `);

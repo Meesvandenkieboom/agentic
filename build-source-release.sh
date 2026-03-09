@@ -51,18 +51,11 @@ cd ../..
 
 # Create .env template
 cat > release/agentic-$PLATFORM/.env << 'EOF'
-# =============================================================================
 # Anthropic Configuration (Claude Models)
-# =============================================================================
-# Get your API key from: https://console.anthropic.com/
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 
-# =============================================================================
-# Z.AI Configuration (GLM Models)
-# =============================================================================
-# Get your API key from: https://z.ai
-# The server automatically configures the endpoint when you select a GLM model
-ZAI_API_KEY=your-zai-key-here
+# OpenAI Codex: Uses ChatGPT subscription via CLI auth
+# Run: bun run login → select Codex
 EOF
 
 # Create launcher script

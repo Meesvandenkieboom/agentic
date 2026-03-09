@@ -371,7 +371,7 @@ async function handleChatMessage(
   const { apiModelId, provider } = modelConfig;
 
   // Configure provider (sets ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY env vars)
-  const providerType = provider as 'anthropic' | 'z-ai' | 'moonshot';
+  const providerType = provider as 'anthropic' | 'codex';
 
   // Validate API key before proceeding (OAuth takes precedence over API key)
   try {
@@ -386,7 +386,7 @@ async function handleChatMessage(
     return;
   }
 
-  // Get MCP servers for this provider (model-specific filtering for GLM)
+  // Get MCP servers for this provider
   const mcpServers = await getMcpServers(providerType, apiModelId);
 
   // Minimal request logging - one line summary
@@ -565,9 +565,8 @@ IMPORTANT: Do not modify files outside the workspace directory.
       },
     };
 
-    // Enable extended thinking for Anthropic and Moonshot models
-    // Z.AI's Anthropic-compatible API doesn't support maxThinkingTokens parameter
-    if (providerType === 'anthropic' || providerType === 'moonshot') {
+    // Enable extended thinking for Anthropic models
+    if (providerType === 'anthropic') {
       queryOptions.maxThinkingTokens = 10000;
       console.log('🧠 Extended thinking enabled with maxThinkingTokens:', queryOptions.maxThinkingTokens);
     } else {
@@ -1313,10 +1312,10 @@ IMPORTANT: Do not modify files outside the workspace directory.
           for (const block of content) {
             if (block.type === 'tool_use') {
               // IMPORTANT: Reset timeout on tool use to prevent timeouts during long tool executions
-              // GLM models may not output text for several minutes during tool/agent execution
+              // Models may not output text for several minutes during tool/agent execution
               timeoutController.reset();
 
-              // Hang detection logging (especially useful for GLM debugging)
+              // Hang detection logging
               toolUseCount++;
               const toolTimestamp = new Date().toISOString();
               console.log(`🔧 [${toolTimestamp}] Tool #${toolUseCount}: ${block.name}`);

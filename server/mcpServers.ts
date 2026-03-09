@@ -72,8 +72,7 @@ async function loadHeaderOverrides(): Promise<Record<string, Record<string, stri
 
 /**
  * MCP servers configuration for different providers
- * - Shared MCP servers (grep.app): Available to all providers
- * - Provider-specific MCP servers: Z.AI has additional web-search and media analysis tools
+ * - Shared MCP servers (grep.app, context7): Available to all providers
  */
 export const MCP_SERVERS_BY_PROVIDER: Record<ProviderType, Record<string, McpServerConfig>> = {
   'anthropic': {
@@ -88,36 +87,7 @@ export const MCP_SERVERS_BY_PROVIDER: Record<ProviderType, Record<string, McpSer
       url: 'https://mcp.context7.com/mcp',
     },
   },
-  'z-ai': {
-    // Grep.app MCP - code search across public GitHub repositories
-    'grep': {
-      type: 'http',
-      url: 'https://mcp.grep.app',
-    },
-    // Context7 MCP - real-time library documentation lookup
-    'context7': {
-      type: 'http',
-      url: 'https://mcp.context7.com/mcp',
-    },
-    // GLM models use Z.AI MCP servers
-    'web-search-prime': {
-      type: 'http',
-      url: 'https://api.z.ai/api/mcp/web_search_prime/mcp',
-      headers: {
-        'Authorization': `Bearer ${process.env.ZAI_API_KEY || ''}`,
-      },
-    },
-    'zai-mcp-server': {
-      type: 'stdio',
-      command: 'npx',
-      args: ['-y', '@z_ai/mcp-server'],
-      env: {
-        'Z_AI_API_KEY': process.env.ZAI_API_KEY || '',
-        'Z_AI_MODE': 'ZAI',
-      },
-    },
-  },
-  'moonshot': {
+  'codex': {
     // Grep.app MCP - code search across public GitHub repositories
     'grep': {
       type: 'http',
@@ -198,24 +168,7 @@ export function getAllowedMcpTools(provider: ProviderType, _modelId?: string): s
     'mcp__context7__get-library-docs',
   ];
 
-  if (provider === 'anthropic') {
-    return [
-      ...grepTools,
-      ...context7Tools,
-    ];
-  }
-
-  if (provider === 'z-ai') {
-    return [
-      ...grepTools,
-      ...context7Tools,
-      'mcp__web-search-prime__search',
-      'mcp__zai-mcp-server__image_analysis',
-      'mcp__zai-mcp-server__video_analysis',
-    ];
-  }
-
-  if (provider === 'moonshot') {
+  if (provider === 'anthropic' || provider === 'codex') {
     return [
       ...grepTools,
       ...context7Tools,

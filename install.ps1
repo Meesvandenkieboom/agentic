@@ -537,117 +537,61 @@ function Install-Application {
 function Set-ApiConfiguration {
     Write-Section "API Key Setup"
 
-    # Check for existing real keys (not placeholders)
+    # Check for existing real key (not placeholder)
     $existingAnthropic = ""
-    $existingZai = ""
 
     if (Test-Path "$INSTALL_DIR\.env") {
         $envLines = Get-Content "$INSTALL_DIR\.env"
         $anthroLine = $envLines | Where-Object { $_ -match "^ANTHROPIC_API_KEY=" -and $_ -notmatch "sk-ant-your-key-here" }
-        $zaiLine = $envLines | Where-Object { $_ -match "^ZAI_API_KEY=" -and $_ -notmatch "your-zai-key-here" }
 
-        if ($anthroLine) { $existingAnthropic = ($anthroLine -split '=', 2)[1] }
-        if ($zaiLine) { $existingZai = ($zaiLine -split '=', 2)[1] }
-
-        # If both keys are configured, skip
-        if ($existingAnthropic -and $existingZai) {
-            Write-Success "Both API keys already configured"
+        if ($anthroLine) {
+            $existingAnthropic = ($anthroLine -split '=', 2)[1]
+            Write-Success "Anthropic API key already configured"
+            Write-Host ""
+            Write-Info "Models available:"
+            Write-ColorMessage "  • " "Green" -NoNewline; Write-Host "Claude Sonnet 4.6, Claude Opus 4.5"
+            Write-ColorMessage "  • " "Green" -NoNewline; Write-Host "OpenAI Codex (via 'bun run login' CLI auth)"
+            Write-Host ""
             return
-        }
-
-        # If only one is configured, inform user
-        if ($existingAnthropic -and -not $existingZai) {
-            Write-Info "Anthropic API already configured"
-            Write-ColorMessage "  ✓ " "Green" -NoNewline; Write-Host "Available: Claude Sonnet 4.6"
-            Write-ColorMessage "  ✗ " "Yellow" -NoNewline; Write-Host "Unavailable: GLM 4.6 (needs Z.AI API key)"
-            Write-Host ""
-        } elseif (-not $existingAnthropic -and $existingZai) {
-            Write-Info "Z.AI API already configured"
-            Write-ColorMessage "  ✓ " "Green" -NoNewline; Write-Host "Available: GLM 4.6"
-            Write-ColorMessage "  ✗ " "Yellow" -NoNewline; Write-Host "Unavailable: Claude Sonnet 4.6 (needs Anthropic API key)"
-            Write-Host ""
         }
     }
 
-    # Use existing keys as defaults
+    # Use existing key as default
     $anthropicKey = $existingAnthropic
-    $zaiKey = $existingZai
 
-    # If one key exists, offer to add the missing one
-    if ($existingAnthropic -and -not $existingZai) {
-        $addZai = Read-Host "Add Z.AI API key for full model access? [y/N]"
-        if ($addZai -match '^[Yy]$') {
-            Write-Host ""
-            Write-ColorMessage "📝 Z.AI API Setup" "Cyan"
-            Write-Host "Get your API key from: https://z.ai"
-            Write-Host ""
-            $zaiKey = Read-Host "Enter your Z.AI API key"
-        }
-    } elseif (-not $existingAnthropic -and $existingZai) {
-        $addAnthropic = Read-Host "Add Anthropic API key for full model access? [y/N]"
-        if ($addAnthropic -match '^[Yy]$') {
+    # Show simple menu
+    Write-Host "Configure Anthropic API key?"
+    Write-Host ""
+    Write-ColorMessage "  1) " "Yellow" -NoNewline; Write-Host "Enter Anthropic API key (Claude models)"
+    Write-ColorMessage "  2) " "Yellow" -NoNewline; Write-Host "Skip (configure later or use Codex only)"
+    Write-Host ""
+    Write-Info "Note: OpenAI Codex can be configured after install via 'bun run login'"
+    Write-Host ""
+
+    $apiChoice = Read-Host "Enter choice [1-2]"
+
+    switch ($apiChoice) {
+        "1" {
             Write-Host ""
             Write-ColorMessage "📝 Anthropic API Setup" "Cyan"
             Write-Host "Get your API key from: https://console.anthropic.com/"
             Write-Host ""
             $anthropicKey = Read-Host "Enter your Anthropic API key"
         }
-    } else {
-        # No existing keys, show full menu
-        Write-Host "Which API provider(s) do you want to use?"
-        Write-Host ""
-        Write-ColorMessage "  1) " "Yellow" -NoNewline; Write-Host "Anthropic API only (Claude models)"
-        Write-ColorMessage "  2) " "Yellow" -NoNewline; Write-Host "Z.AI API only (GLM models)"
-        Write-ColorMessage "  3) " "Yellow" -NoNewline; Write-Host "Both APIs (full model access)"
-        Write-ColorMessage "  4) " "Yellow" -NoNewline; Write-Host "Skip (configure later)"
-        Write-Host ""
-
-        $apiChoice = Read-Host "Enter choice [1-4]"
-
-        switch ($apiChoice) {
-            "1" {
-                Write-Host ""
-                Write-ColorMessage "📝 Anthropic API Setup" "Cyan"
-                Write-Host "Get your API key from: https://console.anthropic.com/"
-                Write-Host ""
-                $anthropicKey = Read-Host "Enter your Anthropic API key"
-            }
-            "2" {
-                Write-Host ""
-                Write-ColorMessage "📝 Z.AI API Setup" "Cyan"
-                Write-Host "Get your API key from: https://z.ai"
-                Write-Host ""
-                $zaiKey = Read-Host "Enter your Z.AI API key"
-            }
-            "3" {
-                Write-Host ""
-                Write-ColorMessage "📝 Anthropic API Setup" "Cyan"
-                Write-Host "Get your API key from: https://console.anthropic.com/"
-                Write-Host ""
-                $anthropicKey = Read-Host "Enter your Anthropic API key"
-                Write-Host ""
-                Write-ColorMessage "📝 Z.AI API Setup" "Cyan"
-                Write-Host "Get your API key from: https://z.ai"
-                Write-Host ""
-                $zaiKey = Read-Host "Enter your Z.AI API key"
-            }
-            "4" {
-                Write-Host ""
-                Write-Warning "Skipping API configuration"
-                Write-Host "You'll need to edit $INSTALL_DIR\.env before running Agentic"
-                return
-            }
-            default {
-                Write-Host ""
-                Write-Warning "Invalid choice. Skipping API configuration."
-                return
-            }
+        "2" {
+            Write-Host ""
+            Write-Warning "Skipping API configuration"
+            Write-Info "You can configure Anthropic API later by editing $INSTALL_DIR\.env"
+            Write-Info "For OpenAI Codex, run 'bun run login' after installation"
+            Write-Host ""
+            $anthropicKey = "sk-ant-your-key-here"
+        }
+        default {
+            Write-Host ""
+            Write-Warning "Invalid choice. Skipping API configuration."
+            $anthropicKey = "sk-ant-your-key-here"
         }
     }
-
-    # Set defaults if not provided (preserve existing keys if set)
-    if (-not $anthropicKey) { $anthropicKey = "sk-ant-your-key-here" }
-    if (-not $zaiKey) { $zaiKey = "your-zai-key-here" }
 
     # Create .env file
     $envContent = @"
@@ -658,17 +602,15 @@ function Set-ApiConfiguration {
 ANTHROPIC_API_KEY=$anthropicKey
 
 # =============================================================================
-# Z.AI Configuration (GLM Models)
+# OpenAI Codex: Uses ChatGPT subscription via CLI auth
 # =============================================================================
-# Get your API key from: https://z.ai
-# The server automatically configures the endpoint when you select a GLM model
-ZAI_API_KEY=$zaiKey
+# Run: bun run login → select Codex
 "@
 
     $envContent | Out-File -FilePath "$INSTALL_DIR\.env" -Encoding UTF8 -Force
 
     Write-Host ""
-    Write-Success "API keys configured"
+    Write-Success "API configuration complete"
 }
 
 # =============================================================================

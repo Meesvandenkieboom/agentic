@@ -164,18 +164,10 @@ jobs:
           ANTHROPIC_API_KEY=sk-ant-your-key-here
 
           # =============================================================================
-          # Z.AI Configuration (GLM Models)
+          # OpenAI Codex Configuration
           # =============================================================================
-          # Get your API key from: https://z.ai
-          # The server automatically configures the endpoint when you select a GLM model
-          ZAI_API_KEY=your-zai-key-here
-
-          # =============================================================================
-          # Moonshot AI Configuration (Kimi K2 Models)
-          # =============================================================================
-          # Get your API key from: https://platform.moonshot.ai/
-          # The server automatically configures the endpoint when you select a Kimi model
-          MOONSHOT_API_KEY=your-moonshot-key-here
+          # Codex uses ChatGPT subscription via CLI auth (no API key needed)
+          # Run: bun run login → select Codex
           EOF
 
       - name: Create README
@@ -401,18 +393,10 @@ jobs:
           ANTHROPIC_API_KEY=sk-ant-your-key-here
 
           # =============================================================================
-          # Z.AI Configuration (GLM Models)
+          # OpenAI Codex Configuration
           # =============================================================================
-          # Get your API key from: https://z.ai
-          # The server automatically configures the endpoint when you select a GLM model
-          ZAI_API_KEY=your-zai-key-here
-
-          # =============================================================================
-          # Moonshot AI Configuration (Kimi K2 Models)
-          # =============================================================================
-          # Get your API key from: https://platform.moonshot.ai/
-          # The server automatically configures the endpoint when you select a Kimi model
-          MOONSHOT_API_KEY=your-moonshot-key-here
+          # Codex uses ChatGPT subscription via CLI auth (no API key needed)
+          # Run: bun run login → select Codex
           "@ | Out-File -FilePath release\agentic-windows-x64\.env -Encoding UTF8
 
       - name: Create README
@@ -607,18 +591,10 @@ jobs:
           ANTHROPIC_API_KEY=sk-ant-your-key-here
 
           # =============================================================================
-          # Z.AI Configuration (GLM Models)
+          # OpenAI Codex Configuration
           # =============================================================================
-          # Get your API key from: https://z.ai
-          # The server automatically configures the endpoint when you select a GLM model
-          ZAI_API_KEY=your-zai-key-here
-
-          # =============================================================================
-          # Moonshot AI Configuration (Kimi K2 Models)
-          # =============================================================================
-          # Get your API key from: https://platform.moonshot.ai/
-          # The server automatically configures the endpoint when you select a Kimi model
-          MOONSHOT_API_KEY=your-moonshot-key-here
+          # Codex uses ChatGPT subscription via CLI auth (no API key needed)
+          # Run: bun run login → select Codex
           EOF
 
       - name: Create README

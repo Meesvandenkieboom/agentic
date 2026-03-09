@@ -204,12 +204,6 @@ export function getSystemPrompt(
   // Working directory (compact)
   prompt += `\nWorking directory: Will be provided in environment context.`;
 
-  // Provider-specific tools (compact)
-  if (provider === 'z-ai') {
-    prompt += `\nWeb search: Use mcp__web-search-prime__search (NOT WebSearch/WebFetch).`;
-    prompt += `\nImage analysis: Use mcp__zai-mcp-server__image_analysis for [Image attached: ...] paths.`;
-  }
-
   // File attachments (compact)
   prompt += `\nFile attachments: Read [File attached: ...] paths with Read tool.`;
 

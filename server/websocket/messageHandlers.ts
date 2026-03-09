@@ -363,7 +363,7 @@ async function handleChatMessage(
   const { apiModelId, provider } = modelConfig;
 
   // Configure provider (sets ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY env vars)
-  const providerType = provider as 'anthropic' | 'z-ai' | 'moonshot';
+  const providerType = provider as 'anthropic' | 'codex';
 
   // Validate API key before proceeding (OAuth takes precedence over API key)
   try {
@@ -379,7 +379,7 @@ async function handleChatMessage(
     return;
   }
 
-  // Get MCP servers for this provider (model-specific filtering for GLM)
+  // Get MCP servers for this provider
   const mcpServers = await getMcpServers(providerType, apiModelId);
 
   // Minimal request logging - one line summary
@@ -415,6 +415,55 @@ async function handleChatMessage(
   }
 
   // For NEW streams: Spawn SDK and start background response processing
+
+  // === CODEX PROVIDER: Use separate Codex SDK (modular, isolated from Claude) ===
+  if (providerType === 'codex') {
+    try {
+      const { runCodexStream, isCodexAvailable } = await import('../providers/codex');
+
+      const codexAvailable = await isCodexAvailable();
+      if (!codexAvailable) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Codex is not available. Please run "bun run login" and select Codex to authenticate, or install Codex CLI with "npm install -g @openai/codex".',
+          sessionId
+        }));
+        return;
+      }
+
+      // Save user message is already done above
+      const paths = getSessionPathsFromWorkingDir(workingDir);
+
+      ws.send(JSON.stringify({ type: 'generation_started', sessionId }));
+
+      await runCodexStream(promptText, paths.workspace, (event) => {
+        if (event.type === 'assistant_message') {
+          // Save incrementally
+          sessionDb.addMessage(sessionId as string, 'assistant', JSON.stringify([{ type: 'text', text: event.content }]));
+          ws.send(JSON.stringify({ ...event, sessionId }));
+        } else if (event.type === 'tool_use') {
+          ws.send(JSON.stringify({ ...event, sessionId }));
+        } else if (event.type === 'result') {
+          ws.send(JSON.stringify({ ...event, sessionId }));
+        } else if (event.type === 'error') {
+          ws.send(JSON.stringify({ ...event, sessionId }));
+        } else {
+          ws.send(JSON.stringify({ ...event, sessionId }));
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Codex provider error:', error);
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Codex provider error',
+        sessionId
+      }));
+    }
+    return; // Don't fall through to Claude SDK
+  }
+
+  // === CLAUDE PROVIDER: Use Claude Agent SDK (existing code below) ===
   try {
 
     // Phase 0: Clean up any orphaned MCP processes before spawning new SDK
@@ -559,9 +608,8 @@ IMPORTANT: Do not modify files outside the workspace directory.
       },
     };
 
-    // Enable extended thinking for Anthropic and Moonshot models
-    // Z.AI's Anthropic-compatible API doesn't support maxThinkingTokens parameter
-    if (providerType === 'anthropic' || providerType === 'moonshot') {
+    // Enable extended thinking for Anthropic models
+    if (providerType === 'anthropic') {
       queryOptions.maxThinkingTokens = 10000;
       console.log('🧠 Extended thinking enabled with maxThinkingTokens:', queryOptions.maxThinkingTokens);
     } else {
@@ -1313,10 +1361,10 @@ IMPORTANT: Do not modify files outside the workspace directory.
           for (const block of content) {
             if (block.type === 'tool_use') {
               // IMPORTANT: Reset timeout on tool use to prevent timeouts during long tool executions
-              // GLM models may not output text for several minutes during tool/agent execution
+              // Models may not output text for several minutes during tool/agent execution
               timeoutController.reset();
 
-              // Hang detection logging (especially useful for GLM debugging)
+              // Hang detection logging
               toolUseCount++;
               const toolTimestamp = new Date().toISOString();
               console.log(`🔧 [${toolTimestamp}] Tool #${toolUseCount}: ${block.name}`);
