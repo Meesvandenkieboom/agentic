@@ -100,7 +100,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
     textarea.style.height = '72px';
 
     // Set height based on scrollHeight, capped at max
-    const newHeight = Math.min(textarea.scrollHeight, 144);
+    const newHeight = Math.min(textarea.scrollHeight, 360);
     textarea.style.height = `${newHeight}px`;
   }, [value]);
 
@@ -421,7 +421,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                 className="absolute px-1 pt-3 w-full text-sm pointer-events-none z-10 text-gray-100"
                 style={{
                   minHeight: '72px',
-                  maxHeight: '144px',
+                  maxHeight: '360px',
                   overflowY: 'auto',
                   textIndent: mode ? `${modeIndicatorWidth}px` : '0px',
                   whiteSpace: 'pre-wrap',
@@ -444,7 +444,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
               className="px-1 pt-3 w-full text-sm bg-transparent resize-none scrollbar-hidden outline-hidden placeholder:text-white/40"
               style={{
                 minHeight: '72px',
-                maxHeight: '144px',
+                maxHeight: '360px',
                 overflowY: 'auto',
                 textIndent: mode ? `${modeIndicatorWidth}px` : '0px',
                 color: value.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) ? 'transparent' : 'rgb(243, 244, 246)',

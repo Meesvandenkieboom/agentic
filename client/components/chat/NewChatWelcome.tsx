@@ -202,7 +202,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
     textarea.style.height = '72px';
 
     // Set height based on scrollHeight, capped at max
-    const newHeight = Math.min(textarea.scrollHeight, 144);
+    const newHeight = Math.min(textarea.scrollHeight, 360);
     textarea.style.height = `${newHeight}px`;
   }, [inputValue]);
 
@@ -532,7 +532,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                     className="absolute px-1 pt-3 w-full text-sm pointer-events-none z-10 text-gray-100"
                     style={{
                       minHeight: '72px',
-                      maxHeight: '144px',
+                      maxHeight: '360px',
                       overflowY: 'auto',
                       textIndent: `${modeIndicatorWidth}px`,
                       whiteSpace: 'pre-wrap',
@@ -555,7 +555,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                   className="px-1 pt-3 w-full text-sm bg-transparent resize-none scrollbar-hidden outline-hidden placeholder:text-white/40"
                   style={{
                     minHeight: '72px',
-                    maxHeight: '144px',
+                    maxHeight: '360px',
                     overflowY: 'auto',
                     textIndent: `${modeIndicatorWidth}px`,
                     color: inputValue.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) ? 'transparent' : 'rgb(243, 244, 246)',
