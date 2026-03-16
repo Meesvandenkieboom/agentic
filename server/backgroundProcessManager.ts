@@ -190,8 +190,6 @@ export class BackgroundProcessManager {
     bashId: string,
     options: {
       onOutput?: (chunk: string) => void;
-      timeout?: number; // Total timeout in ms (default 10 minutes)
-      hangTimeout?: number; // No-output timeout in ms (default 2 minutes)
     } = {}
   ): Promise<{ exitCode: number; output: string }> {
     const processInfo = this.processes.get(bashId);
@@ -199,91 +197,54 @@ export class BackgroundProcessManager {
       throw new Error(`Process ${bashId} not found`);
     }
 
-    const timeout = options.timeout || 600000; // 10 minutes default
-    const hangTimeout = options.hangTimeout || 300000; // 5 minutes default (increased for slower hardware)
-    const startTime = Date.now();
-
-    let lastOutputTime = Date.now();
     let lastOutputSize = 0;
     let fullOutput = '';
 
-    // Poll for output and completion
+    // Poll for output and stream to callback
     const checkInterval = setInterval(async () => {
       try {
-        // Check if log file exists and read its size
         const file = Bun.file(processInfo.logFile);
         const exists = await file.exists();
 
         if (exists) {
           const currentSize = file.size;
 
-          // If output has grown, read new content
           if (currentSize > lastOutputSize) {
             const text = await file.text();
             const newOutput = text.slice(lastOutputSize);
 
             if (newOutput) {
-              lastOutputTime = Date.now();
               lastOutputSize = currentSize;
               fullOutput += newOutput;
-
-              // Stream to callback
               options.onOutput?.(newOutput);
             }
           }
         }
 
-        // Check for hang (no output for hangTimeout)
-        const timeSinceOutput = Date.now() - lastOutputTime;
-        if (timeSinceOutput > hangTimeout) {
-          clearInterval(checkInterval);
-          throw new Error(`Command appears to be hanging (no output for ${hangTimeout / 1000}s)`);
-        }
-
-        // Check for total timeout
-        const elapsed = Date.now() - startTime;
-        if (elapsed > timeout) {
-          clearInterval(checkInterval);
-          throw new Error(`Command timed out after ${timeout / 1000}s`);
-        }
-
-        // Check if process is still alive
-        try {
-          process.kill(processInfo.pid, 0); // Signal 0 checks if process exists
-        } catch {
-          // Process is dead, we're done
-          clearInterval(checkInterval);
-        }
-      } catch (error) {
-        clearInterval(checkInterval);
-        throw error;
-      }
-    }, 1000); // Check every second
-
-    // Wait for process to exit
-    return new Promise((resolve, reject) => {
-      const maxWaitTime = timeout;
-      const pollInterval = 1000;
-      let elapsed = 0;
-
-      const pollForExit = setInterval(() => {
-        elapsed += pollInterval;
-
         // Check if process is still alive
         try {
           process.kill(processInfo.pid, 0);
-          // Still alive, continue waiting
-          if (elapsed >= maxWaitTime) {
-            clearInterval(pollForExit);
-            clearInterval(checkInterval);
-            reject(new Error(`Process did not exit within ${maxWaitTime / 1000}s`));
-          }
         } catch {
-          // Process is dead
+          // Process is dead, stop polling
+          clearInterval(checkInterval);
+        }
+      } catch {
+        // Ignore polling errors, process exit will resolve the promise
+      }
+    }, 1000);
+
+    // Wait for process to exit (no timeout - commands can run as long as needed)
+    return new Promise((resolve, reject) => {
+      const pollForExit = setInterval(() => {
+        try {
+          process.kill(processInfo.pid, 0);
+          // Still alive, keep waiting
+        } catch {
+          // Process exited
           clearInterval(pollForExit);
           clearInterval(checkInterval);
 
-          // Read final output
+          // Read final output after brief delay to ensure all output is flushed
           setTimeout(async () => {
             try {
               const file = Bun.file(processInfo.logFile);
@@ -292,16 +253,14 @@ export class BackgroundProcessManager {
                 fullOutput = await file.text();
               }
 
-              // Remove from registry
               this.processes.delete(bashId);
-
               resolve({ exitCode: 0, output: fullOutput });
             } catch (error) {
               reject(error);
             }
-          }, 500); // Brief delay to ensure all output is written
+          }, 500);
         }
-      }, pollInterval);
+      }, 1000);
     });
   }
 }

@@ -18,7 +18,6 @@ import { saveImageToSessionPictures, saveFileToSessionFiles } from "../imageUtil
 import { backgroundProcessManager } from "../backgroundProcessManager";
 import { loadUserConfig } from "../userConfig";
 import { parseApiError, getUserFriendlyMessage } from "../utils/apiErrors";
-import { TimeoutController } from "../utils/timeout";
 import { sessionStreamManager, type ContentBlock, type MessageContent } from "../sessionStreamManager";
 import { expandSlashCommand } from "../slashCommandExpander";
 import { cleanupOrphanedMcpProcesses } from "../mcpCleanup";
@@ -719,8 +718,6 @@ IMPORTANT: Do not modify files outside the workspace directory.
             try {
               // Wait for completion with output streaming
               const result = await backgroundProcessManager.waitForCompletion(bashId, {
-                timeout: 600000, // 10 minutes
-                hangTimeout: 120000, // 2 minutes no output = hang
                 onOutput: (chunk) => {
                   // Accumulate output
                   accumulatedOutput += chunk;
@@ -862,48 +859,6 @@ IMPORTANT: Do not modify files outside the workspace directory.
       }],
     };
 
-    // Create timeout controller (10 minutes for all modes)
-    const timeoutController = new TimeoutController({
-      timeoutMs: 600000, // 10 minutes
-      warningMs: 300000,  // 5 minutes
-      onWarning: () => {
-        console.log(`⚠️ [TIMEOUT] Warning: 5 minutes elapsed for session ${sessionId.toString().substring(0, 8)}`);
-        // Send warning notification to client (use safeSend for WebSocket lifecycle safety)
-        sessionStreamManager.safeSend(
-          sessionId as string,
-          JSON.stringify({
-            type: 'timeout_warning',
-            message: 'AI is taking longer than usual...',
-            elapsedSeconds: 60,
-            sessionId: sessionId,
-          })
-        );
-      },
-      onTimeout: () => {
-        console.log(`🔴 [TIMEOUT] Hard timeout reached (10min) for session ${sessionId.toString().substring(0, 8)}, aborting session`);
-
-        // Force abort the SDK subprocess
-        const aborted = sessionStreamManager.abortSession(sessionId as string);
-
-        if (aborted) {
-          // Send timeout error to client
-          sessionStreamManager.safeSend(
-            sessionId as string,
-            JSON.stringify({
-              type: 'error',
-              message: 'Task timed out after 10 minutes. Please try breaking down your request into smaller steps.',
-              errorType: 'timeout',
-              sessionId: sessionId,
-            })
-          );
-
-          // Cleanup session immediately
-          sessionStreamManager.cleanupSession(sessionId as string, 'timeout');
-          activeQueries.delete(sessionId as string);
-        }
-      },
-    });
-
     // Retry configuration
     const MAX_RETRIES = 3;
     const INITIAL_DELAY_MS = 2000;
@@ -992,9 +947,12 @@ IMPORTANT: Do not modify files outside the workspace directory.
           let exitPlanModeSentThisTurn = false; // Prevent duplicate plan modals
           let toolUseCount = 0; // Track number of tools executed (for hang detection logging)
 
+          // Track session start time for heartbeat elapsed reporting
+          const sessionStartTime = Date.now();
+
           // Heartbeat every 30 seconds to prevent WebSocket idle timeout
           const heartbeatInterval = setInterval(() => {
-            const elapsed = timeoutController.getElapsedSeconds();
+            const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
 
             // Send keepalive through WebSocket to prevent Bun's idleTimeout from closing the connection
             sessionStreamManager.safeSend(
@@ -1011,8 +969,6 @@ IMPORTANT: Do not modify files outside the workspace directory.
             // Stream the response - query() is an AsyncGenerator
             // Loop runs indefinitely, processing message after message
             for await (const message of result) {
-              // Only check timeout (don't reset yet - only reset on meaningful progress)
-              timeoutController.checkTimeout();
 
               // Capture SDK's internal session ID from first system message
               if (message.type === 'system' && (message as { subtype?: string }).subtype === 'init') {
@@ -1082,9 +1038,6 @@ IMPORTANT: Do not modify files outside the workspace directory.
               // Handle turn completion
               if (message.type === 'result') {
                 console.log(`✅ Turn completed: ${message.subtype}`);
-
-                // Reset timeout on turn completion (meaningful progress)
-                timeoutController.reset();
 
                 // Final save (if no content was saved incrementally)
                 if (!currentMessageId) {
@@ -1238,9 +1191,6 @@ IMPORTANT: Do not modify files outside the workspace directory.
                   JSON.stringify({ type: 'result', success: true, sessionId: sessionId })
                 );
 
-                // Cancel timeout for this turn (will restart on next message)
-                timeoutController.cancel();
-
                 // Reset state for next turn (keep totalCharCount to accumulate across turns)
                 currentMessageContent = [];
                 currentTextResponse = '';
@@ -1274,9 +1224,6 @@ IMPORTANT: Do not modify files outside the workspace directory.
             const text = event.delta.text;
             currentTextResponse += text;
             deltaChars = text.length;
-
-            // Reset timeout on actual text output (meaningful progress)
-            timeoutController.reset();
 
             sessionStreamManager.safeSend(
               sessionId as string,
@@ -1376,10 +1323,6 @@ IMPORTANT: Do not modify files outside the workspace directory.
           // Handle tool use from complete assistant message
           for (const block of content) {
             if (block.type === 'tool_use') {
-              // IMPORTANT: Reset timeout on tool use to prevent timeouts during long tool executions
-              // Models may not output text for several minutes during tool/agent execution
-              timeoutController.reset();
-
               // Hang detection logging
               toolUseCount++;
               const toolTimestamp = new Date().toISOString();
@@ -1445,9 +1388,6 @@ IMPORTANT: Do not modify files outside the workspace directory.
                 JSON.stringify({ type: 'result', success: true, sessionId: sessionId })
               );
 
-              // Cancel timeout
-              timeoutController.cancel();
-
               // Wait for SDK to flush transcript file (give it 500ms)
               await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -1512,7 +1452,6 @@ IMPORTANT: Do not modify files outside the workspace directory.
           }));
 
           // Clean up
-          timeoutController.cancel();
           break; // Don't retry
         }
 
@@ -1530,7 +1469,6 @@ IMPORTANT: Do not modify files outside the workspace directory.
           }));
 
           // Clean up
-          timeoutController.cancel();
           break;
         }
 
