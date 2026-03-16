@@ -119,17 +119,18 @@ export function useChatSessions() {
     }
   }, [sessionAPI, currentSessionId, loadSessions]);
 
-  // Rename session
-  const handleChatRename = useCallback(async (chatId: string, newFolderName: string) => {
-    const result = await sessionAPI.renameSession(chatId, newFolderName);
+  // Rename session title
+  const handleChatRename = useCallback(async (chatId: string, newTitle: string) => {
+    const result = await sessionAPI.renameSessionTitle(chatId, newTitle);
     if (result.success) {
-      await loadSessions();
+      // Update in-place for instant feedback (no full reload needed)
+      setSessions(prev => prev.map(s => s.id === chatId ? { ...s, title: newTitle } : s));
     } else {
       toast.error('Error', {
-        description: result.error || 'Failed to rename folder'
+        description: result.error || 'Failed to rename chat'
       });
     }
-  }, [sessionAPI, loadSessions]);
+  }, [sessionAPI]);
 
   // Persist active session to localStorage
   const persistSessionId = useCallback((sessionId: string | null) => {

@@ -219,6 +219,41 @@ export async function handleSessionRoutes(
     }
   }
 
+  // PATCH /api/sessions/:id/title - Rename session title only (no folder change)
+  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/title$/) && req.method === 'PATCH') {
+    const sessionId = url.pathname.split('/')[3];
+    const body = await req.json() as { title: string };
+    const newTitle = body.title?.trim();
+
+    if (!newTitle || newTitle.length === 0) {
+      return new Response(JSON.stringify({ success: false, error: 'Title cannot be empty' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (newTitle.length > 60) {
+      return new Response(JSON.stringify({ success: false, error: 'Title must be 60 characters or less' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const success = sessionDb.renameSession(sessionId, newTitle);
+
+    if (success) {
+      const session = sessionDb.getSession(sessionId);
+      return new Response(JSON.stringify({ success: true, session }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } else {
+      return new Response(JSON.stringify({ success: false, error: 'Session not found' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
   // ========== BRANCHING ROUTES ==========
 
   // POST /api/sessions/:id/branch - Create branch from message

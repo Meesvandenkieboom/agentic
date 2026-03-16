@@ -202,31 +202,23 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
 
   const handleRenameSubmit = (chatId: string) => {
     const currentChat = chats.find(c => c.id === chatId);
-    const newName = editingTitle.trim();
+    const newTitle = editingTitle.trim();
 
-    // Validate folder name: max 15 chars, lowercase + dashes + numbers only
-    if (!newName) {
+    if (!newTitle) {
       setEditingId(null);
       setEditingTitle('');
       return;
     }
 
-    if (newName.length > 15) {
-      toast.error('Invalid folder name', {
-        description: 'Folder name must be 15 characters or less'
+    if (newTitle.length > 60) {
+      toast.error('Title too long', {
+        description: 'Title must be 60 characters or less'
       });
       return;
     }
 
-    if (!/^[a-z0-9-]+$/.test(newName)) {
-      toast.error('Invalid folder name', {
-        description: 'Only lowercase letters, numbers, and dashes allowed'
-      });
-      return;
-    }
-
-    if (newName !== currentChat?.title) {
-      onChatRename?.(chatId, newName);
+    if (newTitle !== currentChat?.title) {
+      onChatRename?.(chatId, newTitle);
     }
 
     setEditingId(null);
@@ -387,12 +379,8 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                               ref={inputRef}
                               type="text"
                               value={editingTitle}
-                              maxLength={15}
-                              onChange={(e) => {
-                                // Convert to lowercase and filter out invalid chars
-                                const filtered = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
-                                setEditingTitle(filtered);
-                              }}
+                              maxLength={60}
+                              onChange={(e) => setEditingTitle(e.target.value)}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                   handleRenameSubmit(chat.id);
@@ -401,7 +389,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                                 }
                               }}
                               onBlur={() => handleRenameSubmit(chat.id)}
-                              placeholder="folder-name"
+                              placeholder="Chat title"
                               style={{
                                 width: '100%',
                                 padding: '0.5rem',
@@ -418,11 +406,12 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                             <button
                               className={`sidebar-chat-item ${chat.isActive ? 'sidebar-chat-item-active' : ''}`}
                               onClick={() => onChatSelect?.(chat.id)}
+                              title={chat.title}
                             >
                               <div className="sidebar-chat-title" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
                                 {/* Branch indicator for branched chats */}
                                 {chat.parentSessionId && (
-                                  <GitBranch size={12} className="text-[rgb(165,180,252)] flex-shrink-0" title="This is a branch" />
+                                  <GitBranch size={12} className="text-[rgb(165,180,252)] flex-shrink-0" />
                                 )}
                                 <span className="truncate">{chat.title}</span>
                                 {/* Branch count badge */}

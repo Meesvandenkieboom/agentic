@@ -214,6 +214,29 @@ export function useSessionAPI() {
   }, []);
 
   /**
+   * Rename a session title (display name only, no folder change)
+   */
+  const renameSessionTitle = useCallback(async (sessionId: string, title: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const response = await fetch(`${API_BASE}/sessions/${sessionId}/title`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      });
+
+      const result = await response.json() as { success: boolean; error?: string };
+
+      if (!response.ok || !result.success) {
+        return { success: false, error: result.error || `HTTP error! status: ${response.status}` };
+      }
+
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Failed to rename session' };
+    }
+  }, []);
+
+  /**
    * Update working directory for a session
    */
   const updateWorkingDirectory = useCallback(async (sessionId: string, directory: string): Promise<{ success: boolean; session?: Session; error?: string }> => {
@@ -353,6 +376,7 @@ export function useSessionAPI() {
     createSession,
     deleteSession,
     renameSession,
+    renameSessionTitle,
     updateWorkingDirectory,
     validateDirectory,
     updatePermissionMode,
