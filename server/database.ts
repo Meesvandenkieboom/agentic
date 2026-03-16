@@ -26,7 +26,7 @@ import { getDefaultWorkingDirectory, expandPath, validateDirectory, getAppDataDi
 import { deleteSessionPictures, deleteSessionFiles } from "./imageUtils";
 import { setupSessionCommands } from "./commandSetup";
 import { migrateSessionIfNeeded } from "./migrations/migrateSessionStructure";
-import { generateChatTitle } from "./utils/chatTitles";
+// Title generation moved to messageHandlers.ts (needs SDK auth configured first)
 import { configureGitCredentials, isGitHubConnected } from "./routes/github";
 
 export interface Session {
@@ -847,7 +847,6 @@ class SessionDatabase {
     sessionId: string,
     type: 'user' | 'assistant',
     content: string,
-    onTitleGenerated?: (sessionId: string, title: string) => void
   ): SessionMessage {
     const id = randomUUID();
     const timestamp = new Date().toISOString();
@@ -856,27 +855,6 @@ class SessionDatabase {
       "INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
       [id, sessionId, type, content, timestamp]
     );
-
-    // Auto-generate title from first user message using AI
-    if (type === 'user') {
-      const session = this.getSession(sessionId);
-      if (session && session.title === 'New Chat') {
-        // Generate title asynchronously (don't block message saving)
-        generateChatTitle(content).then(title => {
-          this.renameSession(sessionId, title);
-          onTitleGenerated?.(sessionId, title);
-        }).catch(err => {
-          console.warn('Title generation failed:', err);
-          // Fallback to simple truncation
-          let title = content.trim().substring(0, 60);
-          if (content.length > 60) {
-            title += '...';
-          }
-          this.renameSession(sessionId, title);
-          onTitleGenerated?.(sessionId, title);
-        });
-      }
-    }
 
     // Update session's updated_at
     this.db.run("UPDATE sessions SET updated_at = ? WHERE id = ?", [

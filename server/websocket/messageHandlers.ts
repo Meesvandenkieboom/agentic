@@ -22,6 +22,7 @@ import { TimeoutController } from "../utils/timeout";
 import { sessionStreamManager, type ContentBlock, type MessageContent } from "../sessionStreamManager";
 import { expandSlashCommand } from "../slashCommandExpander";
 import { cleanupOrphanedMcpProcesses } from "../mcpCleanup";
+import { generateChatTitle } from "../utils/chatTitles";
 
 interface ChatWebSocketData {
   type: 'hot-reload' | 'chat';
@@ -318,14 +319,7 @@ async function handleChatMessage(
 
   // Save user message to database (stringify if array)
   const contentForDb = typeof content === 'string' ? content : JSON.stringify(content);
-  sessionDb.addMessage(sessionId as string, 'user', contentForDb, (sid, title) => {
-    // Push generated title to client in real-time
-    sessionStreamManager.safeSend(sid, JSON.stringify({
-      type: 'session_title_updated',
-      sessionId: sid,
-      title,
-    }));
-  });
+  sessionDb.addMessage(sessionId as string, 'user', contentForDb);
 
   // Expand slash commands if detected
   if (trimmedPrompt.startsWith('/')) {
@@ -384,6 +378,21 @@ async function handleChatMessage(
       sessionId
     }));
     return;
+  }
+
+  // Auto-generate title after provider auth is configured (runs in parallel with response)
+  if (session.title === 'New Chat') {
+    const userText = typeof content === 'string' ? content : promptText;
+    generateChatTitle(userText).then(title => {
+      sessionDb.renameSession(sessionId as string, title);
+      sessionStreamManager.safeSend(sessionId as string, JSON.stringify({
+        type: 'session_title_updated',
+        sessionId,
+        title,
+      }));
+    }).catch(err => {
+      console.warn('Title generation failed:', err);
+    });
   }
 
   // Get MCP servers for this provider
