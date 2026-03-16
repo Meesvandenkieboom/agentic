@@ -8,6 +8,9 @@
  * Generates concise, descriptive titles based on conversation content
  */
 
+import { getAnthropicTokens, saveTokens } from '../tokenStorage';
+import { isTokenExpired, refreshAccessToken } from '../oauth';
+
 interface MessageResponse {
   content: Array<{
     type: 'text';
@@ -36,6 +39,41 @@ function generateHeuristicTitle(content: string): string {
 }
 
 /**
+ * Resolve API credentials from all available sources.
+ * Reads OAuth tokens from persistent storage (not transient env vars)
+ * so title generation works regardless of SDK subprocess timing.
+ */
+async function resolveCredentials(): Promise<{ token?: string; apiKey?: string }> {
+  // 1. Check env vars (may be set by configureProvider or user .env)
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+    return { token: process.env.CLAUDE_CODE_OAUTH_TOKEN };
+  }
+  if (process.env.ANTHROPIC_API_KEY) {
+    return { apiKey: process.env.ANTHROPIC_API_KEY };
+  }
+
+  // 2. Read OAuth tokens directly from persistent storage
+  //    This is the key fix: env vars aren't set yet when addMessage runs,
+  //    but the stored tokens are always available.
+  try {
+    const oauthTokens = await getAnthropicTokens();
+    if (oauthTokens) {
+      // Refresh if expired
+      if (isTokenExpired(oauthTokens.expiresAt)) {
+        const newTokens = await refreshAccessToken(oauthTokens.refreshToken);
+        await saveTokens(newTokens);
+        return { token: newTokens.accessToken };
+      }
+      return { token: oauthTokens.accessToken };
+    }
+  } catch {
+    // Token read/refresh failed, fall through
+  }
+
+  return {};
+}
+
+/**
  * Generate a chat title using Claude Haiku via direct API call
  * Falls back to heuristic if API is unavailable
  *
@@ -43,12 +81,10 @@ function generateHeuristicTitle(content: string): string {
  * @returns A concise, descriptive chat title
  */
 export async function generateChatTitle(firstUserMessage: string): Promise<string> {
-  // Check for API credentials
-  const oauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const { token, apiKey } = await resolveCredentials();
   const baseUrl = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
 
-  if (!oauthToken && !apiKey) {
+  if (!token && !apiKey) {
     console.log('📝 No API credentials available, using heuristic title');
     return generateHeuristicTitle(firstUserMessage);
   }
@@ -61,8 +97,8 @@ export async function generateChatTitle(firstUserMessage: string): Promise<strin
     };
 
     // Add auth header based on available credentials
-    if (oauthToken) {
-      headers['Authorization'] = `Bearer ${oauthToken}`;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     } else {
       headers['x-api-key'] = apiKey as string;
     }
@@ -72,7 +108,7 @@ export async function generateChatTitle(firstUserMessage: string): Promise<strin
       method: 'POST',
       headers,
       body: JSON.stringify({
-        model: 'claude-3-haiku-20240307',
+        model: 'claude-3-5-haiku-20241022',
         max_tokens: 30,
         temperature: 0.7,
         messages: [{
