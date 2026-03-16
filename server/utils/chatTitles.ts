@@ -25,15 +25,21 @@ export async function generateChatTitle(firstUserMessage: string): Promise<strin
 
     const result = await unstable_v2_prompt(
       `${TITLE_PROMPT}\n"${truncated}"`,
-      { model: 'claude-haiku-4-5-20250514' }
+      { model: 'claude-haiku-4-5-20251001' }
     );
 
-    if (result.subtype !== 'success') {
+    if (result.subtype !== 'success' || result.is_error) {
       return generateHeuristicTitle(firstUserMessage);
     }
 
-    const title = result.result
-      .trim()
+    const raw = result.result.trim();
+
+    // Guard against error messages leaking into the title
+    if (!raw || raw.startsWith('API Error') || raw.startsWith('{') || raw.length > 80) {
+      return generateHeuristicTitle(firstUserMessage);
+    }
+
+    const title = raw
       .replace(/^["']|["']$/g, '')     // Remove wrapping quotes
       .replace(/^Title:\s*/i, '')       // Remove "Title:" prefix
       .replace(/[.!?]+$/, '')           // Remove trailing punctuation
