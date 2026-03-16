@@ -68,7 +68,6 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
   const [showGitHubSetup, setShowGitHubSetup] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const confirmDeleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Check GitHub status on mount
@@ -76,12 +75,6 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
     checkGithubStatus();
   }, []);
 
-  // Clean up confirm-delete timer on unmount
-  useEffect(() => {
-    return () => {
-      if (confirmDeleteTimer.current) clearTimeout(confirmDeleteTimer.current);
-    };
-  }, []);
 
   const checkGithubStatus = async () => {
     try {
@@ -242,15 +235,10 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
   const handleDeleteClick = (chatId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirmDeleteId === chatId) {
-      // Second click — actually delete
-      if (confirmDeleteTimer.current) clearTimeout(confirmDeleteTimer.current);
       setConfirmDeleteId(null);
       onChatDelete?.(chatId);
     } else {
-      // First click — enter confirm state
       setConfirmDeleteId(chatId);
-      if (confirmDeleteTimer.current) clearTimeout(confirmDeleteTimer.current);
-      confirmDeleteTimer.current = setTimeout(() => setConfirmDeleteId(null), 3000);
     }
   };
 
@@ -566,13 +554,9 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                                   e.currentTarget.style.color = '#ef4444';
                                 }}
                                 onMouseLeave={(e) => {
-                                  if (confirmDeleteId === chat.id) {
-                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
-                                    e.currentTarget.style.color = '#ef4444';
-                                  } else {
-                                    e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
-                                    e.currentTarget.style.color = 'rgb(var(--text-secondary))';
-                                  }
+                                  setConfirmDeleteId(null);
+                                  e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
+                                  e.currentTarget.style.color = 'rgb(var(--text-secondary))';
                                 }}
                               >
                                 {confirmDeleteId === chat.id ? <Check size={14} /> : <Trash2 size={14} />}
