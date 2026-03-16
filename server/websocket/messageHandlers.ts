@@ -318,7 +318,14 @@ async function handleChatMessage(
 
   // Save user message to database (stringify if array)
   const contentForDb = typeof content === 'string' ? content : JSON.stringify(content);
-  sessionDb.addMessage(sessionId as string, 'user', contentForDb);
+  sessionDb.addMessage(sessionId as string, 'user', contentForDb, (sid, title) => {
+    // Push generated title to client in real-time
+    sessionStreamManager.safeSend(sid, JSON.stringify({
+      type: 'session_title_updated',
+      sessionId: sid,
+      title,
+    }));
+  });
 
   // Expand slash commands if detected
   if (trimmedPrompt.startsWith('/')) {

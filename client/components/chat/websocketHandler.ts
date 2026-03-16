@@ -12,6 +12,7 @@ import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
 import { areNotificationsEnabled, showClaudeResponseNotification } from '../../utils/notifications';
 import type { ContextUsageData } from '../../hooks/useChatSessions';
+import type { Session } from '../../hooks/useSessionAPI';
 
 export interface WebSocketHandlerDeps {
   currentSessionIdRef: React.RefObject<string | null>;
@@ -20,6 +21,7 @@ export interface WebSocketHandlerDeps {
     updateMsgsSync: (msgSessionId: string | null, isBackground: boolean, updater: (prev: Message[]) => Message[]) => void;
   };
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
   setSessionLoading: (sessionId: string, loading: boolean) => void;
   setLiveTokenCount: React.Dispatch<React.SetStateAction<number>>;
   setContextUsage: React.Dispatch<React.SetStateAction<Map<string, ContextUsageData>>>;
@@ -37,6 +39,7 @@ export function handleWebSocketMessage(message: Record<string, any>, deps: WebSo
     currentSessionIdRef,
     createMessageUpdater,
     setMessages,
+    setSessions,
     setSessionLoading,
     setLiveTokenCount,
     setContextUsage,
@@ -185,6 +188,10 @@ export function handleWebSocketMessage(message: Record<string, any>, deps: WebSo
         setSessionLoading(message.sessionId as string, false);
         clearCache(message.sessionId as string);
       }
+      break;
+
+    case 'session_title_updated':
+      handleSessionTitleUpdated(message, setSessions);
       break;
 
     case 'keepalive':
@@ -496,4 +503,11 @@ function handleContextUsage(message: Record<string, any>, msgSid: string | null,
 function handleReconnectAck(message: Record<string, any>, setLoading: (id: string, l: boolean) => void) {
   const ack = message as { sessionId?: string; isGenerating?: boolean };
   if (ack.isGenerating && ack.sessionId) setLoading(ack.sessionId, true);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function handleSessionTitleUpdated(message: Record<string, any>, setSessions: React.Dispatch<React.SetStateAction<Session[]>>) {
+  const { sessionId, title } = message as { sessionId?: string; title?: string };
+  if (!sessionId || !title) return;
+  setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title } : s));
 }

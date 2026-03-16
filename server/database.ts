@@ -846,7 +846,8 @@ class SessionDatabase {
   addMessage(
     sessionId: string,
     type: 'user' | 'assistant',
-    content: string
+    content: string,
+    onTitleGenerated?: (sessionId: string, title: string) => void
   ): SessionMessage {
     const id = randomUUID();
     const timestamp = new Date().toISOString();
@@ -863,6 +864,7 @@ class SessionDatabase {
         // Generate title asynchronously (don't block message saving)
         generateChatTitle(content).then(title => {
           this.renameSession(sessionId, title);
+          onTitleGenerated?.(sessionId, title);
         }).catch(err => {
           console.warn('Title generation failed:', err);
           // Fallback to simple truncation
@@ -871,6 +873,7 @@ class SessionDatabase {
             title += '...';
           }
           this.renameSession(sessionId, title);
+          onTitleGenerated?.(sessionId, title);
         });
       }
     }

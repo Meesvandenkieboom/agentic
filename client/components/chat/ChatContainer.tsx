@@ -50,7 +50,7 @@ export function ChatContainer() {
 
   const sessionHook = useChatSessions();
   const {
-    sessions, currentSessionId, setCurrentSessionId, currentSessionIdRef,
+    sessions, setSessions, currentSessionId, setCurrentSessionId, currentSessionIdRef,
     currentSessionMode, setCurrentSessionMode,
     availableCommands, setAvailableCommands,
     contextUsage, setContextUsage,
@@ -255,6 +255,7 @@ export function ChatContainer() {
         currentSessionIdRef,
         createMessageUpdater,
         setMessages,
+        setSessions,
         setSessionLoading,
         setLiveTokenCount,
         setContextUsage,
@@ -434,11 +435,10 @@ export function ChatContainer() {
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
         chats={sessions.map(session => {
-          const folderName = session.working_directory?.split('/').filter(Boolean).pop() || session.title;
           const branchCount = sessions.filter(s => s.parent_session_id === session.id).length;
           return {
             id: session.id,
-            title: folderName,
+            title: session.title && session.title !== 'New Chat' ? session.title : 'New Chat',
             timestamp: new Date(session.updated_at),
             isActive: session.id === currentSessionId,
             isLoading: loadingSessions.has(session.id),
