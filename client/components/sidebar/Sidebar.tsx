@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Github, Loader2, LogOut, Settings as SettingsIcon, GitBranch } from 'lucide-react';
+import { Menu, Edit3, Search, Trash2, Check, Edit, FolderOpen, Github, Loader2, LogOut, Settings as SettingsIcon, GitBranch } from 'lucide-react';
 import { toast } from '../../utils/toast';
 import { GitHubOAuthSetupModal } from '../setup/GitHubOAuthSetupModal';
 import { Settings } from '../settings/Settings';
@@ -67,11 +67,20 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
   const [isHoveringGithub, setIsHoveringGithub] = useState(false);
   const [showGitHubSetup, setShowGitHubSetup] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const confirmDeleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Check GitHub status on mount
   useEffect(() => {
     checkGithubStatus();
+  }, []);
+
+  // Clean up confirm-delete timer on unmount
+  useEffect(() => {
+    return () => {
+      if (confirmDeleteTimer.current) clearTimeout(confirmDeleteTimer.current);
+    };
   }, []);
 
   const checkGithubStatus = async () => {
@@ -232,7 +241,17 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
 
   const handleDeleteClick = (chatId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    onChatDelete?.(chatId);
+    if (confirmDeleteId === chatId) {
+      // Second click — actually delete
+      if (confirmDeleteTimer.current) clearTimeout(confirmDeleteTimer.current);
+      setConfirmDeleteId(null);
+      onChatDelete?.(chatId);
+    } else {
+      // First click — enter confirm state
+      setConfirmDeleteId(chatId);
+      if (confirmDeleteTimer.current) clearTimeout(confirmDeleteTimer.current);
+      confirmDeleteTimer.current = setTimeout(() => setConfirmDeleteId(null), 3000);
+    }
   };
 
   const handleBranchClick = (chatId: string, e: React.MouseEvent) => {
@@ -525,18 +544,21 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                               </button>
                               <button
                                 className="sidebar-chat-menu-btn"
-                                aria-label="Delete Chat"
+                                aria-label={confirmDeleteId === chat.id ? 'Confirm Delete' : 'Delete Chat'}
+                                title={confirmDeleteId === chat.id ? 'Click again to confirm' : 'Delete Chat'}
                                 onClick={(e) => handleDeleteClick(chat.id, e)}
                                 style={{
                                   padding: '0.25rem',
-                                  background: chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))',
+                                  background: confirmDeleteId === chat.id
+                                    ? 'rgba(239, 68, 68, 0.25)'
+                                    : chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))',
                                   border: 'none',
                                   borderRadius: '0.25rem',
                                   cursor: 'pointer',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  color: 'rgb(var(--text-secondary))',
+                                  color: confirmDeleteId === chat.id ? '#ef4444' : 'rgb(var(--text-secondary))',
                                   transition: 'all 0.15s',
                                 }}
                                 onMouseEnter={(e) => {
@@ -544,11 +566,16 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                                   e.currentTarget.style.color = '#ef4444';
                                 }}
                                 onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
-                                  e.currentTarget.style.color = 'rgb(var(--text-secondary))';
+                                  if (confirmDeleteId === chat.id) {
+                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
+                                    e.currentTarget.style.color = '#ef4444';
+                                  } else {
+                                    e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
+                                    e.currentTarget.style.color = 'rgb(var(--text-secondary))';
+                                  }
                                 }}
                               >
-                                <Trash2 size={14} />
+                                {confirmDeleteId === chat.id ? <Check size={14} /> : <Trash2 size={14} />}
                               </button>
                             </div>
                           </>
