@@ -967,8 +967,13 @@ class SessionDatabase {
       }
     }
 
-    // Use provided title or generate from parent
-    const branchTitle = title || `${parentSession.title}-branch`;
+    // Use provided title or generate from parent with incrementing branch number
+    let branchTitle = title;
+    if (!branchTitle) {
+      const existingBranches = this.getSessionBranches(parentSessionId);
+      const branchNumber = existingBranches.length + 1;
+      branchTitle = `${parentSession.title} - Branch ${branchNumber}`;
+    }
 
     // Use provided model or inherit from parent
     const branchModel = model || parentSession.model || undefined;
