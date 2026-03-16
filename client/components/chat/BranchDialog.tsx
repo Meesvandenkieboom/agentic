@@ -28,11 +28,6 @@ export function BranchDialog({
   messageIndex,
   currentModel,
 }: BranchDialogProps) {
-  const [branchName, setBranchName] = useState(() => {
-    // Generate default branch name from parent title
-    const baseName = parentSessionTitle.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
-    return `${baseName}-branch`.slice(0, 15);
-  });
   const [selectedModel, setSelectedModel] = useState(currentModel);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,27 +35,13 @@ export function BranchDialog({
   if (!isOpen) return null;
 
   const handleSubmit = async () => {
-    // Validate branch name
-    if (!branchName.trim()) {
-      setError('Branch name is required');
-      return;
-    }
-    if (branchName.length > 15) {
-      setError('Branch name must be 15 characters or less');
-      return;
-    }
-    if (!/^[a-z0-9-]+$/.test(branchName)) {
-      setError('Only lowercase letters, numbers, and dashes allowed');
-      return;
-    }
-
     setIsCreating(true);
     setError(null);
 
     try {
+      // Title is auto-generated server-side ("Parent Title - Branch N")
       await onConfirm({
         model: selectedModel !== currentModel ? selectedModel : undefined,
-        title: branchName,
       });
       onClose();
     } catch (err) {
@@ -68,13 +49,6 @@ export function BranchDialog({
     } finally {
       setIsCreating(false);
     }
-  };
-
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Convert to lowercase and filter invalid chars
-    const filtered = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
-    setBranchName(filtered.slice(0, 15));
-    setError(null);
   };
 
   return (
@@ -121,31 +95,9 @@ export function BranchDialog({
             </div>
             {messagePreview && (
               <div className="text-sm text-[rgb(156,163,175)] line-clamp-2 italic mt-1">
-                "{messagePreview.slice(0, 100)}{messagePreview.length > 100 ? '...' : ''}"
+                &ldquo;{messagePreview.slice(0, 100)}{messagePreview.length > 100 ? '...' : ''}&rdquo;
               </div>
             )}
-          </div>
-
-          {/* Branch name input */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-[rgb(243,244,246)]">
-              Branch Name
-            </label>
-            <input
-              type="text"
-              value={branchName}
-              onChange={handleNameChange}
-              placeholder="branch-name"
-              maxLength={15}
-              className="w-full px-4 py-2.5 bg-[rgb(38,40,42)] border border-[rgba(255,255,255,0.1)]
-                       rounded-lg text-[rgb(243,244,246)] placeholder:text-[rgba(243,244,246,0.4)]
-                       focus:border-[rgb(165,180,252)] focus:ring-1 focus:ring-[rgb(165,180,252)]
-                       focus:outline-none transition-all"
-              disabled={isCreating}
-            />
-            <p className="text-xs text-[rgb(107,114,128)]">
-              Max 15 characters, lowercase letters, numbers, and dashes only
-            </p>
           </div>
 
           {/* Model selector */}
@@ -196,7 +148,7 @@ export function BranchDialog({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={isCreating || !branchName.trim()}
+            disabled={isCreating}
             className="px-5 py-2 text-sm font-medium text-[rgb(17,24,39)]
                      bg-gradient-to-r from-[rgb(165,180,252)] to-[rgb(196,181,253)]
                      hover:from-[rgb(139,156,246)] hover:to-[rgb(180,165,247)]

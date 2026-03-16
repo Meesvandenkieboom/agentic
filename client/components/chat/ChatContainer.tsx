@@ -503,7 +503,7 @@ export function ChatContainer() {
               {currentSessionId && sessions.find(s => s.id === currentSessionId)?.parent_session_id && (
                 <BranchIndicator
                   parentSessionTitle={
-                    sessions.find(s => s.id === sessions.find(c => c.id === currentSessionId)?.parent_session_id)?.working_directory?.split('/').filter(Boolean).pop() || 'Parent'
+                    sessions.find(s => s.id === sessions.find(c => c.id === currentSessionId)?.parent_session_id)?.title || 'Parent'
                   }
                   parentSessionId={sessions.find(s => s.id === currentSessionId)?.parent_session_id || ''}
                   onNavigateToParent={() => {
@@ -601,7 +601,6 @@ export function ChatContainer() {
           onClose={() => { setBranchDialogOpen(false); setBranchingSessionId(null); }}
           onConfirm={handleBranchConfirm}
           parentSessionTitle={
-            sessions.find(s => s.id === branchingSessionId)?.working_directory?.split('/').filter(Boolean).pop() ||
             sessions.find(s => s.id === branchingSessionId)?.title || 'Chat'
           }
           currentModel={selectedModel}
