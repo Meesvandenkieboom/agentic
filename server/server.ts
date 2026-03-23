@@ -134,18 +134,37 @@ const server = Bun.serve({
       if (ws.data?.type === 'hot-reload') {
         hotReloadClients.delete(ws);
       } else if (ws.data?.type === 'chat') {
-        const sid = ws.data.sessionId;
-        if (sid) {
-          console.log(`🔌 WebSocket disconnected: session ${sid.substring(0, 8)}`);
+        // Find ALL sessions that were using this WebSocket (not just ws.data.sessionId)
+        // This fixes a bug where only the last-reconnected session got a grace period,
+        // leaving other sessions as orphaned zombies consuming API tokens.
+        const affectedSessions = sessionStreamManager.getSessionsByWebSocket(ws);
 
-          // Only start grace period if the session actually has an active stream
-          if (sessionStreamManager.hasStream(sid)) {
-            sessionStreamManager.startDisconnectGracePeriod(sid, () => {
-              console.log(`⏱️ Grace period expired for session ${sid.substring(0, 8)} — aborting generation`);
-              sessionStreamManager.abortSession(sid);
-              sessionStreamManager.cleanupSession(sid, 'websocket_disconnected');
-              activeQueries.delete(sid);
-            }, 10000);
+        if (affectedSessions.length > 0) {
+          console.log(`🔌 WebSocket disconnected: ${affectedSessions.length} session(s) affected [${affectedSessions.map(s => s.substring(0, 8)).join(', ')}]`);
+
+          for (const sid of affectedSessions) {
+            if (sessionStreamManager.hasStream(sid)) {
+              sessionStreamManager.startDisconnectGracePeriod(sid, () => {
+                console.log(`⏱️ Grace period expired for session ${sid.substring(0, 8)} — aborting generation`);
+                sessionStreamManager.abortSession(sid);
+                sessionStreamManager.cleanupSession(sid, 'websocket_disconnected');
+                activeQueries.delete(sid);
+              }, 10000);
+            }
+          }
+        } else {
+          // Fallback: check ws.data.sessionId for sessions that were never registered
+          const sid = ws.data.sessionId;
+          if (sid) {
+            console.log(`🔌 WebSocket disconnected: session ${sid.substring(0, 8)} (fallback)`);
+            if (sessionStreamManager.hasStream(sid)) {
+              sessionStreamManager.startDisconnectGracePeriod(sid, () => {
+                console.log(`⏱️ Grace period expired for session ${sid.substring(0, 8)} — aborting generation`);
+                sessionStreamManager.abortSession(sid);
+                sessionStreamManager.cleanupSession(sid, 'websocket_disconnected');
+                activeQueries.delete(sid);
+              }, 10000);
+            }
           }
         }
       }

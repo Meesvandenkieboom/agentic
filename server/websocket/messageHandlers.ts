@@ -703,7 +703,9 @@ IMPORTANT: Do not modify files outside the workspace directory.
             );
 
             // Notify client that long-running command started
-            ws.send(JSON.stringify({
+            // Use safeSend (looks up current WS) instead of captured ws ref
+            // which can go stale after reconnection
+            sessionStreamManager.safeSend(sessionId as string, JSON.stringify({
               type: 'long_running_command_started',
               bashId,
               command,
@@ -731,8 +733,8 @@ IMPORTANT: Do not modify files outside the workspace directory.
                     }])
                   );
 
-                  // Stream output to client
-                  ws.send(JSON.stringify({
+                  // Stream output to client (safeSend survives reconnection)
+                  sessionStreamManager.safeSend(sessionId as string, JSON.stringify({
                     type: 'command_output_chunk',
                     bashId,
                     output: chunk,
@@ -754,7 +756,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
                 }])
               );
 
-              ws.send(JSON.stringify({
+              sessionStreamManager.safeSend(sessionId as string, JSON.stringify({
                 type: 'long_running_command_completed',
                 bashId,
                 exitCode: result.exitCode,
@@ -783,8 +785,8 @@ IMPORTANT: Do not modify files outside the workspace directory.
                 }])
               );
 
-              // Notify error
-              ws.send(JSON.stringify({
+              // Notify error (safeSend survives reconnection)
+              sessionStreamManager.safeSend(sessionId as string, JSON.stringify({
                 type: 'long_running_command_failed',
                 bashId,
                 error: error instanceof Error ? error.message : String(error),
@@ -832,8 +834,8 @@ IMPORTANT: Do not modify files outside the workspace directory.
 
             console.log(`🚀 Background process spawned (PID ${pid}): ${command.slice(0, 50)}${command.length > 50 ? '...' : ''}`);
 
-            // Notify the client
-            ws.send(JSON.stringify({
+            // Notify the client (safeSend survives reconnection)
+            sessionStreamManager.safeSend(sessionId as string, JSON.stringify({
               type: 'background_process_started',
               bashId,
               command,

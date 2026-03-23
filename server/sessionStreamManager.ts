@@ -229,6 +229,21 @@ export class SessionStreamManager {
   }
 
   /**
+   * Find all session IDs whose active WebSocket matches the given ws.
+   * Used by the close handler to start grace periods for ALL sessions
+   * on a disconnecting WebSocket (not just the last one set in ws.data).
+   */
+  getSessionsByWebSocket(ws: ServerWebSocket<unknown>): string[] {
+    const sessionIds: string[] = [];
+    for (const [sessionId, stream] of this.streams.entries()) {
+      if (stream.activeWebSocket === ws) {
+        sessionIds.push(sessionId);
+      }
+    }
+    return sessionIds;
+  }
+
+  /**
    * Check if session has active stream
    */
   hasStream(sessionId: string): boolean {
