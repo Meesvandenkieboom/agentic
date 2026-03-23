@@ -625,7 +625,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
 
     // Enable extended thinking for Anthropic models
     if (providerType === 'anthropic') {
-      queryOptions.maxThinkingTokens = 10000;
+      queryOptions.maxThinkingTokens = 80000;
       console.log('🧠 Extended thinking enabled with maxThinkingTokens:', queryOptions.maxThinkingTokens);
     } else {
       console.log('⚠️ Extended thinking not supported for provider:', providerType);
