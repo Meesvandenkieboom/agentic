@@ -1281,6 +1281,15 @@ IMPORTANT: Do not modify files outside the workspace directory.
 
           // Update total character count and estimate tokens (~4 chars/token)
           totalCharCount += deltaChars;
+
+          // Memory safeguard: abort if output exceeds 50MB to prevent WSL/OOM crashes
+          const MAX_OUTPUT_CHARS = 50_000_000;
+          if (totalCharCount > MAX_OUTPUT_CHARS) {
+            console.warn(`⚠️ Session ${(sessionId as string).substring(0, 8)} exceeded ${MAX_OUTPUT_CHARS / 1_000_000}MB output limit, aborting to prevent memory issues`);
+            sessionStreamManager.abortSession(sessionId as string);
+            continue;
+          }
+
           const estimatedTokens = Math.floor(totalCharCount / 4);
           // Cumulative total = previous sessions' tokens + current request's estimated tokens
           const cumulativeTokens = baseOutputTokens + estimatedTokens;

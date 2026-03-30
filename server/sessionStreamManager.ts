@@ -251,6 +251,13 @@ export class SessionStreamManager {
   }
 
   /**
+   * Get all active session IDs (sessions with running streams)
+   */
+  getActiveSessionIds(): string[] {
+    return Array.from(this.streams.keys());
+  }
+
+  /**
    * Get session count
    */
   get sessionCount(): number {

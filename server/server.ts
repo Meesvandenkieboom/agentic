@@ -149,7 +149,7 @@ const server = Bun.serve({
                 sessionStreamManager.abortSession(sid);
                 sessionStreamManager.cleanupSession(sid, 'websocket_disconnected');
                 activeQueries.delete(sid);
-              }, 10000);
+              }, 60000);
             }
           }
         } else {
@@ -163,7 +163,7 @@ const server = Bun.serve({
                 sessionStreamManager.abortSession(sid);
                 sessionStreamManager.cleanupSession(sid, 'websocket_disconnected');
                 activeQueries.delete(sid);
-              }, 10000);
+              }, 60000);
             }
           }
         }

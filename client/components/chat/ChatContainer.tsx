@@ -240,11 +240,30 @@ export function ChatContainer() {
   const { isConnected, sendMessage, stopGeneration } = useWebSocket({
     url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
     onConnect: async () => {
+      // Restore view for persisted session
       const persistedSessionId = localStorage.getItem('agentic-active-session');
       if (persistedSessionId) {
-        setLoadingSessions(new Set());
         await handleSessionSelect(persistedSessionId);
-        sendMessage({ type: 'reconnect', sessionId: persistedSessionId });
+      }
+
+      // Ask server which sessions are actively generating, then reconnect ALL of them
+      try {
+        const res = await fetch('/api/sessions/active-streams');
+        const data = await res.json();
+        const activeIds: string[] = data.sessionIds || [];
+
+        // Reconnect ALL active sessions (not just the current one)
+        for (const sid of activeIds) {
+          sendMessage({ type: 'reconnect', sessionId: sid });
+        }
+
+        // Restore loading states from server truth
+        setLoadingSessions(new Set(activeIds));
+      } catch {
+        // Fallback: reconnect just the persisted session
+        if (persistedSessionId) {
+          sendMessage({ type: 'reconnect', sessionId: persistedSessionId });
+        }
       }
     },
     onDisconnect: () => {

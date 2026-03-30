@@ -41,6 +41,14 @@ export async function handleSessionRoutes(
     });
   }
 
+  // GET /api/sessions/active-streams - Get all sessions with active SDK streams
+  if (url.pathname === '/api/sessions/active-streams' && req.method === 'GET') {
+    const sessionIds = sessionStreamManager.getActiveSessionIds();
+    return new Response(JSON.stringify({ sessionIds }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   // GET /api/sessions/:id - Get session by ID
   if (url.pathname.match(/^\/api\/sessions\/[^/]+$/) && req.method === 'GET') {
     const sessionId = url.pathname.split('/').pop()!;
