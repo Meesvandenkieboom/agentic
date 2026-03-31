@@ -502,7 +502,10 @@ function handleContextUsage(message: Record<string, any>, msgSid: string | null,
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function handleReconnectAck(message: Record<string, any>, setLoading: (id: string, l: boolean) => void) {
   const ack = message as { sessionId?: string; isGenerating?: boolean };
-  if (ack.isGenerating && ack.sessionId) setLoading(ack.sessionId, true);
+  if (ack.sessionId) {
+    // Set loading to true if generating, clear it if idle
+    setLoading(ack.sessionId, ack.isGenerating === true);
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

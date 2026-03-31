@@ -159,12 +159,12 @@ export async function handleWebSocketMessage(
 
         ws.data = { type: 'chat', sessionId };
         sessionStreamManager.updateWebSocket(sessionId, ws);
-        const isActive = sessionStreamManager.hasStream(sessionId);
-        console.log(`🔄 Client reconnected for session ${sessionId.substring(0, 8)} (stream ${isActive ? 'active' : 'idle'})`);
+        const generating = sessionStreamManager.isGenerating(sessionId);
+        console.log(`🔄 Client reconnected for session ${sessionId.substring(0, 8)} (${generating ? '⚡ generating' : '💤 idle'})`);
         ws.send(JSON.stringify({
           type: 'reconnect_ack',
           sessionId,
-          isGenerating: isActive,
+          isGenerating: generating,
         }));
       }
     }
@@ -424,9 +424,18 @@ async function handleChatMessage(
   // For existing streams: Update WebSocket, enqueue message, and return
   // Background response loop is already running
   if (!isNewStream) {
-    sessionStreamManager.updateWebSocket(sessionId as string, ws);
-    sessionStreamManager.sendMessage(sessionId as string, messageContent);
-    return; // Background loop handles response
+    // Check if the stream is being aborted — if so, clean up and create fresh stream
+    const abortCtrl = sessionStreamManager.getAbortController(sessionId as string);
+    if (abortCtrl?.signal.aborted) {
+      console.log(`🔄 Session ${(sessionId as string).substring(0, 8)} was aborted, cleaning up before new message`);
+      sessionStreamManager.cleanupSession(sessionId as string, 'pre_send_cleanup');
+      activeQueries.delete(sessionId as string);
+      // Fall through to create a new stream below
+    } else {
+      sessionStreamManager.updateWebSocket(sessionId as string, ws);
+      sessionStreamManager.sendMessage(sessionId as string, messageContent);
+      return; // Background loop handles response
+    }
   }
 
   // For NEW streams: Spawn SDK and start background response processing
@@ -1186,6 +1195,9 @@ IMPORTANT: Do not modify files outside the workspace directory.
                     })
                   );
                 }
+
+                // Mark session as idle (turn complete, waiting for next user message)
+                sessionStreamManager.setIdle(sessionId as string);
 
                 // Send completion signal (safe send checks WebSocket readyState)
                 sessionStreamManager.safeSend(

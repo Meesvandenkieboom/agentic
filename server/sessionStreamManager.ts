@@ -28,6 +28,7 @@ interface SessionStream {
   createdAt: number;
   lastActivityAt: number;
   activeWebSocket: ServerWebSocket<unknown> | null;
+  isGenerating: boolean; // true when actively processing a response, false when idle between turns
 }
 
 export class SessionStreamManager {
@@ -64,6 +65,7 @@ export class SessionStreamManager {
         createdAt: Date.now(),
         lastActivityAt: Date.now(),
         activeWebSocket: null,
+        isGenerating: false,
       });
 
     }
@@ -81,7 +83,25 @@ export class SessionStreamManager {
     }
 
     stream.lastActivityAt = Date.now();
+    stream.isGenerating = true;
     stream.messageQueue.enqueue(content);
+  }
+
+  /**
+   * Mark session as idle (turn completed, waiting for next user message)
+   */
+  setIdle(sessionId: string): void {
+    const stream = this.streams.get(sessionId);
+    if (stream) {
+      stream.isGenerating = false;
+    }
+  }
+
+  /**
+   * Check if session is actively generating a response
+   */
+  isGenerating(sessionId: string): boolean {
+    return this.streams.get(sessionId)?.isGenerating ?? false;
   }
 
   /**
@@ -251,10 +271,12 @@ export class SessionStreamManager {
   }
 
   /**
-   * Get all active session IDs (sessions with running streams)
+   * Get session IDs that are actively generating responses (not idle between turns)
    */
   getActiveSessionIds(): string[] {
-    return Array.from(this.streams.keys());
+    return Array.from(this.streams.entries())
+      .filter(([, stream]) => stream.isGenerating)
+      .map(([id]) => id);
   }
 
   /**
