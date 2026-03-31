@@ -45,6 +45,7 @@ import type { Message } from '../message/types';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
 import { handleWebSocketMessage } from './websocketHandler';
+import { QUESTION_ANSWER_EVENT, type QuestionAnswerDetail } from '../../utils/questionEvents';
 
 export function ChatContainer() {
   // --- Extracted hooks for message + session state ---
@@ -327,6 +328,18 @@ export function ChatContainer() {
       });
     },
   });
+
+  // --- Listen for AskUserQuestion answers from inline components ---
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { toolId, answers } = (e as CustomEvent<QuestionAnswerDetail>).detail;
+      if (currentSessionId) {
+        sendMessage({ type: 'answer_question', sessionId: currentSessionId, toolId, answers });
+      }
+    };
+    window.addEventListener(QUESTION_ANSWER_EVENT, handler);
+    return () => window.removeEventListener(QUESTION_ANSWER_EVENT, handler);
+  }, [currentSessionId, sendMessage]);
 
   // --- Background process management ---
   const handleKillProcess = (bashId: string) => {

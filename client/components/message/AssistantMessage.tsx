@@ -30,6 +30,7 @@ import { URLBadge } from './URLBadge';
 import { MermaidDiagram } from './MermaidDiagram';
 import { Shield } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
+import { AskUserQuestionComponent } from '../question/AskUserQuestionComponent';
 
 interface AssistantMessageProps {
   message: AssistantMessageType;
@@ -1519,6 +1520,17 @@ function ToolUseComponent({ toolUse }: { toolUse: ToolUseBlock }) {
   // Use NotebookEditToolComponent for NotebookEdit tool
   if (toolUse.name === 'NotebookEdit') {
     return <NotebookEditToolComponent toolUse={toolUse} />;
+  }
+
+  // Inline question/poll UI for AskUserQuestion tool
+  if (toolUse.name === 'AskUserQuestion') {
+    const questions = (toolUse.input.questions || []) as Array<{
+      question: string;
+      header?: string;
+      options: Array<{ label: string; description?: string }>;
+      multiSelect?: boolean;
+    }>;
+    return <AskUserQuestionComponent toolId={toolUse.id} questions={questions} />;
   }
 
   const [isExpanded, setIsExpanded] = useState(false);

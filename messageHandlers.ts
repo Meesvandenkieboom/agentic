@@ -28,6 +28,13 @@ interface ChatWebSocketData {
   sessionId?: string;
 }
 
+// --- AskUserQuestion support ---
+interface PendingQuestion {
+  resolve: (answer: string) => void;
+  toolId: string;
+}
+const pendingQuestions = new Map<string, PendingQuestion>();
+
 /**
  * Helper: Send a JSON message via WebSocket with sessionId auto-injected.
  * Ensures every message the client receives can be routed to the correct session.
@@ -147,6 +154,8 @@ export async function handleWebSocketMessage(
       await handleApprovePlan(ws, data, activeQueries);
     } else if (data.type === 'set_permission_mode') {
       await handleSetPermissionMode(ws, data, activeQueries);
+    } else if (data.type === 'answer_question') {
+      handleAnswerQuestion(data);
     } else if (data.type === 'kill_background_process') {
       await handleKillBackgroundProcess(ws, data);
     } else if (data.type === 'stop_generation') {
@@ -606,6 +615,27 @@ IMPORTANT: Do not modify files outside the workspace directory.
           if (input.hook_event_name !== 'PreToolUse') return {};
 
           const { tool_name, tool_input } = input as PreToolUseInput;
+
+          // Intercept AskUserQuestion — pause SDK until user answers
+          if (tool_name === 'AskUserQuestion') {
+            const toolId = toolUseID || `question-${Date.now()}`;
+            sessionStreamManager.safeSend(
+              sessionId as string,
+              JSON.stringify({
+                type: 'ask_user_question',
+                toolId,
+                questions: tool_input.questions || [],
+                sessionId: sessionId,
+              })
+            );
+            const answer = await new Promise<string>((resolve) => {
+              pendingQuestions.set(sessionId as string, { resolve, toolId });
+            });
+            return {
+              decision: 'approve' as const,
+              updatedInput: { ...tool_input, answers: JSON.parse(answer) },
+            };
+          }
 
           if (tool_name !== 'Bash') return {};
 
@@ -1506,6 +1536,18 @@ IMPORTANT: Do not modify files outside the workspace directory.
       errorType: parsedError.type,
       message: getUserFriendlyMessage(parsedError),
     }, sessionId as string);
+  }
+}
+
+/** Resolve a pending AskUserQuestion promise with the user's answer */
+function handleAnswerQuestion(data: Record<string, unknown>): void {
+  const { sessionId, answers } = data;
+  if (!sessionId || typeof sessionId !== 'string') return;
+  const pending = pendingQuestions.get(sessionId);
+  if (pending) {
+    console.log(`✅ User answered question for session ${sessionId.substring(0, 8)}`);
+    pendingQuestions.delete(sessionId);
+    pending.resolve(JSON.stringify(answers));
   }
 }
 

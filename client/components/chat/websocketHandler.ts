@@ -194,6 +194,10 @@ export function handleWebSocketMessage(message: Record<string, any>, deps: WebSo
       handleSessionTitleUpdated(message, setSessions);
       break;
 
+    case 'ask_user_question':
+      // Handled via tool_use → AskUserQuestionComponent render
+      break;
+
     case 'keepalive':
     case 'user_message':
     case 'slash_commands_available':
