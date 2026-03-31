@@ -13,6 +13,7 @@ import { showError } from '../../utils/errorMessages';
 import { areNotificationsEnabled, showClaudeResponseNotification } from '../../utils/notifications';
 import type { ContextUsageData } from '../../hooks/useChatSessions';
 import type { Session } from '../../hooks/useSessionAPI';
+import type { PendingQuestionData } from '../question/QuestionInput';
 
 export interface WebSocketHandlerDeps {
   currentSessionIdRef: React.RefObject<string | null>;
@@ -27,6 +28,7 @@ export interface WebSocketHandlerDeps {
   setContextUsage: React.Dispatch<React.SetStateAction<Map<string, ContextUsageData>>>;
   setIsPlanMode: React.Dispatch<React.SetStateAction<boolean>>;
   setPendingPlan: React.Dispatch<React.SetStateAction<string | null>>;
+  setPendingQuestion: React.Dispatch<React.SetStateAction<PendingQuestionData | null>>;
   setBackgroundProcesses: React.Dispatch<React.SetStateAction<Map<string, BackgroundProcess[]>>>;
   clearCache: (sessionId: string) => void;
   lastAssistantContentRef: React.MutableRefObject<string>;
@@ -45,6 +47,7 @@ export function handleWebSocketMessage(message: Record<string, any>, deps: WebSo
     setContextUsage,
     setIsPlanMode,
     setPendingPlan,
+    setPendingQuestion,
     setBackgroundProcesses,
     clearCache,
     lastAssistantContentRef,
@@ -195,7 +198,12 @@ export function handleWebSocketMessage(message: Record<string, any>, deps: WebSo
       break;
 
     case 'ask_user_question':
-      // Handled via tool_use → AskUserQuestionComponent render
+      if ('toolId' in message && 'questions' in message) {
+        setPendingQuestion({
+          toolId: message.toolId as string,
+          questions: message.questions as PendingQuestionData['questions'],
+        });
+      }
       break;
 
     case 'keepalive':

@@ -46,6 +46,8 @@ import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
 import { handleWebSocketMessage } from './websocketHandler';
 import { QUESTION_ANSWER_EVENT, type QuestionAnswerDetail } from '../../utils/questionEvents';
+import { QuestionInput, type PendingQuestionData } from '../question/QuestionInput';
+import { dispatchQuestionAnswer } from '../../utils/questionEvents';
 
 export function ChatContainer() {
   // --- Extracted hooks for message + session state ---
@@ -86,6 +88,7 @@ export function ChatContainer() {
   const [branchingSessionId, setBranchingSessionId] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchFocusKey, setSearchFocusKey] = useState(0);
+  const [pendingQuestion, setPendingQuestion] = useState<PendingQuestionData | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null) as React.RefObject<HTMLDivElement>;
   const activeLongRunningCommandRef = useRef<string | null>(null);
@@ -321,6 +324,7 @@ export function ChatContainer() {
         setContextUsage,
         setIsPlanMode,
         setPendingPlan,
+        setPendingQuestion,
         setBackgroundProcesses,
         clearCache,
         lastAssistantContentRef,
@@ -655,26 +659,44 @@ export function ChatContainer() {
                 scrollContainerRef={scrollContainerRef}
               />
             </SearchContext.Provider>
-            <ChatInput
-              key={currentSessionId || 'new-chat'}
-              value={inputValue}
-              onChange={setInputValue}
-              onSubmit={handleSubmit}
-              onStop={handleStop}
-              disabled={!isConnected || isCurrentSessionLoading}
-              isGenerating={isCurrentSessionLoading}
-              isPlanMode={isPlanMode}
-              onTogglePlanMode={handleTogglePlanMode}
-              backgroundProcesses={backgroundProcesses.get(currentSessionId || '') || []}
-              onKillProcess={handleKillProcess}
-              mode={currentSessionId ? currentSessionMode : undefined}
-              availableCommands={availableCommands}
-              selectedModel={selectedModel}
-              sessionId={currentSessionId}
-              onRepoSelected={handleRepoSelected}
-              selectedRepo={selectedRepo}
-              connectedRepo={currentSessionId ? sessions.find(s => s.id === currentSessionId)?.github_repo : null}
-            />
+            {pendingQuestion ? (
+              <QuestionInput
+                question={pendingQuestion}
+                onAnswer={(answers) => {
+                  dispatchQuestionAnswer(pendingQuestion.toolId, answers);
+                  setPendingQuestion(null);
+                }}
+                onSkip={() => {
+                  const skipped: Record<string, string> = {};
+                  pendingQuestion.questions.forEach((qq, idx) => {
+                    skipped[qq.header || `question_${idx}`] = 'Skipped';
+                  });
+                  dispatchQuestionAnswer(pendingQuestion.toolId, skipped);
+                  setPendingQuestion(null);
+                }}
+              />
+            ) : (
+              <ChatInput
+                key={currentSessionId || 'new-chat'}
+                value={inputValue}
+                onChange={setInputValue}
+                onSubmit={handleSubmit}
+                onStop={handleStop}
+                disabled={!isConnected || isCurrentSessionLoading}
+                isGenerating={isCurrentSessionLoading}
+                isPlanMode={isPlanMode}
+                onTogglePlanMode={handleTogglePlanMode}
+                backgroundProcesses={backgroundProcesses.get(currentSessionId || '') || []}
+                onKillProcess={handleKillProcess}
+                mode={currentSessionId ? currentSessionMode : undefined}
+                availableCommands={availableCommands}
+                selectedModel={selectedModel}
+                sessionId={currentSessionId}
+                onRepoSelected={handleRepoSelected}
+                selectedRepo={selectedRepo}
+                connectedRepo={currentSessionId ? sessions.find(s => s.id === currentSessionId)?.github_repo : null}
+              />
+            )}
           </>
         )}
       </div>
