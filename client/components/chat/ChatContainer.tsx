@@ -93,11 +93,21 @@ export function ChatContainer() {
   const isLoading = isAnySessionLoading;
   const { createBranch } = useBranching();
   const chatSearch = useChatSearch(messages);
+  const allMatchesInfo = useMemo(() =>
+    chatSearch.matches.map(m => ({ messageId: m.messageId, messageIndex: m.messageIndex, matchStart: m.matchStart })),
+    [chatSearch.matches],
+  );
   const searchContextValue = useMemo(() => ({
     query: isSearchOpen ? chatSearch.query : '',
     currentMatchMessageIndex: chatSearch.currentMatch?.messageIndex ?? null,
     currentMatchIndex: chatSearch.currentMatchIndex,
-  }), [isSearchOpen, chatSearch.query, chatSearch.currentMatch, chatSearch.currentMatchIndex]);
+    currentMatch: chatSearch.currentMatch ? {
+      messageId: chatSearch.currentMatch.messageId,
+      messageIndex: chatSearch.currentMatch.messageIndex,
+      matchStart: chatSearch.currentMatch.matchStart,
+    } : null,
+    allMatches: isSearchOpen ? allMatchesInfo : [],
+  }), [isSearchOpen, chatSearch.query, chatSearch.currentMatch, chatSearch.currentMatchIndex, allMatchesInfo]);
 
   // --- Ctrl+F / Cmd+F keyboard shortcut for search ---
   useEffect(() => {

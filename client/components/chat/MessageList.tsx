@@ -35,7 +35,18 @@ interface MessageListProps {
 export const MessageList = React.memo(function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef }: MessageListProps) {
   const parentRef = scrollContainerRef || useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const { query: searchQuery, currentMatchMessageIndex, currentMatchIndex } = useSearchContext();
+  const { query: searchQuery, currentMatchMessageIndex, currentMatchIndex, currentMatch, allMatches } = useSearchContext();
+
+  // Compute which occurrence (0-based) a match is within its message
+  const computeOccurrenceIndex = useCallback((messageId: string, matchStart: number): number => {
+    let count = 0;
+    for (const m of allMatches) {
+      if (m.messageId === messageId) {
+        if (m.matchStart < matchStart) count++;
+      }
+    }
+    return count;
+  }, [allMatches]);
 
   // Elapsed time tracking
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -267,25 +278,40 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
       cssHighlights.delete('search-results');
       cssHighlights.delete('search-results-active');
 
+      // Group DOM ranges by message ID so we can map global match → DOM range
+      const rangesByMessageId = new Map<string, Range[]>();
       const allRanges: Range[] = [];
-      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
-        acceptNode: (node) => isInsideNoSearch(node) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
-      });
       const lowerQuery = searchQuery.toLowerCase();
 
-      while (walker.nextNode()) {
-        const node = walker.currentNode as Text;
-        const text = node.textContent || '';
-        const lowerText = text.toLowerCase();
-        let idx = 0;
-        while ((idx = lowerText.indexOf(lowerQuery, idx)) !== -1) {
-          try {
-            const range = new Range();
-            range.setStart(node, idx);
-            range.setEnd(node, idx + searchQuery.length);
-            allRanges.push(range);
-          } catch { /* skip invalid ranges */ }
-          idx += searchQuery.length;
+      // Walk each rendered message element individually (preserves message boundaries)
+      const messageEls = container.querySelectorAll<HTMLElement>('[data-message-id]');
+      for (const msgEl of messageEls) {
+        const msgId = msgEl.getAttribute('data-message-id')!;
+        const msgRanges: Range[] = [];
+
+        const walker = document.createTreeWalker(msgEl, NodeFilter.SHOW_TEXT, {
+          acceptNode: (node) => isInsideNoSearch(node) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+        });
+
+        while (walker.nextNode()) {
+          const node = walker.currentNode as Text;
+          const text = node.textContent || '';
+          const lowerText = text.toLowerCase();
+          let idx = 0;
+          while ((idx = lowerText.indexOf(lowerQuery, idx)) !== -1) {
+            try {
+              const range = new Range();
+              range.setStart(node, idx);
+              range.setEnd(node, idx + searchQuery.length);
+              msgRanges.push(range);
+              allRanges.push(range);
+            } catch { /* skip invalid ranges */ }
+            idx += searchQuery.length;
+          }
+        }
+
+        if (msgRanges.length > 0) {
+          rangesByMessageId.set(msgId, msgRanges);
         }
       }
 
@@ -293,9 +319,20 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
       const HighlightCtor = (window as any).Highlight;
       if (!HighlightCtor || allRanges.length === 0) return;
 
-      // Separate the active match from the rest
-      const activeRange = allRanges[currentMatchIndex];
-      const inactiveRanges = allRanges.filter((_, i) => i !== currentMatchIndex);
+      // Find the active range using match metadata (message ID + occurrence within that message)
+      let activeRange: Range | undefined;
+      if (currentMatch) {
+        const msgRanges = rangesByMessageId.get(currentMatch.messageId);
+        if (msgRanges) {
+          // currentMatch.matchStart tells us the character offset of this match in the message text.
+          // Count how many matches in this message have a smaller matchStart to get the occurrence index.
+          // We compute this from the search data, not the DOM.
+          const occurrenceIndex = computeOccurrenceIndex(currentMatch.messageId, currentMatch.matchStart);
+          activeRange = msgRanges[occurrenceIndex];
+        }
+      }
+
+      const inactiveRanges = activeRange ? allRanges.filter(r => r !== activeRange) : allRanges;
 
       if (inactiveRanges.length > 0) {
         cssHighlights.set('search-results', new HighlightCtor(...inactiveRanges));
@@ -314,7 +351,6 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
               const maxScroll = container.scrollHeight - container.clientHeight;
               const ideal = container.scrollTop + rect.top - containerRect.top - containerRect.height / 3;
               const clamped = Math.max(0, Math.min(ideal, maxScroll));
-              // Only scroll if there's meaningful distance; skip if already clamped at boundary
               if (Math.abs(clamped - container.scrollTop) > 10) {
                 container.scrollTo({ top: clamped });
               }
@@ -344,7 +380,7 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
       cssHighlights.delete('search-results');
       cssHighlights.delete('search-results-active');
     };
-  }, [searchQuery, currentMatchMessageIndex, currentMatchIndex, parentRef]);
+  }, [searchQuery, currentMatchMessageIndex, currentMatchIndex, currentMatch, computeOccurrenceIndex, parentRef]);
 
   // Track previous message count to detect bulk loads (session switch, refresh, reconnect)
   const prevMessageCountRef = useRef(0);
@@ -434,6 +470,7 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
                     }}
                     ref={virtualizer.measureElement}
                     data-index={virtualItem.index}
+                    data-message-id={message.id}
                   >
                     <MessageRenderer message={message} />
                   </div>
