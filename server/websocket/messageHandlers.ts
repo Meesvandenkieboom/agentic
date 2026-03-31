@@ -684,6 +684,39 @@ IMPORTANT: Do not modify files outside the workspace directory.
 
           const { tool_name, tool_input } = input as PreToolUseInput;
 
+          // Intercept AskUserQuestion — pause SDK until user answers via WebSocket
+          if (tool_name === 'AskUserQuestion') {
+            const toolId = toolUseID || `question-${Date.now()}`;
+            console.log(`❓ AskUserQuestion intercepted via PreToolUse (toolId: ${toolId}) — blocking SDK`);
+
+            // Notify client that a question needs answering
+            sessionStreamManager.safeSend(
+              sessionId as string,
+              JSON.stringify({
+                type: 'ask_user_question',
+                toolId,
+                questions: tool_input.questions || [],
+                sessionId: sessionId,
+              })
+            );
+
+            // Block SDK until user answers
+            const answer = await new Promise<string>((resolve) => {
+              pendingQuestions.set(sessionId as string, { resolve, toolId });
+            });
+
+            console.log(`✅ AskUserQuestion answered — resuming SDK (toolId: ${toolId})`);
+
+            return {
+              decision: 'approve' as const,
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse' as const,
+                permissionDecision: 'allow' as const,
+                updatedInput: { ...tool_input, answers: JSON.parse(answer) },
+              },
+            };
+          }
+
           if (tool_name !== 'Bash') return {};
 
           const bashInput = tool_input as Record<string, unknown>;
