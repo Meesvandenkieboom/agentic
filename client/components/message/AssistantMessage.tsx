@@ -26,6 +26,7 @@ import { SyntaxHighlighter, vscDarkPlus } from '../../utils/syntaxHighlighter';
 import { AssistantMessage as AssistantMessageType, ToolUseBlock, TextBlock, TodoItem, LongRunningCommandBlock } from './types';
 import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
+import { HighlightText } from './HighlightText';
 import { URLBadge } from './URLBadge';
 import { MermaidDiagram } from './MermaidDiagram';
 import { Shield } from 'lucide-react';
@@ -1824,6 +1825,13 @@ function TextComponent({ text }: { text: TextBlock }) {
             em: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
               <em className="italic" style={{ color: 'rgb(var(--text-primary))' }} {...props} />
             ),
+            // Search highlight support for plain text nodes inside markdown
+            text: ({ children }: { children?: React.ReactNode }) => {
+              if (typeof children === 'string') {
+                return <HighlightText text={children} />;
+              }
+              return <>{children}</>;
+            },
             // Customize table
             table: ({ ...props }: React.HTMLAttributes<HTMLElement>) => (
               <div className="my-4 overflow-x-auto">

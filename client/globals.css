@@ -1497,7 +1497,7 @@
 }
 
 .scroll-button-top {
-  top: 6rem;
+  top: 7.5rem;
   animation: fadeInFromTop 0.25s ease-in forwards;
 }
 
@@ -1644,4 +1644,31 @@
   border-radius: 2px;
   padding: 0 1px;
   box-shadow: 0 0 0 1px rgba(218, 238, 255, 0.3);
+}
+
+/* Active message glow when navigating search results */
+.search-active-message > .message-container {
+  position: relative;
+}
+
+.search-active-message::after {
+  content: '';
+  position: absolute;
+  inset: 4px 0;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(218, 238, 255, 0.2);
+  background: rgba(218, 238, 255, 0.04);
+  pointer-events: none;
+  animation: searchGlowIn 0.3s ease-out;
+}
+
+@keyframes searchGlowIn {
+  from {
+    opacity: 0;
+    border-color: transparent;
+  }
+  to {
+    opacity: 1;
+    border-color: rgba(218, 238, 255, 0.2);
+  }
 }

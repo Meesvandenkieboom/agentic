@@ -1,9 +1,11 @@
 /**
- * CommandTextRenderer - Parses text and renders slash commands as gradient pills
+ * CommandTextRenderer - Parses text and renders slash commands as gradient pills,
+ * with optional search highlighting support.
  */
 
 import React from 'react';
 import { CommandPill } from './CommandPill';
+import { HighlightText } from './HighlightText';
 
 interface CommandTextRendererProps {
   content: string;
@@ -18,9 +20,10 @@ export function CommandTextRenderer({ content }: CommandTextRendererProps) {
   // Captures command name without the slash
   const commandRegex = /(^|\s)(\/([a-z-]+))(?=\s|$)/gm;
 
-  const parts: (string | React.ReactElement)[] = [];
+  const parts: (React.ReactElement | null)[] = [];
   let lastIndex = 0;
   let match;
+  let key = 0;
 
   // Reset regex state
   commandRegex.lastIndex = 0;
@@ -32,14 +35,14 @@ export function CommandTextRenderer({ content }: CommandTextRendererProps) {
     const matchStart = match.index;
     const matchEnd = match.index + fullMatch.length;
 
-    // Add text before command
+    // Add text before command (with highlight support)
     if (matchStart > lastIndex) {
-      parts.push(content.slice(lastIndex, matchStart));
+      parts.push(<HighlightText key={`t-${key++}`} text={content.slice(lastIndex, matchStart)} />);
     }
 
     // Add leading space if exists
     if (leadingSpace) {
-      parts.push(leadingSpace);
+      parts.push(<React.Fragment key={`s-${key++}`}>{leadingSpace}</React.Fragment>);
     }
 
     // Add command pill (strip the /)
@@ -50,14 +53,14 @@ export function CommandTextRenderer({ content }: CommandTextRendererProps) {
     lastIndex = matchEnd;
   }
 
-  // Add remaining text
+  // Add remaining text (with highlight support)
   if (lastIndex < content.length) {
-    parts.push(content.slice(lastIndex));
+    parts.push(<HighlightText key={`t-${key++}`} text={content.slice(lastIndex)} />);
   }
 
-  // If no commands found, return original text
+  // If no commands found, return highlighted text
   if (parts.length === 0) {
-    return <>{content}</>;
+    return <HighlightText text={content} />;
   }
 
   return <>{parts}</>;

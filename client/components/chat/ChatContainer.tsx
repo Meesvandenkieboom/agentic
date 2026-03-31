@@ -18,7 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { NewChatWelcome } from './NewChatWelcome';
@@ -32,6 +32,7 @@ import { NotificationToggle } from '../header/NotificationToggle';
 import { PlanApprovalModal } from '../plan/PlanApprovalModal';
 import { BuildWizard } from '../build-wizard/BuildWizard';
 import { ScrollButton } from './ScrollButton';
+import { SearchContext } from './SearchContext';
 import { BranchDialog } from './BranchDialog';
 import { BranchIndicator } from './BranchIndicator';
 import { useWebSocket } from '../../hooks/useWebSocket';
@@ -91,6 +92,10 @@ export function ChatContainer() {
   const isLoading = isAnySessionLoading;
   const { createBranch } = useBranching();
   const chatSearch = useChatSearch(messages);
+  const searchContextValue = useMemo(() => ({
+    query: isSearchOpen ? chatSearch.query : '',
+    activeMessageId: chatSearch.activeMessageId,
+  }), [isSearchOpen, chatSearch.query, chatSearch.activeMessageId]);
 
   // --- Ctrl+F / Cmd+F keyboard shortcut for search ---
   useEffect(() => {
@@ -619,12 +624,14 @@ export function ChatContainer() {
           />
         ) : (
           <>
-            <MessageList
-              messages={messages}
-              isLoading={isCurrentSessionLoading}
-              liveTokenCount={liveTokenCount}
-              scrollContainerRef={scrollContainerRef}
-            />
+            <SearchContext.Provider value={searchContextValue}>
+              <MessageList
+                messages={messages}
+                isLoading={isCurrentSessionLoading}
+                liveTokenCount={liveTokenCount}
+                scrollContainerRef={scrollContainerRef}
+              />
+            </SearchContext.Provider>
             <ChatInput
               key={currentSessionId || 'new-chat'}
               value={inputValue}

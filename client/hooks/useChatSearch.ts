@@ -15,17 +15,16 @@ interface UseChatSearchResult {
   matches: SearchMatch[];
   currentMatchIndex: number;
   totalMatches: number;
+  activeMessageId: string | null;
   goToNext: () => void;
   goToPrevious: () => void;
   currentMatch: SearchMatch | null;
   clearSearch: () => void;
 }
 
+/** Only extract visible user text and assistant text blocks (no tool_use, no thinking) */
 function extractTextFromMessage(message: Message): string {
   if (message.type === 'user') {
-    return typeof message.content === 'string' ? message.content : '';
-  }
-  if (message.type === 'system') {
     return typeof message.content === 'string' ? message.content : '';
   }
   if (message.type === 'assistant') {
@@ -33,8 +32,6 @@ function extractTextFromMessage(message: Message): string {
     for (const block of message.content) {
       if (block.type === 'text') {
         parts.push(block.text);
-      } else if (block.type === 'thinking') {
-        parts.push(block.thinking);
       }
     }
     return parts.join(' ');
@@ -96,6 +93,7 @@ export function useChatSearch(messages: Message[]): UseChatSearchResult {
   }, []);
 
   const currentMatch = matches.length > 0 ? matches[currentMatchIndex] ?? null : null;
+  const activeMessageId = currentMatch?.messageId ?? null;
 
   return {
     query,
@@ -103,6 +101,7 @@ export function useChatSearch(messages: Message[]): UseChatSearchResult {
     matches,
     currentMatchIndex,
     totalMatches: matches.length,
+    activeMessageId,
     goToNext,
     goToPrevious,
     currentMatch,

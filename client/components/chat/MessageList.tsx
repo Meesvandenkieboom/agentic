@@ -21,6 +21,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { MessageRenderer } from '../message/MessageRenderer';
+import { useSearchContext } from './SearchContext';
 import { Zap, Clock } from 'lucide-react';
 import type { Message } from '../message/types';
 
@@ -34,6 +35,7 @@ interface MessageListProps {
 export const MessageList = React.memo(function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef }: MessageListProps) {
   const parentRef = scrollContainerRef || useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const { activeMessageId } = useSearchContext();
 
   // Elapsed time tracking
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -303,6 +305,7 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
             <div className="w-full" style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
               {virtualizer.getVirtualItems().map((virtualItem) => {
                 const message = messages[virtualItem.index];
+                const isActiveSearch = activeMessageId === message.id;
 
                 return (
                   <div
@@ -316,6 +319,7 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
                     }}
                     ref={virtualizer.measureElement}
                     data-index={virtualItem.index}
+                    className={isActiveSearch ? 'search-active-message' : undefined}
                   >
                     <MessageRenderer message={message} />
                   </div>
