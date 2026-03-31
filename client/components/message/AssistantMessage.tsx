@@ -1902,7 +1902,7 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
       <div className="message-assistant-wrapper">
         <div className="message-assistant-content">
           {/* Header with avatar and model name */}
-          <div className="message-assistant-header">
+          <div className="message-assistant-header" data-no-search>
             <img
               src="/client/agentic-icon.svg"
               className="message-assistant-avatar"
@@ -1925,21 +1925,21 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
                 if (block.type === 'text') {
                   return <TextComponent key={index} text={block} />;
                 } else if (block.type === 'tool_use') {
-                  return <ToolUseComponent key={index} toolUse={block} />;
+                  return <div key={index} data-no-search><ToolUseComponent toolUse={block} /></div>;
                 } else if (block.type === 'thinking') {
                   // Find the last thinking block index
                   const lastThinkingIndex = message.content.map((b, i) => b.type === 'thinking' ? i : -1).filter(i => i !== -1).pop();
                   const isLastThinking = index === lastThinkingIndex;
-                  return <ThinkingBlock key={index} title="Agentic's thoughts..." content={block.thinking} isActive={isLastThinking} />;
+                  return <div key={index} data-no-search><ThinkingBlock title="Agentic's thoughts..." content={block.thinking} isActive={isLastThinking} /></div>;
                 } else if (block.type === 'long_running_command') {
-                  return <LongRunningCommandComponent key={index} command={block} />;
+                  return <div key={index} data-no-search><LongRunningCommandComponent command={block} /></div>;
                 }
                 return null;
               })}
             </div>
 
             {/* Action buttons */}
-            <div className="message-assistant-actions">
+            <div className="message-assistant-actions" data-no-search>
               <button
                 onClick={handleCopy}
                 className="message-action-btn"

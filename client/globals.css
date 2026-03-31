@@ -1634,6 +1634,11 @@
 
 /* Search highlight via CSS Custom Highlight API */
 ::highlight(search-results) {
-  background-color: rgba(218, 238, 255, 0.35);
+  background-color: rgba(255, 255, 255, 0.15);
+  color: inherit;
+}
+
+::highlight(search-results-active) {
+  background-color: rgba(96, 165, 250, 0.55);
   color: inherit;
 }

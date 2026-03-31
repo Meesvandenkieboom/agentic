@@ -96,7 +96,8 @@ export function ChatContainer() {
   const searchContextValue = useMemo(() => ({
     query: isSearchOpen ? chatSearch.query : '',
     currentMatchMessageIndex: chatSearch.currentMatch?.messageIndex ?? null,
-  }), [isSearchOpen, chatSearch.query, chatSearch.currentMatch]);
+    currentMatchIndex: chatSearch.currentMatchIndex,
+  }), [isSearchOpen, chatSearch.query, chatSearch.currentMatch, chatSearch.currentMatchIndex]);
 
   // --- Ctrl+F / Cmd+F keyboard shortcut for search ---
   useEffect(() => {

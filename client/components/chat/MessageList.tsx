@@ -35,7 +35,7 @@ interface MessageListProps {
 export const MessageList = React.memo(function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef }: MessageListProps) {
   const parentRef = scrollContainerRef || useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const { query: searchQuery, currentMatchMessageIndex } = useSearchContext();
+  const { query: searchQuery, currentMatchMessageIndex, currentMatchIndex } = useSearchContext();
 
   // Elapsed time tracking
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -235,7 +235,8 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
     if (currentMatchMessageIndex !== null && currentMatchMessageIndex >= 0) {
       virtualizer.scrollToIndex(currentMatchMessageIndex, { align: 'center', behavior: 'smooth' });
     }
-  }, [currentMatchMessageIndex, virtualizer]);
+    // currentMatchIndex triggers re-scroll even when message stays the same (multiple matches in one message)
+  }, [currentMatchMessageIndex, currentMatchIndex, virtualizer]);
 
   // --- Search: CSS Custom Highlight API for text highlighting ---
   useEffect(() => {
@@ -244,14 +245,29 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
     if (!cssHighlights) return; // Browser doesn't support Highlight API
 
     cssHighlights.delete('search-results');
+    cssHighlights.delete('search-results-active');
 
     const container = parentRef.current;
     if (!container || !searchQuery) return;
 
+    /** Check if a node is inside a [data-no-search] ancestor */
+    const isInsideNoSearch = (node: Node): boolean => {
+      let el: Node | null = node.parentNode;
+      while (el && el !== container) {
+        if (el instanceof HTMLElement && el.hasAttribute('data-no-search')) return true;
+        el = el.parentNode;
+      }
+      return false;
+    };
+
     const applyHighlights = () => {
       cssHighlights.delete('search-results');
-      const ranges: Range[] = [];
-      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+      cssHighlights.delete('search-results-active');
+
+      const allRanges: Range[] = [];
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => isInsideNoSearch(node) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+      });
       const lowerQuery = searchQuery.toLowerCase();
 
       while (walker.nextNode()) {
@@ -264,18 +280,25 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
             const range = new Range();
             range.setStart(node, idx);
             range.setEnd(node, idx + searchQuery.length);
-            ranges.push(range);
+            allRanges.push(range);
           } catch { /* skip invalid ranges */ }
           idx += searchQuery.length;
         }
       }
 
-      if (ranges.length > 0) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const HighlightCtor = (window as any).Highlight;
-        if (HighlightCtor) {
-          cssHighlights.set('search-results', new HighlightCtor(...ranges));
-        }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const HighlightCtor = (window as any).Highlight;
+      if (!HighlightCtor || allRanges.length === 0) return;
+
+      // Separate the active match from the rest
+      const activeRange = allRanges[currentMatchIndex];
+      const inactiveRanges = allRanges.filter((_, i) => i !== currentMatchIndex);
+
+      if (inactiveRanges.length > 0) {
+        cssHighlights.set('search-results', new HighlightCtor(...inactiveRanges));
+      }
+      if (activeRange) {
+        cssHighlights.set('search-results-active', new HighlightCtor(activeRange));
       }
     };
 
@@ -295,8 +318,9 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
       clearTimeout(scrollTimeout);
       container.removeEventListener('scroll', handleScroll);
       cssHighlights.delete('search-results');
+      cssHighlights.delete('search-results-active');
     };
-  }, [searchQuery, currentMatchMessageIndex, parentRef]);
+  }, [searchQuery, currentMatchMessageIndex, currentMatchIndex, parentRef]);
 
   // Track previous message count to detect bulk loads (session switch, refresh, reconnect)
   const prevMessageCountRef = useRef(0);
