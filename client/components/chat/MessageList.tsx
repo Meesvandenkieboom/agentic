@@ -309,10 +309,15 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
           try {
             const rect = activeRange.getBoundingClientRect();
             const containerRect = container.getBoundingClientRect();
-            const isVisible = rect.top >= containerRect.top + 40 && rect.bottom <= containerRect.bottom - 40;
+            const isVisible = rect.top >= containerRect.top + 60 && rect.bottom <= containerRect.bottom - 60;
             if (!isVisible) {
-              const targetTop = container.scrollTop + rect.top - containerRect.top - containerRect.height / 3;
-              container.scrollTo({ top: targetTop, behavior: 'smooth' });
+              const maxScroll = container.scrollHeight - container.clientHeight;
+              const ideal = container.scrollTop + rect.top - containerRect.top - containerRect.height / 3;
+              const clamped = Math.max(0, Math.min(ideal, maxScroll));
+              // Only scroll if there's meaningful distance; skip if already clamped at boundary
+              if (Math.abs(clamped - container.scrollTop) > 10) {
+                container.scrollTo({ top: clamped });
+              }
             }
           } catch { /* range may be detached */ }
         }
