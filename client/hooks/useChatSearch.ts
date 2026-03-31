@@ -15,7 +15,6 @@ interface UseChatSearchResult {
   matches: SearchMatch[];
   currentMatchIndex: number;
   totalMatches: number;
-  activeMessageId: string | null;
   goToNext: () => void;
   goToPrevious: () => void;
   currentMatch: SearchMatch | null;
@@ -93,7 +92,6 @@ export function useChatSearch(messages: Message[]): UseChatSearchResult {
   }, []);
 
   const currentMatch = matches.length > 0 ? matches[currentMatchIndex] ?? null : null;
-  const activeMessageId = currentMatch?.messageId ?? null;
 
   return {
     query,
@@ -101,7 +99,6 @@ export function useChatSearch(messages: Message[]): UseChatSearchResult {
     matches,
     currentMatchIndex,
     totalMatches: matches.length,
-    activeMessageId,
     goToNext,
     goToPrevious,
     currentMatch,

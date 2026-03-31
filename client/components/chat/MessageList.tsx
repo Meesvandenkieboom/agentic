@@ -35,7 +35,7 @@ interface MessageListProps {
 export const MessageList = React.memo(function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef }: MessageListProps) {
   const parentRef = scrollContainerRef || useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const { activeMessageId } = useSearchContext();
+  const { query: searchQuery, currentMatchMessageIndex } = useSearchContext();
 
   // Elapsed time tracking
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -230,6 +230,74 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
     overscan: 5, // Render 5 extra items above/below viewport
   });
 
+  // --- Search: scroll to matched message via virtualizer ---
+  useEffect(() => {
+    if (currentMatchMessageIndex !== null && currentMatchMessageIndex >= 0) {
+      virtualizer.scrollToIndex(currentMatchMessageIndex, { align: 'center', behavior: 'smooth' });
+    }
+  }, [currentMatchMessageIndex, virtualizer]);
+
+  // --- Search: CSS Custom Highlight API for text highlighting ---
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cssHighlights = (CSS as any).highlights as Map<string, unknown> | undefined;
+    if (!cssHighlights) return; // Browser doesn't support Highlight API
+
+    cssHighlights.delete('search-results');
+
+    const container = parentRef.current;
+    if (!container || !searchQuery) return;
+
+    const applyHighlights = () => {
+      cssHighlights.delete('search-results');
+      const ranges: Range[] = [];
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+      const lowerQuery = searchQuery.toLowerCase();
+
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text;
+        const text = node.textContent || '';
+        const lowerText = text.toLowerCase();
+        let idx = 0;
+        while ((idx = lowerText.indexOf(lowerQuery, idx)) !== -1) {
+          try {
+            const range = new Range();
+            range.setStart(node, idx);
+            range.setEnd(node, idx + searchQuery.length);
+            ranges.push(range);
+          } catch { /* skip invalid ranges */ }
+          idx += searchQuery.length;
+        }
+      }
+
+      if (ranges.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const HighlightCtor = (window as any).Highlight;
+        if (HighlightCtor) {
+          cssHighlights.set('search-results', new HighlightCtor(...ranges));
+        }
+      }
+    };
+
+    // Apply immediately after DOM settles
+    const raf = requestAnimationFrame(applyHighlights);
+
+    // Re-apply on scroll (virtualizer swaps DOM nodes)
+    let scrollTimeout: ReturnType<typeof setTimeout>;
+    const handleScroll = () => {
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(applyHighlights, 80);
+    };
+    container.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(scrollTimeout);
+      container.removeEventListener('scroll', handleScroll);
+      cssHighlights.delete('search-results');
+    };
+  }, [searchQuery, currentMatchMessageIndex, parentRef]);
+
   // Track previous message count to detect bulk loads (session switch, refresh, reconnect)
   const prevMessageCountRef = useRef(0);
 
@@ -305,7 +373,6 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
             <div className="w-full" style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
               {virtualizer.getVirtualItems().map((virtualItem) => {
                 const message = messages[virtualItem.index];
-                const isActiveSearch = activeMessageId === message.id;
 
                 return (
                   <div
@@ -319,7 +386,6 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
                     }}
                     ref={virtualizer.measureElement}
                     data-index={virtualItem.index}
-                    className={isActiveSearch ? 'search-active-message' : undefined}
                   >
                     <MessageRenderer message={message} />
                   </div>

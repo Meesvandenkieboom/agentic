@@ -2,12 +2,12 @@ import { createContext, useContext } from 'react';
 
 interface SearchContextValue {
   query: string;
-  activeMessageId: string | null;
+  currentMatchMessageIndex: number | null;
 }
 
 export const SearchContext = createContext<SearchContextValue>({
   query: '',
-  activeMessageId: null,
+  currentMatchMessageIndex: null,
 });
 
 export function useSearchContext() {

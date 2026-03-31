@@ -9,6 +9,7 @@ interface ChatSearchBarProps {
   onNext: () => void;
   onPrevious: () => void;
   onClose: () => void;
+  focusTrigger?: number;
 }
 
 export function ChatSearchBar({
@@ -19,29 +20,27 @@ export function ChatSearchBar({
   onNext,
   onPrevious,
   onClose,
+  focusTrigger = 0,
 }: ChatSearchBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-focus on mount
+  // Focus and select on mount + whenever focusTrigger bumps (re-press Ctrl+F)
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
+    inputRef.current?.select();
+  }, [focusTrigger]);
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
-      } else if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        if (e.shiftKey) {
-          onPrevious();
-        } else {
-          onNext();
-        }
       } else if (e.key === 'Enter' && e.shiftKey) {
         e.preventDefault();
         onPrevious();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        onNext();
       }
     };
 

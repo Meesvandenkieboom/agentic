@@ -84,6 +84,7 @@ export function ChatContainer() {
   const [branchDialogOpen, setBranchDialogOpen] = useState(false);
   const [branchingSessionId, setBranchingSessionId] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchFocusKey, setSearchFocusKey] = useState(0);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null) as React.RefObject<HTMLDivElement>;
   const activeLongRunningCommandRef = useRef<string | null>(null);
@@ -94,8 +95,8 @@ export function ChatContainer() {
   const chatSearch = useChatSearch(messages);
   const searchContextValue = useMemo(() => ({
     query: isSearchOpen ? chatSearch.query : '',
-    activeMessageId: chatSearch.activeMessageId,
-  }), [isSearchOpen, chatSearch.query, chatSearch.activeMessageId]);
+    currentMatchMessageIndex: chatSearch.currentMatch?.messageIndex ?? null,
+  }), [isSearchOpen, chatSearch.query, chatSearch.currentMatch]);
 
   // --- Ctrl+F / Cmd+F keyboard shortcut for search ---
   useEffect(() => {
@@ -103,27 +104,18 @@ export function ChatContainer() {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         if (messages.length > 0) {
           e.preventDefault();
-          setIsSearchOpen(true);
+          if (isSearchOpen) {
+            // Already open — re-focus input
+            setSearchFocusKey(k => k + 1);
+          } else {
+            setIsSearchOpen(true);
+          }
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [messages.length]);
-
-  // Scroll to matched message when currentMatch changes
-  useEffect(() => {
-    if (!chatSearch.currentMatch || !scrollContainerRef.current) return;
-    const container = scrollContainerRef.current;
-    const messageEls = container.querySelectorAll('[data-index]');
-    for (const el of messageEls) {
-      const idx = parseInt(el.getAttribute('data-index') || '-1', 10);
-      if (idx === chatSearch.currentMatch.messageIndex) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        break;
-      }
-    }
-  }, [chatSearch.currentMatch, scrollContainerRef]);
+  }, [messages.length, isSearchOpen]);
 
   // --- Persist session ID to localStorage ---
   useEffect(() => {
@@ -581,7 +573,13 @@ export function ChatContainer() {
               )}
               <NotificationToggle />
               <div style={{ position: 'relative' }}>
-                <ChatSearchButton onClick={() => setIsSearchOpen(!isSearchOpen)} />
+                <ChatSearchButton onClick={() => {
+                  if (isSearchOpen) {
+                    setSearchFocusKey(k => k + 1);
+                  } else {
+                    setIsSearchOpen(true);
+                  }
+                }} />
                 {isSearchOpen && (
                   <ChatSearchBar
                     query={chatSearch.query}
@@ -594,6 +592,7 @@ export function ChatContainer() {
                       setIsSearchOpen(false);
                       chatSearch.clearSearch();
                     }}
+                    focusTrigger={searchFocusKey}
                   />
                 )}
               </div>
