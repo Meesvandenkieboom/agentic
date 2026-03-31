@@ -230,12 +230,15 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
     overscan: 5, // Render 5 extra items above/below viewport
   });
 
-  // --- Search: scroll to matched message via virtualizer ---
+  // Track whether we need to scroll to the active range after highlights are applied
+  const pendingScrollRef = useRef(false);
+
+  // --- Search: scroll to matched message via virtualizer (Phase 1: get message in DOM) ---
   useEffect(() => {
     if (currentMatchMessageIndex !== null && currentMatchMessageIndex >= 0) {
-      virtualizer.scrollToIndex(currentMatchMessageIndex, { align: 'center', behavior: 'smooth' });
+      virtualizer.scrollToIndex(currentMatchMessageIndex, { align: 'center' });
+      pendingScrollRef.current = true; // Phase 2 will handle precise scroll
     }
-    // currentMatchIndex triggers re-scroll even when message stays the same (multiple matches in one message)
   }, [currentMatchMessageIndex, currentMatchIndex, virtualizer]);
 
   // --- Search: CSS Custom Highlight API for text highlighting ---
@@ -299,13 +302,29 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
       }
       if (activeRange) {
         cssHighlights.set('search-results-active', new HighlightCtor(activeRange));
+
+        // Phase 2: scroll the active match into view precisely
+        if (pendingScrollRef.current) {
+          pendingScrollRef.current = false;
+          try {
+            const rect = activeRange.getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+            const isVisible = rect.top >= containerRect.top + 40 && rect.bottom <= containerRect.bottom - 40;
+            if (!isVisible) {
+              const targetTop = container.scrollTop + rect.top - containerRect.top - containerRect.height / 3;
+              container.scrollTo({ top: targetTop, behavior: 'smooth' });
+            }
+          } catch { /* range may be detached */ }
+        }
       }
     };
 
-    // Apply immediately after DOM settles
-    const raf = requestAnimationFrame(applyHighlights);
+    // Apply after virtualizer has time to render the scrolled-to message
+    const raf1 = requestAnimationFrame(() => {
+      requestAnimationFrame(applyHighlights);
+    });
 
-    // Re-apply on scroll (virtualizer swaps DOM nodes)
+    // Re-apply on scroll (virtualizer swaps DOM nodes) — but don't trigger scroll-to-active
     let scrollTimeout: ReturnType<typeof setTimeout>;
     const handleScroll = () => {
       clearTimeout(scrollTimeout);
@@ -314,7 +333,7 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
     container.addEventListener('scroll', handleScroll, { passive: true });
 
     return () => {
-      cancelAnimationFrame(raf);
+      cancelAnimationFrame(raf1);
       clearTimeout(scrollTimeout);
       container.removeEventListener('scroll', handleScroll);
       cssHighlights.delete('search-results');
