@@ -26,7 +26,8 @@ import { Sidebar } from '../sidebar/Sidebar';
 import { ModelSelector } from '../header/ModelSelector';
 import { WorkingDirectoryDisplay } from '../header/WorkingDirectoryDisplay';
 import { GitHubRepoIndicator } from '../header/GitHubRepoIndicator';
-import { AboutButton } from '../header/AboutButton';
+import { ChatSearchButton } from '../header/ChatSearchButton';
+import { ChatSearchBar } from '../header/ChatSearchBar';
 import { NotificationToggle } from '../header/NotificationToggle';
 import { PlanApprovalModal } from '../plan/PlanApprovalModal';
 import { BuildWizard } from '../build-wizard/BuildWizard';
@@ -35,6 +36,7 @@ import { BranchDialog } from './BranchDialog';
 import { BranchIndicator } from './BranchIndicator';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useBranching } from '../../hooks/useBranching';
+import { useChatSearch } from '../../hooks/useChatSearch';
 import { useChatMessages, generateMessageId } from '../../hooks/useChatMessages';
 import { useChatSessions } from '../../hooks/useChatSessions';
 import { Menu, Edit3 } from 'lucide-react';
@@ -80,6 +82,7 @@ export function ChatContainer() {
   const [selectedDirectory, setSelectedDirectory] = useState<string | null>(null);
   const [branchDialogOpen, setBranchDialogOpen] = useState(false);
   const [branchingSessionId, setBranchingSessionId] = useState<string | null>(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null) as React.RefObject<HTMLDivElement>;
   const activeLongRunningCommandRef = useRef<string | null>(null);
@@ -87,6 +90,35 @@ export function ChatContainer() {
 
   const isLoading = isAnySessionLoading;
   const { createBranch } = useBranching();
+  const chatSearch = useChatSearch(messages);
+
+  // --- Ctrl+F / Cmd+F keyboard shortcut for search ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        if (messages.length > 0) {
+          e.preventDefault();
+          setIsSearchOpen(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [messages.length]);
+
+  // Scroll to matched message when currentMatch changes
+  useEffect(() => {
+    if (!chatSearch.currentMatch || !scrollContainerRef.current) return;
+    const container = scrollContainerRef.current;
+    const messageEls = container.querySelectorAll('[data-index]');
+    for (const el of messageEls) {
+      const idx = parseInt(el.getAttribute('data-index') || '-1', 10);
+      if (idx === chatSearch.currentMatch.messageIndex) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        break;
+      }
+    }
+  }, [chatSearch.currentMatch, scrollContainerRef]);
 
   // --- Persist session ID to localStorage ---
   useEffect(() => {
@@ -543,7 +575,23 @@ export function ChatContainer() {
                 />
               )}
               <NotificationToggle />
-              <AboutButton />
+              <div style={{ position: 'relative' }}>
+                <ChatSearchButton onClick={() => setIsSearchOpen(!isSearchOpen)} />
+                {isSearchOpen && (
+                  <ChatSearchBar
+                    query={chatSearch.query}
+                    onQueryChange={chatSearch.setQuery}
+                    currentMatchIndex={chatSearch.currentMatchIndex}
+                    totalMatches={chatSearch.totalMatches}
+                    onNext={chatSearch.goToNext}
+                    onPrevious={chatSearch.goToPrevious}
+                    onClose={() => {
+                      setIsSearchOpen(false);
+                      chatSearch.clearSearch();
+                    }}
+                  />
+                )}
+              </div>
             </div>
           </div>
         </div>
