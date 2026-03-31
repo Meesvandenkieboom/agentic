@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { HelpCircle, Check, X, Pencil, ArrowUp } from 'lucide-react';
+import { HelpCircle, Check, X, Pencil } from 'lucide-react';
 
 interface QuestionOption {
   label: string;
@@ -216,11 +216,9 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
                   <div
                     className={`
                       flex items-center gap-3 px-3 py-2 rounded-lg border transition-all duration-100
-                      ${isSelected
-                        ? 'border-blue-500/40 bg-blue-500/10'
-                        : isFocused
-                          ? 'border-white/15 bg-white/[0.04]'
-                          : 'border-transparent bg-transparent hover:bg-white/[0.03]'
+                      ${isFocused
+                        ? 'border-white/15 bg-white/[0.04]'
+                        : 'border-transparent bg-transparent hover:bg-white/[0.03]'
                       }
                     `}
                   >
@@ -236,18 +234,13 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
                     </span>
 
                     <div className="flex-1 min-w-0">
-                      <span className={`text-sm ${isSelected ? 'text-blue-300 font-medium' : 'text-white/70'}`}>
+                      <span className={`text-sm ${isSelected ? 'text-white/90 font-medium' : 'text-white/70'}`}>
                         {opt.label}
                       </span>
                       {opt.description && (
                         <span className="text-xs text-white/30 ml-2">{opt.description}</span>
                       )}
                     </div>
-
-                    {/* Enter icon for focused item */}
-                    {isFocused && !isSelected && (
-                      <span className="text-white/20 text-xs">↵</span>
-                    )}
                   </div>
                 </button>
               );
@@ -262,11 +255,9 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
               <div
                 className={`
                   flex items-center gap-3 px-3 py-2 rounded-lg border transition-all duration-100
-                  ${showCustom[currentQIdx]
-                    ? 'border-blue-500/40 bg-blue-500/10'
-                    : focusedIdx === q.options.length
-                      ? 'border-white/15 bg-white/[0.04]'
-                      : 'border-transparent bg-transparent hover:bg-white/[0.03]'
+                  ${focusedIdx === q.options.length
+                    ? 'border-white/15 bg-white/[0.04]'
+                    : 'border-transparent bg-transparent hover:bg-white/[0.03]'
                   }
                 `}
               >
@@ -325,11 +316,13 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
               <button
                 onClick={handleSubmit}
                 disabled={!canSubmitCurrent}
-                className="send-button-active"
-                style={{ opacity: canSubmitCurrent ? 1 : 0.3, cursor: canSubmitCurrent ? 'pointer' : 'not-allowed' }}
-                title={currentQIdx < totalQuestions - 1 ? 'Next question' : 'Submit'}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                  canSubmitCurrent
+                    ? 'bg-blue-500 text-white hover:bg-blue-400 cursor-pointer'
+                    : 'bg-white/5 text-white/20 cursor-not-allowed'
+                }`}
               >
-                <ArrowUp size={18} />
+                {currentQIdx < totalQuestions - 1 ? 'Next' : 'Submit'}
               </button>
             </div>
           </div>

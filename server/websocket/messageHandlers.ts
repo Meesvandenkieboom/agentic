@@ -687,6 +687,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
           // Intercept AskUserQuestion — pause SDK until user answers
           if (tool_name === 'AskUserQuestion') {
             const toolId = toolUseID || `question-${Date.now()}`;
+            console.log(`❓ AskUserQuestion intercepted (toolId: ${toolId}) — blocking SDK until user answers`);
 
             // Notify client that a question needs answering
             sessionStreamManager.safeSend(
@@ -703,6 +704,8 @@ IMPORTANT: Do not modify files outside the workspace directory.
             const answer = await new Promise<string>((resolve) => {
               pendingQuestions.set(sessionId as string, { resolve, toolId });
             });
+
+            console.log(`✅ AskUserQuestion answered — resuming SDK (toolId: ${toolId})`);
 
             return {
               decision: 'approve' as const,
