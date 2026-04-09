@@ -230,7 +230,7 @@ class SessionDatabase {
         // Add the column with default value
         this.db.run(`
           ALTER TABLE sessions
-          ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'bypassPermissions'
+          ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default'
         `);
 
         console.log('✅ permission_mode column added successfully');
@@ -490,7 +490,7 @@ class SessionDatabase {
 
     this.db.run(
       "INSERT INTO sessions (id, title, created_at, updated_at, working_directory, permission_mode, mode, github_repo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, title, now, now, finalWorkingDir, 'bypassPermissions', mode, githubRepo || null]
+      [id, title, now, now, finalWorkingDir, 'default', mode, githubRepo || null]
     );
 
     // Setup slash commands for this session
@@ -503,7 +503,7 @@ class SessionDatabase {
       updated_at: now,
       message_count: 0,
       working_directory: finalWorkingDir,
-      permission_mode: 'bypassPermissions',
+      permission_mode: 'default',
       mode,
       github_repo: githubRepo,
     };

@@ -593,7 +593,42 @@ IMPORTANT: Do not modify files outside the workspace directory.
     const queryOptions: Record<string, unknown> = {
       model: apiModelId,
       systemPrompt: systemPromptWithContext,
-      permissionMode: 'bypassPermissions', // Always spawn with bypass - then switch if needed
+      // Use canUseTool instead of bypassPermissions so we can intercept AskUserQuestion.
+      // bypassPermissions auto-denies AskUserQuestion because it has requiresUserInteraction:true
+      // and the SDK can't prompt in a headless subprocess. canUseTool lets us route the question
+      // to the client via WebSocket while auto-approving everything else.
+      canUseTool: async (toolName: string, input: Record<string, unknown>, options: { signal: AbortSignal; toolUseID: string }) => {
+        if (toolName === 'AskUserQuestion') {
+          const toolId = options.toolUseID || `question-${Date.now()}`;
+          console.log(`❓ AskUserQuestion intercepted via canUseTool (toolId: ${toolId}) — blocking SDK`);
+
+          // Notify client that a question needs answering
+          sessionStreamManager.safeSend(
+            sessionId as string,
+            JSON.stringify({
+              type: 'ask_user_question',
+              toolId,
+              questions: input.questions || [],
+              sessionId: sessionId,
+            })
+          );
+
+          // Block SDK until user answers via WebSocket
+          const answer = await new Promise<string>((resolve) => {
+            pendingQuestions.set(sessionId as string, { resolve, toolId });
+          });
+
+          console.log(`✅ AskUserQuestion answered — resuming SDK (toolId: ${toolId})`);
+
+          return {
+            behavior: 'allow' as const,
+            updatedInput: { ...input, answers: JSON.parse(answer) },
+          };
+        }
+
+        // Auto-approve all other tools (equivalent to bypassPermissions)
+        return { behavior: 'allow' as const, updatedInput: input };
+      },
       // Use SDK's internal session ID for resume (if available from previous subprocess)
       ...(isFirstMessage || !session.sdk_session_id ? {} : { resume: session.sdk_session_id }),
       includePartialMessages: true,
@@ -654,8 +689,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
     // No need to specify pathToClaudeCodeExecutable - the SDK handles this internally
 
     // Add MCP servers if provider has them
-    // No need to set allowedTools - bypassPermissions gives access to all tools
-    // MCP tools will be available through mcpServers, built-in tools through bypassPermissions
+    // canUseTool auto-approves all tools; MCP tools available through mcpServers
 
     // Get connected MCP servers from client manager (OAuth-based servers like Atlassian, Figma)
     const connectedMcpServers = mcpClientManager.getMcpServersForSDK();
@@ -684,38 +718,8 @@ IMPORTANT: Do not modify files outside the workspace directory.
 
           const { tool_name, tool_input } = input as PreToolUseInput;
 
-          // Intercept AskUserQuestion — pause SDK until user answers via WebSocket
-          if (tool_name === 'AskUserQuestion') {
-            const toolId = toolUseID || `question-${Date.now()}`;
-            console.log(`❓ AskUserQuestion intercepted via PreToolUse (toolId: ${toolId}) — blocking SDK`);
-
-            // Notify client that a question needs answering
-            sessionStreamManager.safeSend(
-              sessionId as string,
-              JSON.stringify({
-                type: 'ask_user_question',
-                toolId,
-                questions: tool_input.questions || [],
-                sessionId: sessionId,
-              })
-            );
-
-            // Block SDK until user answers
-            const answer = await new Promise<string>((resolve) => {
-              pendingQuestions.set(sessionId as string, { resolve, toolId });
-            });
-
-            console.log(`✅ AskUserQuestion answered — resuming SDK (toolId: ${toolId})`);
-
-            return {
-              decision: 'approve' as const,
-              hookSpecificOutput: {
-                hookEventName: 'PreToolUse' as const,
-                permissionDecision: 'allow' as const,
-                updatedInput: { ...tool_input, answers: JSON.parse(answer) },
-              },
-            };
-          }
+          // AskUserQuestion is handled by canUseTool (not hooks) because
+          // bypassPermissions would auto-deny it before hooks fire.
 
           if (tool_name !== 'Bash') return {};
 
@@ -911,51 +915,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
           return {};
         }],
       }],
-      PermissionRequest: [{
-        hooks: [async (input: HookInput) => {
-          if (input.hook_event_name !== 'PermissionRequest') return {};
-
-          type PermReqInput = HookInput & { tool_name: string; tool_input: Record<string, unknown> };
-          const { tool_name, tool_input } = input as PermReqInput;
-
-          // Intercept AskUserQuestion — pause SDK until user answers via WebSocket
-          if (tool_name === 'AskUserQuestion') {
-            const toolId = `question-${Date.now()}`;
-            console.log(`❓ AskUserQuestion intercepted via PermissionRequest (toolId: ${toolId}) — blocking SDK`);
-
-            // Notify client that a question needs answering
-            sessionStreamManager.safeSend(
-              sessionId as string,
-              JSON.stringify({
-                type: 'ask_user_question',
-                toolId,
-                questions: tool_input.questions || [],
-                sessionId: sessionId,
-              })
-            );
-
-            // Block SDK until user answers
-            const answer = await new Promise<string>((resolve) => {
-              pendingQuestions.set(sessionId as string, { resolve, toolId });
-            });
-
-            console.log(`✅ AskUserQuestion answered — resuming SDK (toolId: ${toolId})`);
-
-            return {
-              hookSpecificOutput: {
-                hookEventName: 'PermissionRequest' as const,
-                decision: {
-                  behavior: 'allow' as const,
-                  updatedInput: { ...tool_input, answers: JSON.parse(answer) },
-                },
-              },
-            };
-          }
-
-          // All other permission requests: auto-approve (bypassPermissions mode)
-          return {};
-        }],
-      }],
+      // AskUserQuestion is handled by canUseTool callback (not hooks)
     };
 
     // Retry configuration
@@ -1015,15 +975,15 @@ IMPORTANT: Do not modify files outside the workspace directory.
         sessionStreamManager.sendMessage(sessionId as string, messageContent);
 
         // If session is in plan mode, immediately switch after spawn
-        // (SDK always spawns with bypassPermissions to allow bidirectional mode switching)
+        // (SDK spawns without explicit permissionMode; canUseTool handles permissions)
         if (session.permission_mode === 'plan') {
           try {
             console.log('🔄 Switching to plan mode');
             await result.setPermissionMode('plan');
           } catch (error) {
             console.error('❌ Failed to set permission mode to plan:', error);
-            // Continue with bypassPermissions as fallback
-            console.warn('⚠️  Continuing with bypassPermissions mode');
+            // Continue with default mode as fallback (canUseTool handles permissions)
+            console.warn('⚠️  Continuing with default mode');
           }
         }
 
@@ -1657,34 +1617,34 @@ async function handleApprovePlan(
   const activeQuery = activeQueries.get(sessionId as string);
 
   try {
-    console.log('✅ Plan approved, switching to bypassPermissions mode');
+    console.log('✅ Plan approved, switching to default mode (canUseTool handles permissions)');
 
     // CRITICAL FIX: Only try to switch mode if there's an active query
-    // If no active query, the session will start in bypassPermissions mode on next message
+    // If no active query, the session will start in default mode on next message
     if (activeQuery) {
-      console.log(`🔄 Switching SDK permission mode: plan → bypassPermissions`);
-      await (activeQuery as { setPermissionMode: (mode: string) => Promise<void> }).setPermissionMode('bypassPermissions');
+      console.log(`🔄 Switching SDK permission mode: plan → default`);
+      await (activeQuery as { setPermissionMode: (mode: string) => Promise<void> }).setPermissionMode('default');
       console.log('✅ SDK mode switched successfully');
     } else {
       console.log('⚠️  No active query - mode will be applied on next message');
     }
 
-    // Update database to bypassPermissions mode (important for next session load)
-    sessionDb.updatePermissionMode(sessionId as string, 'bypassPermissions');
+    // Update database to default mode (canUseTool auto-approves, important for next session load)
+    sessionDb.updatePermissionMode(sessionId as string, 'default');
 
     // Send confirmation to client
     ws.send(JSON.stringify({
       type: 'permission_mode_changed',
-      mode: 'bypassPermissions',
+      mode: 'default',
       sessionId
     }));
 
-    console.log('✅ Plan approved, database updated to bypassPermissions');
+    console.log('✅ Plan approved, database updated to default mode');
   } catch (error) {
     console.error('❌ Failed to handle plan approval:', error);
 
     // Still update database even if SDK switch fails
-    sessionDb.updatePermissionMode(sessionId as string, 'bypassPermissions');
+    sessionDb.updatePermissionMode(sessionId as string, 'default');
 
     ws.send(JSON.stringify({
       type: 'error',
