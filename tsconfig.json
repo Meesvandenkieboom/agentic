@@ -28,7 +28,9 @@
     "client/**/*.ts",
     "client/**/*.tsx",
     "server/**/*.ts",
-    "*.ts"
+    "build-css.ts",
+    "cli.ts",
+    "setup.ts"
   ],
   "exclude": [
     "node_modules",

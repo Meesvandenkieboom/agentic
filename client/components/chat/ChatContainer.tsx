@@ -23,25 +23,18 @@ import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { NewChatWelcome } from './NewChatWelcome';
 import { Sidebar } from '../sidebar/Sidebar';
-import { ModelSelector } from '../header/ModelSelector';
-import { WorkingDirectoryDisplay } from '../header/WorkingDirectoryDisplay';
-import { GitHubRepoIndicator } from '../header/GitHubRepoIndicator';
-import { ChatSearchButton } from '../header/ChatSearchButton';
-import { ChatSearchBar } from '../header/ChatSearchBar';
-import { NotificationToggle } from '../header/NotificationToggle';
+import { ChatHeader } from '../header/ChatHeader';
 import { PlanApprovalModal } from '../plan/PlanApprovalModal';
 import { BuildWizard } from '../build-wizard/BuildWizard';
 import { ScrollButton } from './ScrollButton';
 import { SearchContext } from './SearchContext';
 import { BranchDialog } from './BranchDialog';
-import { BranchIndicator } from './BranchIndicator';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useBranching } from '../../hooks/useBranching';
 import { useChatSearch } from '../../hooks/useChatSearch';
 import { useChatMessages, generateMessageId } from '../../hooks/useChatMessages';
 import { useChatSessions } from '../../hooks/useChatSessions';
-import { Menu, Edit3 } from 'lucide-react';
-import type { Message } from '../message/types';
+import type { Message, FileAttachment } from '../message/types';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
 import { handleWebSocketMessage } from './websocketHandler';
@@ -120,7 +113,6 @@ export function ChatContainer() {
         if (messages.length > 0) {
           e.preventDefault();
           if (isSearchOpen) {
-            // Already open — re-focus input
             setSearchFocusKey(k => k + 1);
           } else {
             setIsSearchOpen(true);
@@ -178,10 +170,8 @@ export function ChatContainer() {
       setLiveTokenCount,
     );
 
-    // Now set session ID (flushSync already applied inside switchMessages)
     setCurrentSessionId(sessionId);
 
-    // Async: load session details + commands
     const fetchedSessions = await sessionAPI.fetchSessions();
     const session = fetchedSessions.find(s => s.id === sessionId);
     if (session) {
@@ -191,10 +181,8 @@ export function ChatContainer() {
 
     await loadSlashCommands(sessionId);
 
-    // If we had cached messages, skip DB fetch
     if (cachedMessages) return;
 
-    // Load from DB
     const sessionMessages = await sessionAPI.fetchSessionMessages(sessionId);
     const convertedMessages: Message[] = sessionMessages.map(msg => {
       if (msg.type === 'user') {
@@ -210,7 +198,6 @@ export function ChatContainer() {
       return { id: msg.id, type: 'assistant' as const, content, timestamp: msg.timestamp };
     });
 
-    // Merge with deduplication (prevents the merge-duplication bug)
     mergeDbMessages(convertedMessages, sessionId, currentSessionIdRef);
   };
 
@@ -284,27 +271,20 @@ export function ChatContainer() {
   const { isConnected, sendMessage, stopGeneration } = useWebSocket({
     url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
     onConnect: async () => {
-      // Restore view for persisted session
       const persistedSessionId = localStorage.getItem('agentic-active-session');
       if (persistedSessionId) {
         await handleSessionSelect(persistedSessionId);
       }
 
-      // Ask server which sessions are actively generating, then reconnect ALL of them
       try {
         const res = await fetch('/api/sessions/active-streams');
         const data = await res.json();
         const activeIds: string[] = data.sessionIds || [];
-
-        // Reconnect ALL active sessions (not just the current one)
         for (const sid of activeIds) {
           sendMessage({ type: 'reconnect', sessionId: sid });
         }
-
-        // Restore loading states from server truth
         setLoadingSessions(new Set(activeIds));
       } catch {
-        // Fallback: reconnect just the persisted session
         if (persistedSessionId) {
           sendMessage({ type: 'reconnect', sessionId: persistedSessionId });
         }
@@ -358,11 +338,10 @@ export function ChatContainer() {
   };
 
   // --- Submit with double-submit guard ---
-  const handleSubmit = async (files?: import('../message/types').FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive', messageOverride?: string) => {
+  const handleSubmit = async (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive', messageOverride?: string) => {
     const messageText = messageOverride || inputValue;
     if (!messageText.trim() || !isConnected) return;
 
-    // Guard: prevent double-submit
     if (isSubmittingRef.current) return;
     if (currentSessionId && isSessionLoading(currentSessionId)) {
       toast.info('This chat is already generating. Wait for it to complete or stop it first.');
@@ -504,6 +483,20 @@ export function ChatContainer() {
     }
   };
 
+  // --- Search helpers ---
+  const handleToggleSearch = () => {
+    if (isSearchOpen) {
+      setSearchFocusKey(k => k + 1);
+    } else {
+      setIsSearchOpen(true);
+    }
+  };
+
+  const handleCloseSearch = () => {
+    setIsSearchOpen(false);
+    chatSearch.clearSearch();
+  };
+
   // --- Render ---
   return (
     <div className="flex h-screen">
@@ -531,103 +524,23 @@ export function ChatContainer() {
       />
 
       <div className="flex flex-col flex-1 h-screen" style={{ marginLeft: isSidebarOpen ? '260px' : '0', transition: 'margin-left 0.2s ease-in-out' }}>
-        <nav className="header">
-          <div className="header-content">
-            <div className="header-inner">
-              <div className="header-left">
-                {!isSidebarOpen && (
-                  <>
-                    <button className="header-btn" aria-label="Toggle Sidebar" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-                      <Menu />
-                    </button>
-                    <button className="header-btn" aria-label="New Chat" onClick={handleNewChat}>
-                      <Edit3 />
-                    </button>
-                  </>
-                )}
-              </div>
-
-            <div className="header-center">
-              <div className="flex flex-col items-start w-full">
-                <div className="flex justify-between items-center w-full">
-                  <div className="flex items-center gap-3">
-                    {!isSidebarOpen && (
-                      <img
-                        src="/client/agentic-icon.svg"
-                        alt="Agentic"
-                        className="header-icon"
-                        loading="eager"
-                        onError={(e) => {
-                          console.error('Failed to load agentic-icon.svg');
-                          setTimeout(() => { e.currentTarget.src = '/client/agentic-icon.svg?' + Date.now(); }, 100);
-                        }}
-                      />
-                    )}
-                    <div className="header-title text-gradient">Agentic</div>
-                    <ModelSelector
-                      selectedModel={selectedModel}
-                      onModelChange={handleModelChange}
-                      hasMessages={messages.length > 0}
-                      disabled={messages.length > 0}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="header-right">
-              {currentSessionId && sessions.find(s => s.id === currentSessionId)?.parent_session_id && (
-                <BranchIndicator
-                  parentSessionTitle={
-                    sessions.find(s => s.id === sessions.find(c => c.id === currentSessionId)?.parent_session_id)?.title || 'Parent'
-                  }
-                  parentSessionId={sessions.find(s => s.id === currentSessionId)?.parent_session_id || ''}
-                  onNavigateToParent={() => {
-                    const parentId = sessions.find(s => s.id === currentSessionId)?.parent_session_id;
-                    if (parentId) handleSessionSelect(parentId);
-                  }}
-                  compact
-                />
-              )}
-              {currentSessionId && sessions.find(s => s.id === currentSessionId)?.github_repo && (
-                <GitHubRepoIndicator repoName={sessions.find(s => s.id === currentSessionId)?.github_repo || ''} />
-              )}
-              {currentSessionId && sessions.find(s => s.id === currentSessionId)?.working_directory && (
-                <WorkingDirectoryDisplay
-                  directory={sessions.find(s => s.id === currentSessionId)?.working_directory || ''}
-                  sessionId={currentSessionId}
-                  onChangeDirectory={handleChangeDirectory}
-                />
-              )}
-              <NotificationToggle />
-              <div style={{ position: 'relative' }}>
-                <ChatSearchButton onClick={() => {
-                  if (isSearchOpen) {
-                    setSearchFocusKey(k => k + 1);
-                  } else {
-                    setIsSearchOpen(true);
-                  }
-                }} />
-                {isSearchOpen && (
-                  <ChatSearchBar
-                    query={chatSearch.query}
-                    onQueryChange={chatSearch.setQuery}
-                    currentMatchIndex={chatSearch.currentMatchIndex}
-                    totalMatches={chatSearch.totalMatches}
-                    onNext={chatSearch.goToNext}
-                    onPrevious={chatSearch.goToPrevious}
-                    onClose={() => {
-                      setIsSearchOpen(false);
-                      chatSearch.clearSearch();
-                    }}
-                    focusTrigger={searchFocusKey}
-                  />
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </nav>
+        <ChatHeader
+          isSidebarOpen={isSidebarOpen}
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          onNewChat={handleNewChat}
+          selectedModel={selectedModel}
+          onModelChange={handleModelChange}
+          hasMessages={messages.length > 0}
+          currentSessionId={currentSessionId}
+          sessions={sessions}
+          onSessionSelect={handleSessionSelect}
+          onChangeDirectory={handleChangeDirectory}
+          isSearchOpen={isSearchOpen}
+          onToggleSearch={handleToggleSearch}
+          searchFocusKey={searchFocusKey}
+          chatSearch={chatSearch}
+          onCloseSearch={handleCloseSearch}
+        />
 
         {messages.length === 0 ? (
           <NewChatWelcome

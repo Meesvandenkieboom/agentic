@@ -60,6 +60,7 @@ import { handleGitHubRoutes } from "./routes/github";
 import { handleAgentRoutes } from "./routes/agents";
 import { handleMCPServerRoutes } from "./routes/mcpServers";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
+import type { ChatWebSocketData } from "./websocket/types";
 import { sessionStreamManager } from "./sessionStreamManager";
 import { runStartupMigrations } from "./utils/configMigration";
 import { cleanupOrphanedMcpProcesses } from "./mcpCleanup";
@@ -85,12 +86,6 @@ ensureDirectory(DEFAULT_WORKING_DIR);
 // Hot reload WebSocket clients
 interface HotReloadClient {
   send: (message: string) => void;
-}
-
-// Chat WebSocket clients
-interface ChatWebSocketData {
-  type: 'hot-reload' | 'chat';
-  sessionId?: string;
 }
 
 // Store active queries for mid-stream control
