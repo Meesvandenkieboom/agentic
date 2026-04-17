@@ -72,7 +72,7 @@ export function ChatContainer() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [liveTokenCount, setLiveTokenCount] = useState(0);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
-    return localStorage.getItem('agentic-model') || 'sonnet';
+    return localStorage.getItem('agentic-model') || 'opus-4-7';
   });
   const [isBuildWizardOpen, setIsBuildWizardOpen] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<{ url: string; name: string } | null>(null);

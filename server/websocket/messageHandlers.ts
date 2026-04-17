@@ -185,7 +185,7 @@ async function handleChatMessage(
   const isNewStream = !sessionStreamManager.hasStream(sessionId as string);
 
   // Configure model and provider
-  const modelConfig = MODEL_MAP[model as string] || MODEL_MAP['sonnet'];
+  const modelConfig = MODEL_MAP[model as string] || MODEL_MAP['opus-4-7'];
   const { apiModelId, provider } = modelConfig;
   const providerType = provider as 'anthropic' | 'codex';
 
