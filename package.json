@@ -19,7 +19,8 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "postinstall": "node scripts/patch-sdk-reminders.mjs"
   },
   "author": "KenKai",
   "license": "AGPL-3.0-or-later",
