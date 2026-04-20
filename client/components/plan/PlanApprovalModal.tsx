@@ -21,6 +21,8 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import { CodeBlockWithCopy } from '../message/CodeBlockWithCopy';
 import { Shield } from 'lucide-react';
 
@@ -113,7 +115,8 @@ export function PlanApprovalModal({ plan, onApprove, onReject, isResponseInProgr
         >
           <div className="prose prose-base max-w-none prose-invert">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
+              remarkPlugins={[remarkGfm, remarkMath]}
+              rehypePlugins={[rehypeKatex]}
               components={{
                 a: (props) => (
                   <a {...props} target="_blank" rel="noopener noreferrer" style={{ color: 'rgb(var(--blue-accent))' }} className="hover:opacity-80 underline transition-opacity" />

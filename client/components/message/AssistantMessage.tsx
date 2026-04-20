@@ -21,6 +21,8 @@
 import React, { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import { diffLines, type Change } from 'diff';
 import { SyntaxHighlighter, vscDarkPlus } from '../../utils/syntaxHighlighter';
 import { AssistantMessage as AssistantMessageType, ToolUseBlock, TextBlock, TodoItem, LongRunningCommandBlock } from './types';
@@ -1093,7 +1095,8 @@ function ExitPlanModeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
         <div className="p-4 bg-blue-500/5 text-sm">
           <div className="prose prose-base max-w-none prose-invert">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
+              remarkPlugins={[remarkGfm, remarkMath]}
+              rehypePlugins={[rehypeKatex]}
               components={{
                 a: ({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
                   <URLBadge href={href || '#'}>
@@ -1873,7 +1876,8 @@ function TextComponent({ text }: { text: TextBlock }) {
         // Normal markdown rendering
         <div className="prose prose-base max-w-none prose-invert">
           <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[rehypeKatex]}
             components={components}
           >
             {text.text}

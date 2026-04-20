@@ -228,6 +228,32 @@ export async function handleStaticFile(
     }
   }
 
+  // Serve KaTeX CSS and fonts from node_modules/katex/dist/
+  if (url.pathname.startsWith('/katex/')) {
+    const katexRelPath = url.pathname.slice('/katex/'.length);
+    const katexFilePath = path.join(binaryDir, 'node_modules/katex/dist', katexRelPath);
+    const katexFile = Bun.file(katexFilePath);
+
+    if (await katexFile.exists()) {
+      const ext = path.extname(url.pathname).toLowerCase();
+      const katexContentTypes: Record<string, string> = {
+        '.css': 'text/css',
+        '.woff2': 'font/woff2',
+        '.woff': 'font/woff',
+        '.ttf': 'font/ttf',
+      };
+      const contentType = katexContentTypes[ext] || 'application/octet-stream';
+
+      return new Response(katexFile, {
+        headers: {
+          'Content-Type': contentType,
+          // Fonts are immutable; allow long-term caching
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        },
+      });
+    }
+  }
+
   // Serve files from public directory (for notification icons, etc.)
   const publicFilePath = path.join(binaryDir, 'public', url.pathname);
   const publicFile = Bun.file(publicFilePath);
