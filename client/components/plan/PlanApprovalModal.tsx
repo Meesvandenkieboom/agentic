@@ -116,7 +116,7 @@ export function PlanApprovalModal({ plan, onApprove, onReject, isResponseInProgr
           <div className="prose prose-base max-w-none prose-invert">
             <ReactMarkdown
               remarkPlugins={[remarkGfm, remarkMath]}
-              rehypePlugins={[rehypeKatex]}
+              rehypePlugins={[[rehypeKatex, { errorColor: 'currentColor', strict: 'ignore' }]]}
               components={{
                 a: (props) => (
                   <a {...props} target="_blank" rel="noopener noreferrer" style={{ color: 'rgb(var(--blue-accent))' }} className="hover:opacity-80 underline transition-opacity" />

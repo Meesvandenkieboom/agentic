@@ -1096,7 +1096,7 @@ function ExitPlanModeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
           <div className="prose prose-base max-w-none prose-invert">
             <ReactMarkdown
               remarkPlugins={[remarkGfm, remarkMath]}
-              rehypePlugins={[rehypeKatex]}
+              rehypePlugins={[[rehypeKatex, { errorColor: 'currentColor', strict: 'ignore' }]]}
               components={{
                 a: ({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
                   <URLBadge href={href || '#'}>
@@ -1877,7 +1877,7 @@ function TextComponent({ text }: { text: TextBlock }) {
         <div className="prose prose-base max-w-none prose-invert">
           <ReactMarkdown
             remarkPlugins={[remarkGfm, remarkMath]}
-            rehypePlugins={[rehypeKatex]}
+            rehypePlugins={[[rehypeKatex, { errorColor: 'currentColor', strict: 'ignore' }]]}
             components={components}
           >
             {text.text}
