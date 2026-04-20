@@ -21,11 +21,11 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Send, Plus, X, Square, FileUp, Github, ChevronDown, GitBranch, FolderOpen } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
-import { ModeSelector } from './ModeSelector';
 import { ModeIndicator } from './ModeIndicator';
 import type { SlashCommand } from '../../hooks/useWebSocket';
 import { CommandTextRenderer } from '../message/CommandTextRenderer';
 import { GitHubRepoSelector } from './GitHubRepoSelector';
+import { ReasoningEffortSelector, type ReasoningEffort } from './ReasoningEffortSelector';
 
 interface NewChatWelcomeProps {
   inputValue: string;
@@ -44,6 +44,8 @@ interface NewChatWelcomeProps {
   selectedModel?: string;
   onDirectorySelected?: (path: string) => void;
   selectedDirectory?: string | null;
+  reasoningEffort?: ReasoningEffort;
+  onReasoningEffortChange?: (effort: ReasoningEffort) => void;
 }
 
 const CAPABILITIES = [
@@ -54,7 +56,7 @@ const CAPABILITIES = [
   "I can analyze data and files"
 ];
 
-export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard, mode, onRepoSelected, selectedRepo, selectedModel, onDirectorySelected, selectedDirectory }: NewChatWelcomeProps) {
+export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard: _onOpenBuildWizard, mode, onRepoSelected, selectedRepo, selectedModel: _selectedModel, onDirectorySelected, selectedDirectory, reasoningEffort, onReasoningEffortChange }: NewChatWelcomeProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusMenuRef = useRef<HTMLDivElement>(null);
@@ -83,15 +85,8 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
     }
   };
 
-  // Mode selection state (synchronized with parent via props)
-  const [selectedMode, setSelectedMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'hive'>(mode || 'general');
-
-  // Sync local mode state with prop when it changes
-  useEffect(() => {
-    if (mode) {
-      setSelectedMode(mode);
-    }
-  }, [mode]);
+  // Effective mode (falls back to 'general' if parent hasn't set one yet)
+  const effectiveMode: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive' = mode || 'general';
   const [modeIndicatorWidth, setModeIndicatorWidth] = useState(80);
 
   // Slash command autocomplete state
@@ -241,13 +236,13 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
     // Normal submit handling
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      onSubmit(attachedFiles.length > 0 ? attachedFiles : undefined, selectedMode);
+      onSubmit(attachedFiles.length > 0 ? attachedFiles : undefined, effectiveMode);
       setAttachedFiles([]);
     }
   };
 
   const handleSubmit = () => {
-    onSubmit(attachedFiles.length > 0 ? attachedFiles : undefined, selectedMode);
+    onSubmit(attachedFiles.length > 0 ? attachedFiles : undefined, effectiveMode);
     setAttachedFiles([]);
   };
 
@@ -491,8 +486,10 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
 
               {/* Textarea */}
               <div className="overflow-hidden relative px-2.5">
-                {/* Mode Indicator */}
-                <ModeIndicator mode={selectedMode} onWidthChange={setModeIndicatorWidth} />
+                {/* Mode Indicator — hidden for default 'general' mode */}
+                {effectiveMode !== 'general' && (
+                  <ModeIndicator mode={effectiveMode} onWidthChange={setModeIndicatorWidth} />
+                )}
 
                 {/* Command Pill Overlay */}
                 {inputValue.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) && (
@@ -502,7 +499,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                       minHeight: '72px',
                       maxHeight: '360px',
                       overflowY: 'auto',
-                      textIndent: `${modeIndicatorWidth}px`,
+                      textIndent: effectiveMode !== 'general' ? `${modeIndicatorWidth}px` : '0px',
                       whiteSpace: 'pre-wrap',
                       wordWrap: 'break-word',
                     }}
@@ -525,7 +522,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                     minHeight: '72px',
                     maxHeight: '360px',
                     overflowY: 'auto',
-                    textIndent: `${modeIndicatorWidth}px`,
+                    textIndent: effectiveMode !== 'general' ? `${modeIndicatorWidth}px` : '0px',
                     color: inputValue.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) ? 'transparent' : 'rgb(243, 244, 246)',
                     caretColor: 'rgb(243, 244, 246)',
                   }}
@@ -639,6 +636,15 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                         Plan Mode
                       </button>
                     )}
+
+                    {/* Reasoning Effort selector */}
+                    {reasoningEffort && onReasoningEffortChange && (
+                      <ReasoningEffortSelector
+                        effort={reasoningEffort}
+                        onChange={onReasoningEffortChange}
+                        welcomeStyle
+                      />
+                    )}
                   </div>
                 </div>
 
@@ -673,10 +679,6 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
             </div>
           </div>
 
-          {/* Mode Selector below input */}
-          <div className="mt-6">
-            <ModeSelector selectedMode={selectedMode} onSelectMode={setSelectedMode} onOpenBuildWizard={onOpenBuildWizard} selectedModel={selectedModel} />
-          </div>
         </div>
       </div>
 

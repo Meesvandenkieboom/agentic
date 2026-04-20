@@ -28,6 +28,7 @@ import { CommandTextRenderer } from '../message/CommandTextRenderer';
 import { StyleConfigModal } from './StyleConfigModal';
 import { FeaturesModal } from './FeaturesModal';
 import { GitHubRepoSelector } from './GitHubRepoSelector';
+import { ReasoningEffortSelector, type ReasoningEffort } from './ReasoningEffortSelector';
 
 interface ChatInputProps {
   value: string;
@@ -49,9 +50,11 @@ interface ChatInputProps {
   selectedRepo?: { url: string; name: string } | null;
   /** Name of already-connected GitHub repo for this session */
   connectedRepo?: string | null;
+  reasoningEffort?: ReasoningEffort;
+  onReasoningEffortChange?: (effort: ReasoningEffort) => void;
 }
 
-export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo }: ChatInputProps) {
+export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo, reasoningEffort, onReasoningEffortChange }: ChatInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusMenuRef = useRef<HTMLDivElement>(null);
@@ -412,8 +415,8 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
 
           {/* Textarea */}
           <div className="overflow-hidden relative px-2.5">
-            {/* Mode Indicator */}
-            {mode && <ModeIndicator mode={mode} onWidthChange={setModeIndicatorWidth} />}
+            {/* Mode Indicator — only show for non-default modes (e.g. hive, legacy sessions) */}
+            {mode && mode !== 'general' && <ModeIndicator mode={mode} onWidthChange={setModeIndicatorWidth} />}
 
             {/* Command Pill Overlay */}
             {value.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) && (
@@ -423,7 +426,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                   minHeight: '72px',
                   maxHeight: '360px',
                   overflowY: 'auto',
-                  textIndent: mode ? `${modeIndicatorWidth}px` : '0px',
+                  textIndent: (mode && mode !== 'general') ? `${modeIndicatorWidth}px` : '0px',
                   whiteSpace: 'pre-wrap',
                   wordWrap: 'break-word',
                 }}
@@ -446,7 +449,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                 minHeight: '72px',
                 maxHeight: '360px',
                 overflowY: 'auto',
-                textIndent: mode ? `${modeIndicatorWidth}px` : '0px',
+                textIndent: (mode && mode !== 'general') ? `${modeIndicatorWidth}px` : '0px',
                 color: value.match(/(^|\s)(\/([a-z-]+))(?=\s|$)/m) ? 'transparent' : 'rgb(243, 244, 246)',
                 caretColor: 'rgb(243, 244, 246)',
                 position: 'relative',
@@ -553,6 +556,14 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                   >
                     Plan Mode
                   </button>
+                )}
+
+                {/* Reasoning Effort selector */}
+                {reasoningEffort && onReasoningEffortChange && (
+                  <ReasoningEffortSelector
+                    effort={reasoningEffort}
+                    onChange={onReasoningEffortChange}
+                  />
                 )}
 
                 {/* Style Configuration button - only in Coder mode */}

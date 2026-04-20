@@ -118,7 +118,7 @@ async function handleChatMessage(
   data: Record<string, unknown>,
   activeQueries: Map<string, unknown>
 ): Promise<void> {
-  const { content, sessionId, model, timezone } = data;
+  const { content, sessionId, model, timezone, effort } = data;
 
   if (!content || !sessionId) {
     ws.send(JSON.stringify({ type: 'error', error: 'Missing content or sessionId', sessionId }));
@@ -251,8 +251,27 @@ async function handleChatMessage(
   await spawnClaudeStream(
     ws, session, sessionId as string, workingDir, messageContent,
     apiModelId, providerType, timezone as string | undefined,
-    mcpServers, activeQueries,
+    mcpServers, activeQueries, effort as string | undefined,
   );
+}
+
+// ───────────────────────────────────────────────
+// Reasoning effort → thinking token budget
+// ───────────────────────────────────────────────
+
+/**
+ * Map a user-facing reasoning effort level to the underlying
+ * maxThinkingTokens budget used by the Claude Agent SDK.
+ */
+function effortToThinkingTokens(effort: string | undefined): number {
+  switch (effort) {
+    case 'low':    return 2_000;
+    case 'medium': return 16_000;
+    case 'high':   return 80_000;   // previous hard-coded default
+    case 'xhigh':  return 128_000;
+    case 'max':    return 200_000;
+    default:       return 80_000;
+  }
 }
 
 // ───────────────────────────────────────────────
@@ -382,6 +401,7 @@ async function spawnClaudeStream(
   timezone: string | undefined,
   mcpServers: Record<string, unknown>,
   activeQueries: Map<string, unknown>,
+  effort: string | undefined,
 ): Promise<void> {
   try {
     await cleanupOrphanedMcpProcesses();
@@ -487,8 +507,9 @@ IMPORTANT: Do not modify files outside the workspace directory.
     };
 
     if (providerType === 'anthropic') {
-      queryOptions.maxThinkingTokens = 80000;
-      console.log('🧠 Extended thinking enabled with maxThinkingTokens:', queryOptions.maxThinkingTokens);
+      const thinkingTokens = effortToThinkingTokens(effort);
+      queryOptions.maxThinkingTokens = thinkingTokens;
+      console.log(`🧠 Extended thinking enabled — effort=${effort ?? 'high(default)'}, maxThinkingTokens=${thinkingTokens}`);
     }
 
     // Merge MCP servers

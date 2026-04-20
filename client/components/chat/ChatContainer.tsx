@@ -41,6 +41,8 @@ import { handleWebSocketMessage } from './websocketHandler';
 import { QUESTION_ANSWER_EVENT, type QuestionAnswerDetail } from '../../utils/questionEvents';
 import { QuestionInput, type PendingQuestionData } from '../question/QuestionInput';
 import { dispatchQuestionAnswer } from '../../utils/questionEvents';
+import type { ReasoningEffort } from './ReasoningEffortSelector';
+import { DEFAULT_EFFORT } from './ReasoningEffortSelector';
 
 export function ChatContainer() {
   // --- Extracted hooks for message + session state ---
@@ -74,6 +76,15 @@ export function ChatContainer() {
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     return localStorage.getItem('agentic-model') || 'opus-4-7';
   });
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(() => {
+    const stored = localStorage.getItem('agentic-effort');
+    const valid: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+    return (valid as string[]).includes(stored || '') ? (stored as ReasoningEffort) : DEFAULT_EFFORT;
+  });
+  const handleEffortChange = (effort: ReasoningEffort) => {
+    setReasoningEffort(effort);
+    localStorage.setItem('agentic-effort', effort);
+  };
   const [isBuildWizardOpen, setIsBuildWizardOpen] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<{ url: string; name: string } | null>(null);
   const [selectedDirectory, setSelectedDirectory] = useState<string | null>(null);
@@ -427,6 +438,7 @@ export function ChatContainer() {
         content: messageContent,
         sessionId,
         model: selectedModel,
+        effort: reasoningEffort,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       setInputValue('');
@@ -561,6 +573,8 @@ export function ChatContainer() {
             selectedModel={selectedModel}
             onDirectorySelected={handleDirectorySelected}
             selectedDirectory={selectedDirectory}
+            reasoningEffort={reasoningEffort}
+            onReasoningEffortChange={handleEffortChange}
           />
         ) : (
           <>
@@ -608,6 +622,8 @@ export function ChatContainer() {
                 onRepoSelected={handleRepoSelected}
                 selectedRepo={selectedRepo}
                 connectedRepo={currentSessionId ? sessions.find(s => s.id === currentSessionId)?.github_repo : null}
+                reasoningEffort={reasoningEffort}
+                onReasoningEffortChange={handleEffortChange}
               />
             )}
           </>
