@@ -1527,7 +1527,11 @@ function ToolUseComponent({ toolUse }: { toolUse: ToolUseBlock }) {
 
   // Inline question/poll UI for AskUserQuestion tool
   if (toolUse.name === 'AskUserQuestion') {
-    const questions = (toolUse.input.questions || []) as Array<{
+    const questions = (Array.isArray(toolUse.input.questions)
+      ? toolUse.input.questions
+      : toolUse.input.questions
+        ? Object.values(toolUse.input.questions)
+        : []) as Array<{
       question: string;
       header?: string;
       options: Array<{ label: string; description?: string }>;
