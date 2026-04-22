@@ -16,8 +16,13 @@ interface ReactRendererProps {
   isStreaming?: boolean;
 }
 
-const REACT_CDN = 'https://unpkg.com/react@19/umd/react.production.min.js';
-const REACT_DOM_CDN = 'https://unpkg.com/react-dom@19/umd/react-dom.production.min.js';
+// NOTE: React 19 dropped UMD builds entirely — `unpkg.com/react@19/umd/...`
+// 404s, which leaves `window.React` undefined and every artifact throws
+// "Cannot read properties of undefined (reading 'useState')". Pin to React 18
+// UMD, which is rock-solid for standalone script-tag usage and exposes
+// `createRoot` via `window.ReactDOM`.
+const REACT_CDN = 'https://unpkg.com/react@18.3.1/umd/react.production.min.js';
+const REACT_DOM_CDN = 'https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js';
 const TAILWIND_CDN = 'https://cdn.tailwindcss.com';
 
 export const ReactRenderer = memo(function ReactRenderer({ content, isStreaming }: ReactRendererProps) {
@@ -59,11 +64,29 @@ export const ReactRenderer = memo(function ReactRenderer({ content, isStreaming 
   const srcDoc = useMemo(() => {
     if (!compiled) return null;
     // Strip bare ES import/export statements so the iframe bundle can be
-    // inlined as a classic <script>.
+    // inlined as a classic <script>. We handle three common default-export
+    // shapes so the resulting binding is always on window.__ArtifactDefault:
+    //   (a) export default function App(){...}  -> function App(){...}; window.__ArtifactDefault = App;
+    //   (b) export default class App {}         -> class App {};          window.__ArtifactDefault = App;
+    //   (c) export default <expression>         -> window.__ArtifactDefault = <expression>;
+    let defaultName: string | null = null;
     const stripped = compiled
-      .replace(/^\s*import[^;]+;?\s*$/gm, '')
-      .replace(/^\s*export\s+default\s+/gm, 'window.__ArtifactDefault = ')
-      .replace(/^\s*export\s+/gm, '');
+      // Kill ES imports (we inject CDN globals instead).
+      .replace(/^\s*import\s[^;]*;?\s*$/gm, '')
+      // Named export declarations: just drop the `export` keyword.
+      .replace(/^\s*export\s+(const|let|var|function|class)\s/gm, '$1 ')
+      // Default-exported function/class → keep the declaration intact and
+      // remember its name so we can assign it to __ArtifactDefault below.
+      .replace(
+        /^\s*export\s+default\s+(function|class)\s+([A-Za-z_$][\w$]*)/gm,
+        (_m, kind: string, name: string) => { defaultName = name; return `${kind} ${name}`; },
+      )
+      // Default-exported expression → straight assignment.
+      .replace(/^\s*export\s+default\s+/gm, 'window.__ArtifactDefault = ');
+
+    const bindDefault = defaultName
+      ? `\ntry { window.__ArtifactDefault = ${defaultName}; } catch(_){}`
+      : '';
 
     return `<!DOCTYPE html>
 <html>
@@ -82,35 +105,79 @@ export const ReactRenderer = memo(function ReactRenderer({ content, isStreaming 
   <body>
     <div id="root"></div>
     <script>
-      (function() {
+      // Render error into #root (called from multiple places below)
+      function __artifactError(msg) {
+        var el = document.getElementById('root');
+        if (!el) return;
+        el.innerHTML = '';
+        var err = document.createElement('div');
+        err.className = 'artifact-error';
+        err.textContent = 'Runtime error: ' + msg;
+        el.appendChild(err);
+      }
+      // Catch any uncaught errors (e.g. CDN blocked)
+      window.addEventListener('error', function (e) {
+        __artifactError(e.message || 'unknown error');
+      });
+
+      function __runArtifact() {
         try {
+          if (!window.React || !window.ReactDOM) {
+            throw new Error('React failed to load from CDN. Check network / blocklist.');
+          }
           var React = window.React;
           var ReactDOM = window.ReactDOM;
           var useState = React.useState;
           var useEffect = React.useEffect;
+          var useLayoutEffect = React.useLayoutEffect;
           var useRef = React.useRef;
           var useMemo = React.useMemo;
           var useCallback = React.useCallback;
           var useReducer = React.useReducer;
           var useContext = React.useContext;
+          var createContext = React.createContext;
           var Fragment = React.Fragment;
+          var Children = React.Children;
+          var cloneElement = React.cloneElement;
+          var createElement = React.createElement;
+          var memo = React.memo;
+          var forwardRef = React.forwardRef;
+          var Suspense = React.Suspense;
           ${stripped}
+          ${bindDefault}
           var Component = window.__ArtifactDefault
             || (typeof App !== 'undefined' ? App : null)
             || (typeof Main !== 'undefined' ? Main : null);
           if (!Component) {
             throw new Error('No default export found. Use: export default function App(){ ... }');
           }
-          var root = ReactDOM.createRoot(document.getElementById('root'));
-          root.render(React.createElement(Component));
+          var rootEl = document.getElementById('root');
+          if (ReactDOM.createRoot) {
+            ReactDOM.createRoot(rootEl).render(React.createElement(Component));
+          } else if (ReactDOM.render) {
+            // Fallback for React <18 UMD
+            ReactDOM.render(React.createElement(Component), rootEl);
+          } else {
+            throw new Error('ReactDOM has neither createRoot nor render.');
+          }
         } catch (e) {
-          var el = document.getElementById('root');
-          el.innerHTML = '';
-          var err = document.createElement('div');
-          err.className = 'artifact-error';
-          err.textContent = 'Runtime error: ' + (e && e.message ? e.message : e);
-          el.appendChild(err);
+          __artifactError((e && e.message ? e.message : String(e)));
         }
+      }
+
+      // Wait until both React and ReactDOM are on window. The CDN scripts above
+      // are synchronous <script src>, so they'll normally be ready by now — but
+      // in rare cases (slow network, HTTP/2 reordering) they aren't. Poll
+      // briefly, then fail with a clear message.
+      (function () {
+        var start = Date.now();
+        (function check() {
+          if (window.React && window.ReactDOM) return __runArtifact();
+          if (Date.now() - start > 3000) {
+            return __artifactError('Timed out waiting for React to load from CDN.');
+          }
+          setTimeout(check, 30);
+        })();
       })();
     </script>
   </body>
