@@ -80,14 +80,19 @@ export const useArtifactPanel = create<ArtifactPanelState>((set, get) => ({
     const next = new Map(state.artifacts);
     const existing = next.get(meta.id);
     const now = Date.now();
+    // A fresh `<antArtifact>` opening tag always starts a new stream cycle —
+    // the content between opener and closer fully replaces whatever was there
+    // before. Never preserve old content here or updates to the same id
+    // (identical identifier) will concatenate, producing Frankenstein renders.
     const merged: Artifact = existing
       ? {
           ...existing,
           ...meta,
-          content: existing.content, // preserve content on re-open
-          status: existing.status === 'complete' ? 'streaming' : existing.status,
+          content: '',
+          status: 'streaming',
           updatedAt: now,
           sessionId: sessionId ?? existing.sessionId ?? null,
+          // Keep the original createdAt so ordering in listForSession stays stable.
         }
       : {
           ...meta,
@@ -100,7 +105,7 @@ export const useArtifactPanel = create<ArtifactPanelState>((set, get) => ({
     next.set(meta.id, merged);
     return {
       artifacts: next,
-      // auto-open & focus new artifact
+      // auto-open & focus (re-)streamed artifact
       activeId: meta.id,
       isOpen: true,
     };
