@@ -22,6 +22,7 @@ import type { ProviderType } from '../client/config/models';
 import type { AgentDefinition } from './agents';
 import type { UserConfig } from './userConfig';
 import { getUserDisplayName } from './userConfig';
+import { buildArtifactSection } from './artifacts/systemPromptSection';
 
 /**
  * Format current date and time for the given timezone (compact version)
@@ -222,6 +223,10 @@ export function getSystemPrompt(
   if (githubRepo && workingDir) {
     prompt += buildGithubContext(githubRepo, workingDir);
   }
+
+  // Artifact system — tells the model how/when to emit <antArtifact> tags
+  // so that substantial deliverables render in the side panel.
+  prompt += buildArtifactSection();
 
   return prompt;
 }

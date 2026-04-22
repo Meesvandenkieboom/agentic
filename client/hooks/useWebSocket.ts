@@ -175,6 +175,35 @@ interface KeepaliveEvent extends BaseWebSocketMessage {
   elapsedSeconds: number;
 }
 
+interface ArtifactStartEvent extends BaseWebSocketMessage {
+  type: 'artifact_start';
+  artifact: {
+    id: string;
+    artifactType:
+      | 'text/html'
+      | 'image/svg+xml'
+      | 'text/markdown'
+      | 'application/vnd.ant.code'
+      | 'application/vnd.ant.mermaid'
+      | 'application/vnd.ant.react'
+      | 'application/vnd.ant.chart'
+      | 'application/json';
+    title?: string;
+    language?: string;
+  };
+}
+
+interface ArtifactDeltaEvent extends BaseWebSocketMessage {
+  type: 'artifact_delta';
+  artifactId: string;
+  content: string;
+}
+
+interface ArtifactEndEvent extends BaseWebSocketMessage {
+  type: 'artifact_end';
+  artifactId: string;
+}
+
 export type WebSocketMessage =
   | AssistantMessageEvent
   | ToolUseEvent
@@ -197,6 +226,9 @@ export type WebSocketMessage =
   | CompactCompleteEvent
   | ContextUsageEvent
   | KeepaliveEvent
+  | ArtifactStartEvent
+  | ArtifactDeltaEvent
+  | ArtifactEndEvent
   | BaseWebSocketMessage; // Fallback for unknown types
 
 export type { SlashCommand };

@@ -43,6 +43,9 @@ import { QuestionInput, type PendingQuestionData } from '../question/QuestionInp
 import { dispatchQuestionAnswer } from '../../utils/questionEvents';
 import type { ReasoningEffort } from './ReasoningEffortSelector';
 import { DEFAULT_EFFORT } from './ReasoningEffortSelector';
+import { ArtifactPanel } from '../artifact/ArtifactPanel';
+import { ResizableDivider } from '../artifact/ResizableDivider';
+import { useArtifactPanel } from '../../hooks/useArtifactPanel';
 
 export function ChatContainer() {
   // --- Extracted hooks for message + session state ---
@@ -94,6 +97,13 @@ export function ChatContainer() {
   const [searchFocusKey, setSearchFocusKey] = useState(0);
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestionData | null>(null);
 
+  // --- Artifact panel state (zustand selectors) ---
+  const artifactPanelOpen = useArtifactPanel(s => s.isOpen);
+  const artifactPanelMaximized = useArtifactPanel(s => s.isMaximized);
+  const artifactPanelWidth = useArtifactPanel(s => s.width);
+  const setArtifactPanelWidth = useArtifactPanel(s => s.setWidth);
+  const toggleArtifactPanel = useArtifactPanel(s => s.toggle);
+
   const scrollContainerRef = useRef<HTMLDivElement>(null) as React.RefObject<HTMLDivElement>;
   const activeLongRunningCommandRef = useRef<string | null>(null);
   const lastAssistantContentRef = useRef<string>('');
@@ -134,6 +144,18 @@ export function ChatContainer() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [messages.length, isSearchOpen]);
+
+  // --- Cmd/Ctrl + Shift + A toggles the artifact panel ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        toggleArtifactPanel();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleArtifactPanel]);
 
   // --- Persist session ID to localStorage ---
   useEffect(() => {
@@ -208,6 +230,32 @@ export function ChatContainer() {
       }
       return { id: msg.id, type: 'assistant' as const, content, timestamp: msg.timestamp };
     });
+
+    // Rehydrate any artifact blocks found in restored messages into the artifact store.
+    // This makes previously-generated artifacts available in the panel tabs when the
+    // session is reopened. Runs inline (synchronously) to avoid racing with user input.
+    const hydrate = useArtifactPanel.getState().hydrateArtifact;
+    for (const msg of convertedMessages) {
+      if (msg.type !== 'assistant' || !Array.isArray(msg.content)) continue;
+      for (const block of msg.content) {
+        if (block && typeof block === 'object' && 'type' in block && block.type === 'artifact') {
+          const ab = block as { type: 'artifact'; artifactId: string; artifactType: string; title?: string; language?: string; content: string };
+          const createdAt = new Date(msg.timestamp).getTime() || Date.now();
+          hydrate({
+            id: ab.artifactId,
+            // Cast is safe: server only emits valid types; invalid ones were filtered on the wire.
+            artifactType: ab.artifactType as Parameters<typeof hydrate>[0]['artifactType'],
+            title: ab.title,
+            language: ab.language,
+            content: ab.content,
+            status: 'complete',
+            sessionId,
+            createdAt,
+            updatedAt: createdAt,
+          });
+        }
+      }
+    }
 
     mergeDbMessages(convertedMessages, sessionId, currentSessionIdRef);
   };
@@ -535,7 +583,9 @@ export function ChatContainer() {
         currentSessionId={currentSessionId}
       />
 
-      <div className="flex flex-col flex-1 h-screen" style={{ marginLeft: isSidebarOpen ? '260px' : '0', transition: 'margin-left 0.2s ease-in-out' }}>
+      <div className="flex flex-row flex-1 h-screen min-w-0" style={{ marginLeft: isSidebarOpen ? '260px' : '0', transition: 'margin-left 0.2s ease-in-out' }}>
+        {!artifactPanelMaximized && (
+        <div className="flex flex-col flex-1 min-w-0 h-screen">
         <ChatHeader
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -626,6 +676,25 @@ export function ChatContainer() {
                 onReasoningEffortChange={handleEffortChange}
               />
             )}
+          </>
+        )}
+        </div>
+        )}
+
+        {artifactPanelOpen && (
+          <>
+            {!artifactPanelMaximized && (
+              <ResizableDivider
+                width={artifactPanelWidth}
+                onResize={setArtifactPanelWidth}
+              />
+            )}
+            <div
+              className="h-screen shrink-0"
+              style={{ width: artifactPanelMaximized ? '100%' : `${artifactPanelWidth}px` }}
+            >
+              <ArtifactPanel sessionId={currentSessionId} />
+            </div>
           </>
         )}
       </div>

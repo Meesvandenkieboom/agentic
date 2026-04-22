@@ -10,6 +10,8 @@ import type { SDKCompactBoundaryMessage } from "@anthropic-ai/claude-agent-sdk";
 import { sessionDb } from "../database";
 import { sessionStreamManager } from "../sessionStreamManager";
 import { processContextUsage } from "./contextUsageHandler";
+import { ArtifactStreamParser } from "../artifacts/streamParser";
+import type { ArtifactMeta } from "../artifacts/types";
 
 /**
  * Type guard to check if a message is a compact boundary message
@@ -23,6 +25,49 @@ function isCompactBoundaryMessage(message: unknown): message is SDKCompactBounda
     'subtype' in message &&
     message.subtype === 'compact_boundary'
   );
+}
+
+/** Mutable shape of an artifact block stored in currentMessageContent */
+interface MutableArtifactBlock {
+  type: 'artifact';
+  artifactId: string;
+  artifactType: ArtifactMeta['artifactType'];
+  title?: string;
+  language?: string;
+  content: string;
+  status: 'streaming' | 'complete';
+}
+
+interface MutableTextBlock {
+  type: 'text';
+  text: string;
+}
+
+/**
+ * Merge a text chunk into the structured content list, coalescing with the
+ * trailing text block if one exists.
+ */
+function appendTextToContent(content: unknown[], text: string): void {
+  const last = content[content.length - 1] as { type?: string } | undefined;
+  if (last && last.type === 'text') {
+    (last as MutableTextBlock).text += text;
+    return;
+  }
+  content.push({ type: 'text', text });
+}
+
+/** Find the artifact block with a given id (if any). */
+function findArtifactBlock(
+  content: unknown[],
+  artifactId: string,
+): MutableArtifactBlock | null {
+  for (let i = content.length - 1; i >= 0; i--) {
+    const b = content[i] as { type?: string; artifactId?: string } | undefined;
+    if (b && b.type === 'artifact' && b.artifactId === artifactId) {
+      return b as unknown as MutableArtifactBlock;
+    }
+  }
+  return null;
 }
 
 /**
@@ -41,6 +86,8 @@ export function startResponseLoop(
     let currentMessageContent: unknown[] = [];
     let currentTextResponse = '';
     let totalCharCount = 0;
+    // Artifact-aware stream parser; re-created at the start of every turn.
+    let artifactParser = new ArtifactStreamParser();
 
     // Load previous cumulative output tokens from DB
     const sessionData = sessionDb.getSession(sessionId);
@@ -80,6 +127,12 @@ export function startResponseLoop(
 
         // Handle turn completion
         if (message.type === 'result') {
+          // Flush any pending buffered text/artifact bytes before completing.
+          const flushEvents = artifactParser.flush();
+          for (const ev of flushEvents) {
+            applyParserEvent(ev, sessionId, currentMessageContent);
+          }
+
           handleTurnCompletion(
             message, sessionId, apiModelId,
             currentMessageContent, currentTextResponse,
@@ -92,6 +145,7 @@ export function startResponseLoop(
           currentMessageId = null;
           exitPlanModeSentThisTurn = false;
           toolUseCount = 0;
+          artifactParser = new ArtifactStreamParser();
           continue;
         }
 
@@ -100,6 +154,7 @@ export function startResponseLoop(
           const event = message.event as Record<string, unknown>;
           const result = handleStreamEvent(
             event, sessionId,
+            artifactParser,
             currentTextResponse, currentMessageContent,
             currentMessageId, totalCharCount, baseOutputTokens,
           );
@@ -184,6 +239,12 @@ function handleTurnCompletion(
     } else if (currentTextResponse) {
       sessionDb.addMessage(sessionId, 'assistant', JSON.stringify([{ type: 'text', text: currentTextResponse }]));
     }
+  } else {
+    // Persist the final structured state (flush() may have added delta content
+    // or closed artifacts after the last incremental save).
+    if (currentMessageContent.length > 0) {
+      sessionDb.updateMessage(currentMessageId, JSON.stringify(currentMessageContent));
+    }
   }
 
   // Process context usage
@@ -204,9 +265,67 @@ interface StreamEventResult {
   totalCharCount: number;
 }
 
+/**
+ * Apply a single parser event: emits the appropriate WebSocket event and
+ * mutates the structured content blocks so the DB save picks up changes.
+ */
+function applyParserEvent(
+  ev: ReturnType<ArtifactStreamParser['feed']>[number],
+  sessionId: string,
+  currentMessageContent: unknown[],
+): string /* stripped text contributed by this event, for token counting */ {
+  if (ev.kind === 'text') {
+    sessionStreamManager.safeSend(sessionId, JSON.stringify({
+      type: 'assistant_message', content: ev.text, sessionId,
+    }));
+    appendTextToContent(currentMessageContent, ev.text);
+    return ev.text;
+  }
+  if (ev.kind === 'artifactStart') {
+    sessionStreamManager.safeSend(sessionId, JSON.stringify({
+      type: 'artifact_start',
+      artifact: ev.meta,
+      sessionId,
+    }));
+    currentMessageContent.push({
+      type: 'artifact',
+      artifactId: ev.meta.id,
+      artifactType: ev.meta.artifactType,
+      title: ev.meta.title,
+      language: ev.meta.language,
+      content: '',
+      status: 'streaming',
+    });
+    return '';
+  }
+  if (ev.kind === 'artifactDelta') {
+    sessionStreamManager.safeSend(sessionId, JSON.stringify({
+      type: 'artifact_delta',
+      artifactId: ev.id,
+      content: ev.text,
+      sessionId,
+    }));
+    const block = findArtifactBlock(currentMessageContent, ev.id);
+    if (block) block.content += ev.text;
+    return '';
+  }
+  if (ev.kind === 'artifactEnd') {
+    sessionStreamManager.safeSend(sessionId, JSON.stringify({
+      type: 'artifact_end',
+      artifactId: ev.id,
+      sessionId,
+    }));
+    const block = findArtifactBlock(currentMessageContent, ev.id);
+    if (block) block.status = 'complete';
+    return '';
+  }
+  return '';
+}
+
 function handleStreamEvent(
   event: Record<string, unknown>,
   sessionId: string,
+  artifactParser: ArtifactStreamParser,
   currentTextResponse: string,
   currentMessageContent: unknown[],
   currentMessageId: string | null,
@@ -226,24 +345,26 @@ function handleStreamEvent(
 
     if (delta?.type === 'text_delta') {
       const text = delta.text as string;
-      currentTextResponse += text;
       deltaChars = text.length;
 
-      sessionStreamManager.safeSend(sessionId, JSON.stringify({
-        type: 'assistant_message', content: text, sessionId,
-      }));
+      // Route the incoming chunk through the artifact parser and emit events.
+      const parserEvents = artifactParser.feed(text);
+      let strippedTextThisDelta = '';
+      for (const ev of parserEvents) {
+        strippedTextThisDelta += applyParserEvent(ev, sessionId, currentMessageContent);
+      }
+      currentTextResponse += strippedTextThisDelta;
 
-      // Incremental save every 500 chars
-      if (currentTextResponse.length % 500 < text.length) {
-        if (!currentMessageId) {
-          const msg = sessionDb.addMessage(sessionId, 'assistant',
-            JSON.stringify([{ type: 'text', text: currentTextResponse }]));
-          currentMessageId = msg.id;
-        } else {
-          const contentToSave = currentMessageContent.length > 0
-            ? currentMessageContent.concat([{ type: 'text', text: currentTextResponse }])
-            : [{ type: 'text', text: currentTextResponse }];
-          sessionDb.updateMessage(currentMessageId, JSON.stringify(contentToSave));
+      // Incremental save every ~500 chars (approximated by raw delta volume)
+      if ((currentTextResponse.length + strippedTextThisDelta.length) % 500 < text.length) {
+        if (currentMessageContent.length > 0) {
+          if (!currentMessageId) {
+            const msg = sessionDb.addMessage(sessionId, 'assistant',
+              JSON.stringify(currentMessageContent));
+            currentMessageId = msg.id;
+          } else {
+            sessionDb.updateMessage(currentMessageId, JSON.stringify(currentMessageContent));
+          }
         }
       }
     } else if (delta?.type === 'input_json_delta') {
@@ -299,15 +420,25 @@ function handleAssistantMessage(
     return { currentMessageContent, currentMessageId, exitPlanModeSentThisTurn, toolUseCount };
   }
 
-  // Append blocks
-  currentMessageContent.push(...content);
+  // Append blocks — but SKIP text blocks because our artifact parser has
+  // already built those (split into text + artifact blocks) from deltas.
+  const blocksToAppend: unknown[] = [];
+  for (const block of content as Array<Record<string, unknown>>) {
+    if (block.type === 'text') continue;
+    blocksToAppend.push(block);
+  }
+  if (blocksToAppend.length > 0) {
+    currentMessageContent.push(...blocksToAppend);
+  }
 
   // Incremental save
-  if (!currentMessageId) {
-    const msg = sessionDb.addMessage(sessionId, 'assistant', JSON.stringify(currentMessageContent));
-    currentMessageId = msg.id;
-  } else {
-    sessionDb.updateMessage(currentMessageId, JSON.stringify(currentMessageContent));
+  if (currentMessageContent.length > 0) {
+    if (!currentMessageId) {
+      const msg = sessionDb.addMessage(sessionId, 'assistant', JSON.stringify(currentMessageContent));
+      currentMessageId = msg.id;
+    } else {
+      sessionDb.updateMessage(currentMessageId, JSON.stringify(currentMessageContent));
+    }
   }
 
   // Process tool use blocks

@@ -110,6 +110,28 @@ export interface LongRunningCommandBlock {
   startedAt: number;
 }
 
+// Matches server/artifacts/types.ts `ArtifactType` values. Duplicated here to
+// avoid a client→server import.
+export type ArtifactBlockType =
+  | 'text/html'
+  | 'image/svg+xml'
+  | 'text/markdown'
+  | 'application/vnd.ant.code'
+  | 'application/vnd.ant.mermaid'
+  | 'application/vnd.ant.react'
+  | 'application/vnd.ant.chart'
+  | 'application/json';
+
+export interface ArtifactBlock {
+  type: 'artifact';
+  artifactId: string;
+  artifactType: ArtifactBlockType;
+  title?: string;
+  language?: string;
+  content: string;
+  status: 'streaming' | 'complete';
+}
+
 export interface ToolResult {
   tool_use_id: string;
   type: 'tool_result';
@@ -118,7 +140,7 @@ export interface ToolResult {
 
 export interface AssistantMessage extends BaseMessage {
   type: 'assistant';
-  content: (TextBlock | ToolUseBlock | ThinkingBlock | LongRunningCommandBlock)[];
+  content: (TextBlock | ToolUseBlock | ThinkingBlock | LongRunningCommandBlock | ArtifactBlock)[];
   metadata?: {
     id: string;
     model: string;

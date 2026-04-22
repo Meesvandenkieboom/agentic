@@ -5,7 +5,7 @@
  */
 
 import { flushSync } from 'react-dom';
-import type { Message } from '../message/types';
+import type { Message, ArtifactBlock, ArtifactBlockType } from '../message/types';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import { generateMessageId } from '../../hooks/useChatMessages';
 import { toast } from '../../utils/toast';
@@ -14,6 +14,8 @@ import { areNotificationsEnabled, showClaudeResponseNotification } from '../../u
 import type { ContextUsageData } from '../../hooks/useChatSessions';
 import type { Session } from '../../hooks/useSessionAPI';
 import type { PendingQuestionData } from '../question/QuestionInput';
+import { useArtifactPanel } from '../../hooks/useArtifactPanel';
+import { isArtifactType } from '../artifact/types';
 
 export interface WebSocketHandlerDeps {
   currentSessionIdRef: React.RefObject<string | null>;
@@ -206,6 +208,18 @@ export function handleWebSocketMessage(message: Record<string, any>, deps: WebSo
       }
       break;
 
+    case 'artifact_start':
+      handleArtifactStart(message, msgSessionId, applyUpdate);
+      break;
+
+    case 'artifact_delta':
+      handleArtifactDelta(message, applyUpdate);
+      break;
+
+    case 'artifact_end':
+      handleArtifactEnd(message, applyUpdate);
+      break;
+
     case 'keepalive':
     case 'user_message':
     case 'slash_commands_available':
@@ -287,8 +301,9 @@ function handleToolUse(message: Record<string, any>, applyUpdateSync: (u: (p: Me
       const activeTaskIndices: number[] = [];
       let foundText = false;
       for (let i = blocks.length - 1; i >= 0; i--) {
-        if (blocks[i].type === 'text') foundText = true;
-        if (blocks[i].type === 'tool_use' && blocks[i].name === 'Task') {
+        const b = blocks[i];
+        if (b.type === 'text') foundText = true;
+        if (b.type === 'tool_use' && b.name === 'Task') {
           if (!foundText) activeTaskIndices.unshift(i);
           else break;
         }
@@ -525,4 +540,99 @@ function handleSessionTitleUpdated(message: Record<string, any>, setSessions: Re
   const { sessionId, title } = message as { sessionId?: string; title?: string };
   if (!sessionId || !title) return;
   setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title } : s));
+}
+
+// --- Artifact handlers ---
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function handleArtifactStart(message: Record<string, any>, msgSessionId: string | null, applyUpdate: (u: (p: Message[]) => Message[]) => void) {
+  const artifact = message.artifact as
+    | { id: string; artifactType: string; title?: string; language?: string }
+    | undefined;
+  if (!artifact || !artifact.id || !isArtifactType(artifact.artifactType)) return;
+
+  const artifactType = artifact.artifactType as ArtifactBlockType;
+
+  // Update store first so the panel opens immediately.
+  useArtifactPanel.getState().upsertMeta(
+    { id: artifact.id, artifactType, title: artifact.title, language: artifact.language },
+    msgSessionId,
+  );
+
+  const newBlock: ArtifactBlock = {
+    type: 'artifact',
+    artifactId: artifact.id,
+    artifactType,
+    title: artifact.title,
+    language: artifact.language,
+    content: '',
+    status: 'streaming',
+  };
+
+  applyUpdate(prev => {
+    const last = prev[prev.length - 1];
+    if (last && last.type === 'assistant') {
+      const blocks = Array.isArray(last.content) ? last.content : [];
+      if (blocks.some(b => b.type === 'artifact' && b.artifactId === artifact.id)) return prev;
+      return [...prev.slice(0, -1), { ...last, content: [...blocks, newBlock] }];
+    }
+    return [...prev, {
+      id: generateMessageId(), type: 'assistant' as const,
+      content: [newBlock], timestamp: new Date().toISOString(),
+    }];
+  });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function handleArtifactDelta(message: Record<string, any>, applyUpdate: (u: (p: Message[]) => Message[]) => void) {
+  const artifactId = message.artifactId as string | undefined;
+  const content = message.content as string | undefined;
+  if (!artifactId || typeof content !== 'string') return;
+
+  useArtifactPanel.getState().appendDelta(artifactId, content);
+
+  applyUpdate(prev => {
+    const last = prev[prev.length - 1];
+    if (last && last.type === 'assistant') {
+      const blocks = Array.isArray(last.content) ? last.content : [];
+      // Find matching artifact block and append content
+      let changed = false;
+      const updated = blocks.map(b => {
+        if (b.type === 'artifact' && b.artifactId === artifactId) {
+          changed = true;
+          return { ...b, content: b.content + content };
+        }
+        return b;
+      });
+      if (!changed) return prev;
+      return [...prev.slice(0, -1), { ...last, content: updated }];
+    }
+    return prev;
+  });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function handleArtifactEnd(message: Record<string, any>, applyUpdate: (u: (p: Message[]) => Message[]) => void) {
+  const artifactId = message.artifactId as string | undefined;
+  if (!artifactId) return;
+
+  useArtifactPanel.getState().finalize(artifactId);
+
+  applyUpdate(prev => {
+    const last = prev[prev.length - 1];
+    if (last && last.type === 'assistant') {
+      const blocks = Array.isArray(last.content) ? last.content : [];
+      let changed = false;
+      const updated = blocks.map(b => {
+        if (b.type === 'artifact' && b.artifactId === artifactId) {
+          changed = true;
+          return { ...b, status: 'complete' as const };
+        }
+        return b;
+      });
+      if (!changed) return prev;
+      return [...prev.slice(0, -1), { ...last, content: updated }];
+    }
+    return prev;
+  });
 }

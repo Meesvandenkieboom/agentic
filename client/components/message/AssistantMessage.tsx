@@ -30,6 +30,7 @@ import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
 import { MermaidDiagram } from './MermaidDiagram';
+import { ArtifactCard } from './ArtifactCard';
 import { Shield } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
 import { AskUserQuestionComponent } from '../question/AskUserQuestionComponent';
@@ -1953,6 +1954,8 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
                   return <div key={index} data-no-search><ThinkingBlock title="Agentic's thoughts..." content={block.thinking} isActive={isLastThinking} /></div>;
                 } else if (block.type === 'long_running_command') {
                   return <div key={index} data-no-search><LongRunningCommandComponent command={block} /></div>;
+                } else if (block.type === 'artifact') {
+                  return <div key={`artifact-${block.artifactId}-${index}`} data-no-search><ArtifactCard artifact={block} /></div>;
                 }
                 return null;
               })}
