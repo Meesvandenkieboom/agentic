@@ -507,7 +507,23 @@ IMPORTANT: Do not modify files outside the workspace directory.
     };
 
     if (providerType === 'anthropic') {
-      const thinkingTokens = effortToThinkingTokens(effort);
+      let thinkingTokens = effortToThinkingTokens(effort);
+
+      // Anthropic API enforces max_tokens <= 128000 on Claude 4.x models.
+      // The SDK derives max_tokens = max(B+1, wz0(model)) for non-adaptive
+      // (legacy) thinking. If B+1 > 128000 the API rejects the request and
+      // the SDK silently falls back to non-streaming, which our response
+      // loop renders as missing text/thinking blocks (only tool calls show).
+      // Adaptive-thinking models (Opus 4.7+) get capped via the SDK patch
+      // in scripts/patch-sdk-reminders.mjs (`opus-4-7-max-tokens-cap`).
+      // Here we cap legacy/non-adaptive models so max_tokens stays under
+      // the 128000 ceiling. Mirrors the regex used by the adaptive patch.
+      const isAdaptiveThinking = /opus-(?:4-(?:[7-9]|\d{2,})|[5-9])/.test(apiModelId);
+      if (!isAdaptiveThinking && thinkingTokens > 127_000) {
+        console.log(`⚠️  Capping maxThinkingTokens for ${apiModelId}: ${thinkingTokens} → 127000 (API ceiling)`);
+        thinkingTokens = 127_000;
+      }
+
       queryOptions.maxThinkingTokens = thinkingTokens;
       console.log(`🧠 Extended thinking enabled — effort=${effort ?? 'high(default)'}, maxThinkingTokens=${thinkingTokens}`);
     }

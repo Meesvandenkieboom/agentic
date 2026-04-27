@@ -95,6 +95,13 @@ export function startResponseLoop(
     let currentMessageId: string | null = null;
     let exitPlanModeSentThisTurn = false;
     let toolUseCount = 0;
+    // Tracks whether stream_event messages have been received for the current
+    // model response. The SDK falls back to non-streaming on transient API
+    // errors (e.g. max_tokens > 128000), in which case text/thinking blocks
+    // arrive only via the final `assistant` message and must be processed
+    // there. Reset on every `message_start` so each model response within a
+    // multi-turn (tool-use loop) is evaluated independently.
+    let receivedStreamEvent = false;
 
     const sessionStartTime = Date.now();
 
@@ -145,6 +152,7 @@ export function startResponseLoop(
           currentMessageId = null;
           exitPlanModeSentThisTurn = false;
           toolUseCount = 0;
+          receivedStreamEvent = false;
           artifactParser = new ArtifactStreamParser();
           continue;
         }
@@ -152,6 +160,16 @@ export function startResponseLoop(
         // Handle stream events (text deltas, thinking, etc.)
         if (message.type === 'stream_event') {
           const event = message.event as Record<string, unknown>;
+          // A `message_start` event signals a new model response within
+          // the same turn (e.g. after a tool call). Reset the flag so
+          // each model response is evaluated independently — if the SDK
+          // streams the first response but falls back to non-streaming
+          // for the second, we still recover its text/thinking content.
+          if (event.type === 'message_start') {
+            receivedStreamEvent = false;
+          } else {
+            receivedStreamEvent = true;
+          }
           const result = handleStreamEvent(
             event, sessionId,
             artifactParser,
@@ -177,12 +195,15 @@ export function startResponseLoop(
         // Handle assistant messages (tool use blocks, content)
         if (message.type === 'assistant') {
           const assistantResult = handleAssistantMessage(
-            message, sessionId,
+            message, sessionId, artifactParser, receivedStreamEvent,
             currentMessageContent, currentMessageId,
+            currentTextResponse, totalCharCount, baseOutputTokens,
             exitPlanModeSentThisTurn, toolUseCount,
           );
           currentMessageContent = assistantResult.currentMessageContent;
           currentMessageId = assistantResult.currentMessageId;
+          currentTextResponse = assistantResult.currentTextResponse;
+          totalCharCount = assistantResult.totalCharCount;
           exitPlanModeSentThisTurn = assistantResult.exitPlanModeSentThisTurn;
           toolUseCount = assistantResult.toolUseCount;
         }
@@ -401,6 +422,8 @@ function handleStreamEvent(
 interface AssistantMessageResult {
   currentMessageContent: unknown[];
   currentMessageId: string | null;
+  currentTextResponse: string;
+  totalCharCount: number;
   exitPlanModeSentThisTurn: boolean;
   toolUseCount: number;
 }
@@ -408,8 +431,13 @@ interface AssistantMessageResult {
 function handleAssistantMessage(
   message: Record<string, unknown>,
   sessionId: string,
+  artifactParser: ArtifactStreamParser,
+  receivedStreamEvent: boolean,
   currentMessageContent: unknown[],
   currentMessageId: string | null,
+  currentTextResponse: string,
+  totalCharCount: number,
+  baseOutputTokens: number,
   exitPlanModeSentThisTurn: boolean,
   toolUseCount: number,
 ): AssistantMessageResult {
@@ -417,11 +445,64 @@ function handleAssistantMessage(
   const content = msgObj?.content;
 
   if (!Array.isArray(content)) {
-    return { currentMessageContent, currentMessageId, exitPlanModeSentThisTurn, toolUseCount };
+    return {
+      currentMessageContent, currentMessageId,
+      currentTextResponse, totalCharCount,
+      exitPlanModeSentThisTurn, toolUseCount,
+    };
   }
 
-  // Append blocks — but SKIP text blocks because our artifact parser has
-  // already built those (split into text + artifact blocks) from deltas.
+  // When the SDK streams normally, text and thinking blocks were already
+  // emitted via `text_delta` / `thinking_delta` events and shouldn't be
+  // re-processed here. When streaming fails and the SDK falls back to a
+  // non-streaming response, this `assistant` message is the *only* place
+  // text/thinking content arrives — process them here so the UI doesn't
+  // silently lose them.
+  if (!receivedStreamEvent) {
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block.type === 'text' && typeof block.text === 'string') {
+        const text = block.text as string;
+        if (!text) continue;
+        // Feed the full text through the artifact parser so artifacts in
+        // non-streamed responses are still extracted. The parser handles
+        // emission of `assistant_message` / `artifact_*` events and
+        // appending the right blocks to currentMessageContent.
+        const parserEvents = artifactParser.feed(text);
+        let strippedText = '';
+        for (const ev of parserEvents) {
+          strippedText += applyParserEvent(ev, sessionId, currentMessageContent);
+        }
+        // Also flush any trailing buffered bytes — there are no more
+        // deltas coming for this block.
+        const flushEvents = artifactParser.flush();
+        for (const ev of flushEvents) {
+          strippedText += applyParserEvent(ev, sessionId, currentMessageContent);
+        }
+        currentTextResponse += strippedText;
+        totalCharCount += text.length;
+
+        const cumulativeTokens = baseOutputTokens + Math.floor(totalCharCount / 4);
+        sessionStreamManager.safeSend(sessionId, JSON.stringify({
+          type: 'token_update', outputTokens: cumulativeTokens, sessionId,
+        }));
+      } else if (block.type === 'thinking') {
+        const thinkingText = (block.thinking || '') as string;
+        if (!thinkingText) continue;
+        sessionStreamManager.safeSend(sessionId, JSON.stringify({
+          type: 'thinking_start', sessionId,
+        }));
+        sessionStreamManager.safeSend(sessionId, JSON.stringify({
+          type: 'thinking_delta', content: thinkingText, sessionId,
+        }));
+        totalCharCount += thinkingText.length;
+      }
+    }
+  }
+
+  // Append non-text blocks. Text blocks are already in currentMessageContent
+  // either via the streaming parser path or the non-streaming recovery
+  // above. Thinking and tool_use blocks are persisted as-is so refreshes
+  // see the same shape the API returned.
   const blocksToAppend: unknown[] = [];
   for (const block of content as Array<Record<string, unknown>>) {
     if (block.type === 'text') continue;
@@ -472,7 +553,11 @@ function handleAssistantMessage(
     }));
   }
 
-  return { currentMessageContent, currentMessageId, exitPlanModeSentThisTurn, toolUseCount };
+  return {
+    currentMessageContent, currentMessageId,
+    currentTextResponse, totalCharCount,
+    exitPlanModeSentThisTurn, toolUseCount,
+  };
 }
 
 async function handleLoopError(
