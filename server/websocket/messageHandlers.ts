@@ -24,7 +24,6 @@ import { loadUserConfig } from "../userConfig";
 import { parseApiError, getUserFriendlyMessage } from "../utils/apiErrors";
 import { sessionStreamManager, type ContentBlock, type MessageContent } from "../sessionStreamManager";
 import { expandSlashCommand } from "../slashCommandExpander";
-import { cleanupOrphanedMcpProcesses } from "../mcpCleanup";
 import { generateChatTitle } from "../utils/chatTitles";
 
 import type { ChatWebSocket } from "./types";
@@ -404,7 +403,13 @@ async function spawnClaudeStream(
   effort: string | undefined,
 ): Promise<void> {
   try {
-    await cleanupOrphanedMcpProcesses();
+    // NOTE: Do NOT call cleanupOrphanedMcpProcesses() here. It does a
+    // system-wide pgrep kill of patterns like 'robloxstudio-mcp',
+    // 'mcp-remote', 'mcp-server' — which murders MCP children belonging to
+    // OTHER active chat sessions and can leave port 3002 in TIME_WAIT,
+    // preventing the SDK's freshly-spawned rbxstudio-mcp from binding.
+    // Startup cleanup (server.ts) is sufficient; the SDK reaps its own
+    // MCP children when it exits.
 
     const paths = getSessionPathsFromWorkingDir(workingDir);
     const workspaceDir = paths.workspace;
