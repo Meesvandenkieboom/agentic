@@ -17,6 +17,7 @@ import { getSystemPrompt, injectWorkingDirIntoAgents } from "../systemPrompt";
 import { configureProvider } from "../providers";
 import { getMcpServers } from "../mcpServers";
 import { getPortOwnerPid } from "../mcpCleanup";
+import { getOrCreateMcpBridge, isMcpBridgeRegistered } from "../mcpSingletonBridge";
 import { mcpClientManager } from "../mcpClientManager";
 import { AGENT_REGISTRY } from "../agents";
 import { validateDirectory, getSessionPathsFromWorkingDir } from "../directoryUtils";
@@ -399,40 +400,60 @@ async function handleCodexProvider(
 // That means only ONE instance can run system-wide.
 //
 // Each chat session gets its own SDK subprocess, and each SDK subprocess
-// spawns its own MCP children. So if chat A is using rbxstudio (holding
-// 3002) and the user opens chat B which also wants rbxstudio, the SDK in
-// B fires up `npx -y rbxstudio-mcp`, which crashes immediately with
-// EADDRINUSE — silently. Claude in chat B then sees zero rbxstudio tools
-// with no error message anywhere.
+// would normally spawn its OWN MCP children. So if chat A is using
+// rbxstudio (holding 3002) and the user opens chat B, the SDK in B
+// would fire up `npx -y rbxstudio-mcp` and crash with EADDRINUSE — and
+// chat B would see zero rbxstudio tools with no error message.
 //
-// Approach: BEFORE handing the MCP config to a new SDK subprocess, check
-// whether each port-bound MCP's port is already held. If yes, EXCLUDE
-// that MCP from this session's config and log a clear warning. The
-// session that already owns the port keeps it; new sessions get a clean
-// "no rbxstudio tools, here's why" experience instead of silently broken
-// tool calls.
+// Claude Desktop avoids this because it's a single process — it spawns
+// each MCP child once and reuses it across all conversations.
 //
-// We deliberately do NOT kill the existing port owner: doing so would
-// also break the SDK subprocess that owns it, since once its MCP child
-// dies the SDK marks the connection as "disconnected" and all future
-// tool calls in that session fail. Better to lose a feature in chat B
-// than to silently break chat A.
+// Our fix: spawn port-bound MCPs as singletons inside the Bun server
+// (see ../mcpSingletonBridge.ts). Each singleton is wrapped in a tiny
+// HTTP MCP server on 127.0.0.1:<random>. Then for each chat session, we
+// REWRITE the MCP config from `{type: stdio, command: npx, ...}` to
+// `{type: http, url: http://127.0.0.1:.../mcp}`. The SDK opens an HTTP
+// connection to the bridge instead of spawning its own stdio child, and
+// all chat sessions share the one MCP instance just like Claude Desktop.
+//
+// If we can't bridge (eg another external process already owns port
+// 3002, or the singleton fails to start), fall back to excluding the
+// MCP from this session's config and logging a clear warning — better
+// than silently broken tools.
 const PORT_BOUND_MCP_PACKAGES: Record<string, number> = {
   'rbxstudio-mcp': 3002,
   'robloxstudio-mcp': 3002, // legacy alias
 };
 
+interface DetectedPortBoundMcp {
+  id: string;
+  pkg: string;
+  port: number;
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
 function detectPortBoundMcps(
   allMcpServers: Record<string, unknown>,
-): Array<{ id: string; pkg: string; port: number }> {
-  const matches: Array<{ id: string; pkg: string; port: number }> = [];
+): DetectedPortBoundMcp[] {
+  const matches: DetectedPortBoundMcp[] = [];
   for (const [id, cfg] of Object.entries(allMcpServers)) {
     const c = cfg as Record<string, unknown>;
     if (c.type !== 'stdio') continue;
     const args = (c.args as string[] | undefined) ?? [];
+    const command = c.command as string | undefined;
+    if (!command) continue;
     for (const [pkg, port] of Object.entries(PORT_BOUND_MCP_PACKAGES)) {
       if (args.some(a => typeof a === 'string' && (a === pkg || a.endsWith('/' + pkg)))) {
-        matches.push({ id, pkg, port });
+        matches.push({
+          id,
+          pkg,
+          port,
+          command,
+          args,
+          env: c.env as Record<string, string> | undefined,
+        });
         break;
       }
     }
@@ -441,32 +462,55 @@ function detectPortBoundMcps(
 }
 
 /**
- * For each port-bound MCP in this session's config, check if its port is
- * already held by another process. If yes, remove that MCP from the config
- * (mutates `allMcpServers`) and log a warning so the user understands why
- * the tools aren't appearing. Returns the list of excluded MCP IDs.
+ * For each port-bound MCP in this session's config:
+ *
+ *   1. If we already have a singleton bridge for it (registered earlier
+ *      in this Bun process's lifetime), REUSE its URL. The bridge will
+ *      respawn its child if needed — we don't need to check the port.
+ *
+ *   2. Else, check if the port is free:
+ *      - Free → spin up a new singleton bridge, rewrite the entry from
+ *        stdio → HTTP. All future sessions reuse this same bridge.
+ *      - Held by some other process → exclude this MCP from the session
+ *        and log clearly. Common cause: user ran `npx rbxstudio-mcp`
+ *        manually in a terminal, or a previous Bun process leaked.
+ *
+ * Mutates `allMcpServers`.
  */
-async function excludeBusyPortBoundMcps(
+async function bridgeOrExcludePortBoundMcps(
   allMcpServers: Record<string, unknown>,
-): Promise<string[]> {
+): Promise<void> {
   const portBound = detectPortBoundMcps(allMcpServers);
-  if (portBound.length === 0) return [];
+  if (portBound.length === 0) return;
 
-  const excluded: string[] = [];
-  for (const { id, pkg, port } of portBound) {
-    const ownerPid = await getPortOwnerPid(port);
-    if (ownerPid !== null && ownerPid !== process.pid) {
-      console.warn(
-        `⚠️  MCP '${id}' (${pkg}) excluded from this session — ` +
-        `port ${port} already in use by PID ${ownerPid} ` +
-        `(another chat session likely owns it). Close that chat or restart ` +
-        `the app to give this session ${id}.`,
+  for (const { id, pkg, port, command, args, env } of portBound) {
+    if (!isMcpBridgeRegistered(id)) {
+      // No singleton yet — make sure the port isn't held by something
+      // we don't control before trying to spawn one.
+      const ownerPid = await getPortOwnerPid(port);
+      if (ownerPid !== null) {
+        console.warn(
+          `⚠️  MCP '${id}' (${pkg}) excluded — port ${port} held by external ` +
+          `PID ${ownerPid}. Stop that process (or restart agentic) to let the ` +
+          `singleton manager take over.`,
+        );
+        delete allMcpServers[id];
+        continue;
+      }
+    }
+
+    try {
+      const url = await getOrCreateMcpBridge(id, { command, args, env });
+      allMcpServers[id] = { type: 'http', url };
+      console.log(`🌉 MCP '${id}' bridged via singleton at ${url}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `❌ MCP '${id}' (${pkg}) bridge failed: ${msg} — excluding from this session`,
       );
       delete allMcpServers[id];
-      excluded.push(id);
     }
   }
-  return excluded;
 }
 
 async function spawnClaudeStream(
@@ -617,10 +661,11 @@ IMPORTANT: Do not modify files outside the workspace directory.
     const connectedMcpServers = mcpClientManager.getMcpServersForSDK();
     const allMcpServers = { ...mcpServers, ...connectedMcpServers };
 
-    // Drop any port-bound stdio MCPs whose port is already held by another
-    // process (eg rbxstudio-mcp:3002 already owned by a different chat
-    // session's SDK). See PORT_BOUND_MCP_PACKAGES above for the why.
-    await excludeBusyPortBoundMcps(allMcpServers);
+    // Bridge port-bound stdio MCPs through a singleton (eg rbxstudio-mcp
+    // gets one shared HTTP-wrapped child for all chat sessions). Falls
+    // back to exclusion if the port is held by something we don't own.
+    // See PORT_BOUND_MCP_PACKAGES above for the why.
+    await bridgeOrExcludePortBoundMcps(allMcpServers);
 
     if (Object.keys(allMcpServers).length > 0) {
       queryOptions.mcpServers = allMcpServers;

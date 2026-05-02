@@ -17,7 +17,8 @@ const execAsync = promisify(exec);
 
 // Known MCP process patterns that may use exclusive ports
 const MCP_PROCESS_PATTERNS = [
-  'robloxstudio-mcp',      // Roblox Studio MCP (port 3002)
+  'rbxstudio-mcp',         // Roblox Studio MCP (port 3002, current)
+  'robloxstudio-mcp',      // Roblox Studio MCP (port 3002, legacy alias)
   'mcp-remote',            // OAuth MCP proxy
   'mcp-server',            // Generic MCP servers
 ];

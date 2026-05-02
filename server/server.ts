@@ -64,6 +64,7 @@ import type { ChatWebSocketData } from "./websocket/types";
 import { sessionStreamManager } from "./sessionStreamManager";
 import { runStartupMigrations } from "./utils/configMigration";
 import { cleanupOrphanedMcpProcesses } from "./mcpCleanup";
+import { shutdownAllMcpBridges } from "./mcpSingletonBridge";
 import type { ServerWebSocket, Server as ServerType } from "bun";
 
 // Initialize startup configuration (loads env vars, sets up PostCSS)
@@ -78,6 +79,19 @@ await runStartupMigrations();
 // Clean up any orphaned MCP processes from previous sessions/crashes
 // This prevents port conflicts (e.g., Roblox Studio MCP on port 3002)
 await cleanupOrphanedMcpProcesses();
+
+// Make sure singleton MCP bridges (eg rbxstudio-mcp) are torn down on
+// shutdown so they don't leak into the next agentic process. Registered
+// for SIGINT/SIGTERM here so it covers both `--tunnel` and normal mode.
+// The bridge module also installs a synchronous `process.on('exit')`
+// handler as a last-resort fallback for crashes.
+const _mcpShutdownHandler = (signal: string) => {
+  // Fire-and-forget; if cleanup hangs we still want to exit promptly.
+  void shutdownAllMcpBridges()
+    .catch((err) => console.error(`MCP bridge shutdown error on ${signal}:`, err));
+};
+process.on('SIGINT', () => _mcpShutdownHandler('SIGINT'));
+process.on('SIGTERM', () => _mcpShutdownHandler('SIGTERM'));
 
 // Initialize default working directory
 const DEFAULT_WORKING_DIR = getDefaultWorkingDirectory();
