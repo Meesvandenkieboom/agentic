@@ -16,6 +16,7 @@ import { sessionDb } from "../database";
 import { getSystemPrompt, injectWorkingDirIntoAgents } from "../systemPrompt";
 import { configureProvider } from "../providers";
 import { getMcpServers } from "../mcpServers";
+import { freePort } from "../mcpCleanup";
 import { mcpClientManager } from "../mcpClientManager";
 import { AGENT_REGISTRY } from "../agents";
 import { validateDirectory, getSessionPathsFromWorkingDir } from "../directoryUtils";
@@ -389,6 +390,59 @@ async function handleCodexProvider(
   }
 }
 
+// ───────────────────────────────────────────────
+// Port-bound stdio MCP servers
+// ───────────────────────────────────────────────
+//
+// Some stdio MCP servers ALSO open a TCP listener on a fixed port (eg
+// rbxstudio-mcp listens on 3002 for the Roblox Studio plugin to poll).
+// That means only ONE instance can run system-wide.
+//
+// Each chat session gets its own SDK subprocess, and each SDK subprocess
+// spawns its own MCP children. So if chat A is using rbxstudio (holding
+// 3002) and the user opens chat B which also wants rbxstudio, the SDK in
+// B fires up `npx -y rbxstudio-mcp`, which crashes immediately with
+// EADDRINUSE — silently. Claude in chat B then sees zero rbxstudio tools
+// with no error message anywhere.
+//
+// Fix: when a NEW SDK subprocess includes a known port-bound MCP, free
+// that port first. This will tear down any leftover instance from a
+// previous SDK subprocess so the new one can bind. It's a deliberate
+// "newest chat wins" policy. Old chats that were using the killed MCP
+// will need to re-spawn their SDK subprocess (eg by sending /clear).
+const PORT_BOUND_MCP_PACKAGES: Record<string, number> = {
+  'rbxstudio-mcp': 3002,
+  'robloxstudio-mcp': 3002, // legacy alias
+};
+
+function detectPortBoundMcps(
+  allMcpServers: Record<string, unknown>,
+): Array<{ id: string; pkg: string; port: number }> {
+  const matches: Array<{ id: string; pkg: string; port: number }> = [];
+  for (const [id, cfg] of Object.entries(allMcpServers)) {
+    const c = cfg as Record<string, unknown>;
+    if (c.type !== 'stdio') continue;
+    const args = (c.args as string[] | undefined) ?? [];
+    for (const [pkg, port] of Object.entries(PORT_BOUND_MCP_PACKAGES)) {
+      if (args.some(a => typeof a === 'string' && (a === pkg || a.endsWith('/' + pkg)))) {
+        matches.push({ id, pkg, port });
+        break;
+      }
+    }
+  }
+  return matches;
+}
+
+async function freePortsForBoundMcps(allMcpServers: Record<string, unknown>): Promise<void> {
+  const portBound = detectPortBoundMcps(allMcpServers);
+  if (portBound.length === 0) return;
+
+  for (const { id, pkg, port } of portBound) {
+    console.log(`🔓 MCP '${id}' (${pkg}) needs port ${port} — freeing it before SDK spawn`);
+    await freePort(port);
+  }
+}
+
 async function spawnClaudeStream(
   ws: ChatWebSocket,
   session: ReturnType<typeof sessionDb.getSession> & object,
@@ -559,6 +613,10 @@ IMPORTANT: Do not modify files outside the workspace directory.
       return `${id}=${JSON.stringify(safe)}`;
     });
     console.log(`🔌 MCP → SDK (${mcpDiag.length} servers): ${mcpDiag.join(' | ') || '(none)'}`);
+
+    // Free ports for any port-bound stdio MCPs (eg rbxstudio-mcp:3002).
+    // See PORT_BOUND_MCP_PACKAGES above for the why.
+    await freePortsForBoundMcps(allMcpServers);
 
     // PreToolUse hooks
     queryOptions.hooks = createPreToolUseHooks(sessionId, workingDir);
