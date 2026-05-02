@@ -544,6 +544,22 @@ IMPORTANT: Do not modify files outside the workspace directory.
       }
     }
 
+    // Diagnostic: dump the FINAL list of MCP servers being passed to the SDK
+    // so we can debug "MCP not visible" issues. Strip env vars from output to
+    // avoid leaking secrets.
+    const mcpDiag = Object.entries(allMcpServers).map(([id, cfg]) => {
+      const c = cfg as Record<string, unknown>;
+      const safe: Record<string, unknown> = { type: c.type };
+      if (c.type === 'http' || c.type === 'sse') safe.url = c.url;
+      if (c.type === 'stdio') {
+        safe.command = c.command;
+        safe.args = c.args;
+        if (c.env) safe.envKeys = Object.keys(c.env as Record<string, string>);
+      }
+      return `${id}=${JSON.stringify(safe)}`;
+    });
+    console.log(`🔌 MCP → SDK (${mcpDiag.length} servers): ${mcpDiag.join(' | ') || '(none)'}`);
+
     // PreToolUse hooks
     queryOptions.hooks = createPreToolUseHooks(sessionId, workingDir);
 

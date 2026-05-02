@@ -57,7 +57,14 @@ async function loadMcpConfig(): Promise<McpServersConfig> {
       custom: config.custom || {},
       headerOverrides: config.headerOverrides || {},
     };
-  } catch {
+  } catch (err) {
+    // Diagnostic: surface why the config didn't load. ENOENT is silent
+    // (no config = fresh install, which is fine), but anything else is a
+    // real problem that may explain "my MCP server isn't showing up!"
+    const e = err as NodeJS.ErrnoException;
+    if (e.code !== 'ENOENT') {
+      console.warn(`⚠️  MCP config read failed (${MCP_CONFIG_PATH}): ${e.code ?? ''} ${e.message ?? err}`);
+    }
     return { enabled: {}, custom: {}, headerOverrides: {} };
   }
 }
@@ -146,6 +153,18 @@ export async function getMcpServers(provider: ProviderType, _modelId?: string): 
     const { name: _name, ...serverConfig } = config;
     servers[id] = serverConfig as McpServerConfig;
   }
+
+  // Diagnostic: show what we loaded so user can verify the config file
+  // was found and parsed. Useful for "my custom MCP server isn't showing
+  // up" issues — typically the file path is wrong because process.cwd()
+  // differs between dev (repo) and installed (~/.local/share/agentic-app).
+  const customCount = Object.keys(mcpConfig.custom).length;
+  const enabledIds = Object.keys(servers);
+  console.log(
+    `🔌 MCP loader [${provider}]: file=${MCP_CONFIG_PATH} ` +
+    `built-in=${Object.keys(baseServers).length} custom=${customCount} → ` +
+    `${enabledIds.length} enabled: [${enabledIds.join(', ') || 'none'}]`
+  );
 
   return servers;
 }
