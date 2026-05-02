@@ -280,6 +280,40 @@ export async function freePort(port: number): Promise<boolean> {
 }
 
 /**
+ * Find the PID currently listening on a port, or null if free.
+ * Read-only — does not kill anything. Use this when you want to know
+ * whether a port-bound MCP slot is already taken before deciding to
+ * exclude it from a new SDK subprocess's MCP config.
+ */
+export async function getPortOwnerPid(port: number): Promise<number | null> {
+  try {
+    if (process.platform === 'win32') {
+      const { stdout } = await execAsync(`netstat -ano | findstr ":${port}" 2>nul`);
+      const lines = stdout.trim().split('\n');
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        // Only LISTENING sockets count as "owning" the port
+        if (parts.length >= 5 && parts[1].includes(`:${port}`) && /LISTENING/i.test(parts[3] ?? '')) {
+          const pid = parseInt(parts[4], 10);
+          if (!isNaN(pid) && pid !== 0) return pid;
+        }
+      }
+      return null;
+    }
+
+    // Unix/Mac/WSL: lsof -ti:PORT -sTCP:LISTEN restricts to the LISTEN socket
+    // (not transient client connections to that port).
+    const { stdout } = await execAsync(`lsof -ti:${port} -sTCP:LISTEN 2>/dev/null || true`);
+    const pidStr = stdout.trim().split('\n')[0];
+    if (!pidStr) return null;
+    const pid = parseInt(pidStr, 10);
+    return isNaN(pid) ? null : pid;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Add a port to the list of known MCP ports to clean up
  * Call this when loading custom MCP server configs
  */

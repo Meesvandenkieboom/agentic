@@ -16,7 +16,7 @@ import { sessionDb } from "../database";
 import { getSystemPrompt, injectWorkingDirIntoAgents } from "../systemPrompt";
 import { configureProvider } from "../providers";
 import { getMcpServers } from "../mcpServers";
-import { freePort } from "../mcpCleanup";
+import { getPortOwnerPid } from "../mcpCleanup";
 import { mcpClientManager } from "../mcpClientManager";
 import { AGENT_REGISTRY } from "../agents";
 import { validateDirectory, getSessionPathsFromWorkingDir } from "../directoryUtils";
@@ -405,11 +405,18 @@ async function handleCodexProvider(
 // EADDRINUSE — silently. Claude in chat B then sees zero rbxstudio tools
 // with no error message anywhere.
 //
-// Fix: when a NEW SDK subprocess includes a known port-bound MCP, free
-// that port first. This will tear down any leftover instance from a
-// previous SDK subprocess so the new one can bind. It's a deliberate
-// "newest chat wins" policy. Old chats that were using the killed MCP
-// will need to re-spawn their SDK subprocess (eg by sending /clear).
+// Approach: BEFORE handing the MCP config to a new SDK subprocess, check
+// whether each port-bound MCP's port is already held. If yes, EXCLUDE
+// that MCP from this session's config and log a clear warning. The
+// session that already owns the port keeps it; new sessions get a clean
+// "no rbxstudio tools, here's why" experience instead of silently broken
+// tool calls.
+//
+// We deliberately do NOT kill the existing port owner: doing so would
+// also break the SDK subprocess that owns it, since once its MCP child
+// dies the SDK marks the connection as "disconnected" and all future
+// tool calls in that session fail. Better to lose a feature in chat B
+// than to silently break chat A.
 const PORT_BOUND_MCP_PACKAGES: Record<string, number> = {
   'rbxstudio-mcp': 3002,
   'robloxstudio-mcp': 3002, // legacy alias
@@ -433,14 +440,33 @@ function detectPortBoundMcps(
   return matches;
 }
 
-async function freePortsForBoundMcps(allMcpServers: Record<string, unknown>): Promise<void> {
+/**
+ * For each port-bound MCP in this session's config, check if its port is
+ * already held by another process. If yes, remove that MCP from the config
+ * (mutates `allMcpServers`) and log a warning so the user understands why
+ * the tools aren't appearing. Returns the list of excluded MCP IDs.
+ */
+async function excludeBusyPortBoundMcps(
+  allMcpServers: Record<string, unknown>,
+): Promise<string[]> {
   const portBound = detectPortBoundMcps(allMcpServers);
-  if (portBound.length === 0) return;
+  if (portBound.length === 0) return [];
 
+  const excluded: string[] = [];
   for (const { id, pkg, port } of portBound) {
-    console.log(`🔓 MCP '${id}' (${pkg}) needs port ${port} — freeing it before SDK spawn`);
-    await freePort(port);
+    const ownerPid = await getPortOwnerPid(port);
+    if (ownerPid !== null && ownerPid !== process.pid) {
+      console.warn(
+        `⚠️  MCP '${id}' (${pkg}) excluded from this session — ` +
+        `port ${port} already in use by PID ${ownerPid} ` +
+        `(another chat session likely owns it). Close that chat or restart ` +
+        `the app to give this session ${id}.`,
+      );
+      delete allMcpServers[id];
+      excluded.push(id);
+    }
   }
+  return excluded;
 }
 
 async function spawnClaudeStream(
@@ -590,9 +616,15 @@ IMPORTANT: Do not modify files outside the workspace directory.
     // Merge MCP servers
     const connectedMcpServers = mcpClientManager.getMcpServersForSDK();
     const allMcpServers = { ...mcpServers, ...connectedMcpServers };
+
+    // Drop any port-bound stdio MCPs whose port is already held by another
+    // process (eg rbxstudio-mcp:3002 already owned by a different chat
+    // session's SDK). See PORT_BOUND_MCP_PACKAGES above for the why.
+    await excludeBusyPortBoundMcps(allMcpServers);
+
     if (Object.keys(allMcpServers).length > 0) {
       queryOptions.mcpServers = allMcpServers;
-      const connectedIds = Object.keys(connectedMcpServers);
+      const connectedIds = Object.keys(connectedMcpServers).filter(id => id in allMcpServers);
       if (connectedIds.length > 0) {
         console.log(`🔌 MCP: Including ${connectedIds.length} connected servers: ${connectedIds.join(', ')}`);
       }
@@ -613,10 +645,6 @@ IMPORTANT: Do not modify files outside the workspace directory.
       return `${id}=${JSON.stringify(safe)}`;
     });
     console.log(`🔌 MCP → SDK (${mcpDiag.length} servers): ${mcpDiag.join(' | ') || '(none)'}`);
-
-    // Free ports for any port-bound stdio MCPs (eg rbxstudio-mcp:3002).
-    // See PORT_BOUND_MCP_PACKAGES above for the why.
-    await freePortsForBoundMcps(allMcpServers);
 
     // PreToolUse hooks
     queryOptions.hooks = createPreToolUseHooks(sessionId, workingDir);
