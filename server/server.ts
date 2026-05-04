@@ -85,10 +85,32 @@ await cleanupOrphanedMcpProcesses();
 // for SIGINT/SIGTERM here so it covers both `--tunnel` and normal mode.
 // The bridge module also installs a synchronous `process.on('exit')`
 // handler as a last-resort fallback for crashes.
-const _mcpShutdownHandler = (signal: string) => {
-  // Fire-and-forget; if cleanup hangs we still want to exit promptly.
-  void shutdownAllMcpBridges()
-    .catch((err) => console.error(`MCP bridge shutdown error on ${signal}:`, err));
+//
+// IMPORTANT: registering a SIGINT handler suppresses Node's default
+// terminate-on-Ctrl+C behavior, so we MUST call process.exit() ourselves.
+// Otherwise the parent stays alive while the SDK subprocesses receive
+// the signal and crash with "Claude Code process terminated by signal
+// SIGINT", and Ctrl+C feels broken from the terminal.
+let _shuttingDown = false;
+const _mcpShutdownHandler = (signal: 'SIGINT' | 'SIGTERM') => {
+  // Second Ctrl+C: bail out hard instead of waiting for cleanup again.
+  if (_shuttingDown) {
+    process.exit(signal === 'SIGINT' ? 130 : 143);
+  }
+  _shuttingDown = true;
+
+  // Hard cap on shutdown so a stuck MCP child can't hold the process open.
+  const forceExit = setTimeout(() => {
+    process.exit(signal === 'SIGINT' ? 130 : 143);
+  }, 2_000);
+  forceExit.unref();
+
+  shutdownAllMcpBridges()
+    .catch((err) => console.error(`MCP bridge shutdown error on ${signal}:`, err))
+    .finally(() => {
+      clearTimeout(forceExit);
+      process.exit(signal === 'SIGINT' ? 130 : 143);
+    });
 };
 process.on('SIGINT', () => _mcpShutdownHandler('SIGINT'));
 process.on('SIGTERM', () => _mcpShutdownHandler('SIGTERM'));
