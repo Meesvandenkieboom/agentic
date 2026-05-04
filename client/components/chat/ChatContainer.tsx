@@ -91,6 +91,9 @@ export function ChatContainer() {
   const [isBuildWizardOpen, setIsBuildWizardOpen] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<{ url: string; name: string } | null>(null);
   const [selectedDirectory, setSelectedDirectory] = useState<string | null>(null);
+  // True while a GitHub repo is being cloned during chat creation.
+  // Drives the send-button loading state so users know the UI isn't frozen.
+  const [isCloning, setIsCloning] = useState(false);
   const [branchDialogOpen, setBranchDialogOpen] = useState(false);
   const [branchingSessionId, setBranchingSessionId] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -427,6 +430,7 @@ export function ChatContainer() {
         await sessionAPI.updatePermissionMode(sessionId, permissionMode);
 
         if (selectedRepo) {
+          setIsCloning(true);
           try {
             const cloneResponse = await fetch('/api/github/clone', {
               method: 'POST',
@@ -442,6 +446,8 @@ export function ChatContainer() {
           } catch (error) {
             console.error('Clone error:', error);
             toast.error('Failed to clone repository');
+          } finally {
+            setIsCloning(false);
           }
           setSelectedRepo(null);
         }
@@ -611,8 +617,9 @@ export function ChatContainer() {
             onInputChange={setInputValue}
             onSubmit={handleSubmit}
             onStop={handleStop}
-            disabled={!isConnected}
+            disabled={!isConnected || isCloning}
             isGenerating={isCurrentSessionLoading}
+            isCloning={isCloning}
             isPlanMode={isPlanMode}
             onTogglePlanMode={handleTogglePlanMode}
             availableCommands={availableCommands}
@@ -659,8 +666,9 @@ export function ChatContainer() {
                 onChange={setInputValue}
                 onSubmit={handleSubmit}
                 onStop={handleStop}
-                disabled={!isConnected || isCurrentSessionLoading}
+                disabled={!isConnected || isCurrentSessionLoading || isCloning}
                 isGenerating={isCurrentSessionLoading}
+                isCloning={isCloning}
                 isPlanMode={isPlanMode}
                 onTogglePlanMode={handleTogglePlanMode}
                 backgroundProcesses={backgroundProcesses.get(currentSessionId || '') || []}

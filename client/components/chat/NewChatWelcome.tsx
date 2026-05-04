@@ -19,7 +19,7 @@
  */
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Send, Plus, X, Square, FileUp, Github, ChevronDown, GitBranch, FolderOpen } from 'lucide-react';
+import { Send, Plus, X, Square, FileUp, Github, ChevronDown, GitBranch, FolderOpen, Loader2 } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import { ModeIndicator } from './ModeIndicator';
 import type { SlashCommand } from '../../hooks/useWebSocket';
@@ -34,6 +34,8 @@ interface NewChatWelcomeProps {
   onStop?: () => void;
   disabled?: boolean;
   isGenerating?: boolean;
+  /** True while a GitHub repo is being cloned during chat creation. Shows spinner on send button. */
+  isCloning?: boolean;
   isPlanMode?: boolean;
   onTogglePlanMode?: () => void;
   availableCommands?: SlashCommand[];
@@ -56,7 +58,7 @@ const CAPABILITIES = [
   "I can analyze data and files"
 ];
 
-export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard: _onOpenBuildWizard, mode, onRepoSelected, selectedRepo, selectedModel: _selectedModel, onDirectorySelected, selectedDirectory, reasoningEffort, onReasoningEffortChange }: NewChatWelcomeProps) {
+export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isCloning, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard: _onOpenBuildWizard, mode, onRepoSelected, selectedRepo, selectedModel: _selectedModel, onDirectorySelected, selectedDirectory, reasoningEffort, onReasoningEffortChange }: NewChatWelcomeProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusMenuRef = useRef<HTMLDivElement>(null);
@@ -658,6 +660,17 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                       aria-label="Stop Generating"
                     >
                       <Square className="size-4" fill="currentColor" />
+                    </button>
+                  ) : isCloning ? (
+                    <button
+                      type="button"
+                      disabled
+                      className="transition rounded-lg p-2 self-center bg-gray-500 text-white/60 cursor-not-allowed"
+                      aria-label="Cloning repository"
+                      aria-busy="true"
+                      title="Cloning repository…"
+                    >
+                      <Loader2 className="size-4 animate-spin" />
                     </button>
                   ) : (
                     <button

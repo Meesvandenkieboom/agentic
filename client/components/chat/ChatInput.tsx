@@ -19,7 +19,7 @@
  */
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Send, Plus, X, Square, Palette, List, FileUp, Github, ChevronDown, GitBranch } from 'lucide-react';
+import { Send, Plus, X, Square, Palette, List, FileUp, Github, ChevronDown, GitBranch, Loader2 } from 'lucide-react';
 import type { FileAttachment } from '../message/types';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import { ModeIndicator } from './ModeIndicator';
@@ -37,6 +37,8 @@ interface ChatInputProps {
   onStop?: () => void;
   disabled?: boolean;
   isGenerating?: boolean;
+  /** True while a GitHub repo is being cloned during chat creation. Shows spinner on send button. */
+  isCloning?: boolean;
   placeholder?: string;
   isPlanMode?: boolean;
   onTogglePlanMode?: () => void;
@@ -54,7 +56,7 @@ interface ChatInputProps {
   onReasoningEffortChange?: (effort: ReasoningEffort) => void;
 }
 
-export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo, reasoningEffort, onReasoningEffortChange }: ChatInputProps) {
+export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, isCloning, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo, reasoningEffort, onReasoningEffortChange }: ChatInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusMenuRef = useRef<HTMLDivElement>(null);
@@ -611,6 +613,17 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                   type="button"
                 >
                   <Square size={17} fill="currentColor" />
+                </button>
+              ) : isCloning ? (
+                <button
+                  disabled
+                  className="send-button"
+                  title="Cloning repository…"
+                  type="button"
+                  aria-busy="true"
+                  aria-label="Cloning repository"
+                >
+                  <Loader2 size={17} className="animate-spin" />
                 </button>
               ) : (
                 <button
