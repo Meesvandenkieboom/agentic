@@ -1096,7 +1096,7 @@ function ExitPlanModeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
         <div className="p-4 bg-blue-500/5 text-sm">
           <div className="prose prose-base max-w-none prose-invert">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkMath]}
+              remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
               rehypePlugins={[[rehypeKatex, { errorColor: 'currentColor', strict: 'ignore' }]]}
               components={{
                 a: ({ href, children }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
@@ -1881,7 +1881,7 @@ function TextComponent({ text }: { text: TextBlock }) {
         // Normal markdown rendering
         <div className="prose prose-base max-w-none prose-invert">
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath]}
+            remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
             rehypePlugins={[[rehypeKatex, { errorColor: 'currentColor', strict: 'ignore' }]]}
             components={components}
           >

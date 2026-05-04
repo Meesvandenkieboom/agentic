@@ -29,7 +29,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content }: Mark
       prose-li:text-white/85"
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
         rehypePlugins={[rehypeKatex]}
         components={{
           code(props) {

@@ -115,7 +115,7 @@ export function PlanApprovalModal({ plan, onApprove, onReject, isResponseInProgr
         >
           <div className="prose prose-base max-w-none prose-invert">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkMath]}
+              remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
               rehypePlugins={[[rehypeKatex, { errorColor: 'currentColor', strict: 'ignore' }]]}
               components={{
                 a: (props) => (
