@@ -77,7 +77,15 @@ export function ChatContainer() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [liveTokenCount, setLiveTokenCount] = useState(0);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
-    return localStorage.getItem('agentic-model') || 'opus-4-7';
+    const stored = localStorage.getItem('agentic-model');
+    // Migrate legacy stored ids to the current default so users on the
+    // previous Opus generation aren't stranded on a model that no longer
+    // exists in MODEL_MAP.
+    if (stored === 'opus-4-7') {
+      localStorage.setItem('agentic-model', 'opus-4-8');
+      return 'opus-4-8';
+    }
+    return stored || 'opus-4-8';
   });
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(() => {
     const stored = localStorage.getItem('agentic-effort');

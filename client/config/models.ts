@@ -42,10 +42,10 @@ export interface ModelConfig {
  */
 export const AVAILABLE_MODELS: ModelConfig[] = [
   {
-    id: 'opus-4-7',
-    name: 'Claude Opus 4.7',
+    id: 'opus-4-8',
+    name: 'Claude Opus 4.8',
     description: 'Latest and most capable Opus model for advanced reasoning and coding',
-    apiModelId: 'claude-opus-4-7',
+    apiModelId: 'claude-opus-4-8',
     provider: 'anthropic',
   },
   {
@@ -66,7 +66,7 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     id: 'hive',
     name: 'Claude HIVE',
     description: 'Opus orchestrator with Sonnet worker swarm for complex tasks',
-    apiModelId: 'claude-opus-4-7',
+    apiModelId: 'claude-opus-4-8',
     provider: 'anthropic',
   },
   {

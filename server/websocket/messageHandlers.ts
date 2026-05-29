@@ -186,7 +186,7 @@ async function handleChatMessage(
   const isNewStream = !sessionStreamManager.hasStream(sessionId as string);
 
   // Configure model and provider
-  const modelConfig = MODEL_MAP[model as string] || MODEL_MAP['opus-4-7'];
+  const modelConfig = MODEL_MAP[model as string] || MODEL_MAP['opus-4-8'];
   const { apiModelId, provider } = modelConfig;
   const providerType = provider as 'anthropic' | 'codex';
 
@@ -643,8 +643,9 @@ IMPORTANT: Do not modify files outside the workspace directory.
       // (legacy) thinking. If B+1 > 128000 the API rejects the request and
       // the SDK silently falls back to non-streaming, which our response
       // loop renders as missing text/thinking blocks (only tool calls show).
-      // Adaptive-thinking models (Opus 4.7+) get capped via the SDK patch
-      // in scripts/patch-sdk-reminders.mjs (`opus-4-7-max-tokens-cap`).
+      // Adaptive-thinking models (Opus 4.7+, including 4.8) get capped via
+      // the SDK patch in scripts/patch-sdk-reminders.mjs
+      // (`opus-4-8-max-tokens-cap`).
       // Here we cap legacy/non-adaptive models so max_tokens stays under
       // the 128000 ceiling. Mirrors the regex used by the adaptive patch.
       const isAdaptiveThinking = /opus-(?:4-(?:[7-9]|\d{2,})|[5-9])/.test(apiModelId);

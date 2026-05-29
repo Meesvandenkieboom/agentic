@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Patch Claude Agent SDK to neutralize baked-in prompt nudges that over-trigger
- * Opus-class models for a local developer-agent use case, and to fix Opus 4.7+
+ * Opus-class models for a local developer-agent use case, and to fix Opus 4.8+
  * thinking-block emission.
  *
  * Patches applied (all idempotent; safe to re-run after every `bun install`):
@@ -27,31 +27,32 @@
  *      scaffolding (new test files, new components). The principle version
  *      still discourages clutter without creating binary refusals.
  *
- *   5. Opus 4.7+ empty thinking fix. On Opus 4.7, Anthropic changed the
- *      thinking API: manual {type:"enabled",budget_tokens:N} is legacy, and
- *      `display` now defaults to "omitted" so the thinking field streams
- *      empty. We swap the SDK's request construction so models matching
- *      /opus-(?:4-[7-9]|[5-9])/ get {type:"adaptive",display:"summarized"}
- *      instead, which populates thinking_delta events again. Older models
- *      keep the legacy enabled+budget_tokens form.
+ *   5. Opus 4.8+ empty thinking fix. Starting with Opus 4.7, Anthropic
+ *      changed the thinking API: manual {type:"enabled",budget_tokens:N} is
+ *      legacy, and `display` now defaults to "omitted" so the thinking
+ *      field streams empty. We swap the SDK's request construction so
+ *      models matching /opus-(?:4-[7-9]|[5-9])/ get
+ *      {type:"adaptive",display:"summarized"} instead, which populates
+ *      thinking_delta events again. Older models keep the legacy
+ *      enabled+budget_tokens form.
  *
- *   6. Opus 4.7+ output_config.effort (keep reasoning slider meaningful).
+ *   6. Opus 4.8+ output_config.effort (keep reasoning slider meaningful).
  *      Adaptive thinking removes budget_tokens, so the effort slider
  *      (low…max) loses its effect on 4.7+. We inject Anthropic's sibling
  *      `output_config.effort` field, mapping maxThinkingTokens → effort
  *      on the same scale (low/medium/high/xhigh/max).
  *
- *   7. Opus 4.7+ max_tokens cap (SSE streaming on fresh+xhigh/max).
- *      Opus 4.7 enforces a hard `max_tokens <= 128000` limit at the API
+ *   7. Opus 4.8+ max_tokens cap (SSE streaming on fresh+xhigh/max).
+ *      Opus 4.7+ enforces a hard `max_tokens <= 128000` limit at the API
  *      edge. The SDK computes max_tokens = max(maxThinkingTokens+1,
- *      wz0(model)); for opus-4-7 wz0 returns 32000, so at xhigh (B=128000)
+ *      wz0(model)); for opus-4-8 wz0 returns 32000, so at xhigh (B=128000)
  *      it sends max_tokens=128001 → 400 invalid_request_error. The SDK
  *      silently catches the streaming error and falls back to a
  *      non-streaming turn (Y.onStreamingFallback), which is why fresh
  *      xhigh/max turns show "everything at once, no deltas". At effort=max
  *      (B=200000) the default formula produces 200001, same failure mode.
  *      Fix: for adaptive-thinking models, pin max_tokens to 128000 (the
- *      Opus 4.7 ceiling). Legacy/non-adaptive paths keep the original
+ *      Opus 4.7+ ceiling). Legacy/non-adaptive paths keep the original
  *      max(B+1, wz0(model)) formula untouched.
  *
  * Runs on `bun install` via the postinstall hook. The pristine cli.js is
@@ -73,7 +74,7 @@ const CLI_PATH = resolve(
   'cli.js',
 );
 
-const MARKER = '/* agentic:sdk-patched:v8 */';
+const MARKER = '/* agentic:sdk-patched:v9 */';
 
 function log(msg) {
   console.log(`[patch-sdk-reminders] ${msg}`);
@@ -87,7 +88,7 @@ if (!existsSync(CLI_PATH)) {
 let currentSrc = readFileSync(CLI_PATH, 'utf8');
 
 if (currentSrc.includes(MARKER)) {
-  log('Already patched (v8). Skipping.');
+  log('Already patched (v9). Skipping.');
   process.exit(0);
 }
 
@@ -101,7 +102,7 @@ if (!existsSync(backupPath)) {
 // If an older patched version is present, restore pristine source first so we
 // can re-apply all patches cleanly instead of trying to patch already-patched
 // text (which would miss the original `find` strings and bail out).
-const hasOlderMarker = /\/\* agentic:sdk-patched:v[1-7] \*\//.test(currentSrc)
+const hasOlderMarker = /\/\* agentic:sdk-patched:v[1-8] \*\//.test(currentSrc)
   || currentSrc.includes('/* agentic:sdk-patched:malware-reminder-removed */');
 if (hasOlderMarker) {
   log('Detected older patch marker — restoring from .orig before re-applying.');
@@ -167,45 +168,46 @@ const patches = [
     required: true,
   },
 
-  // ── 5. Opus 4.7+ adaptive thinking (empty-thinking-block fix) ───────────
+  // ── 5. Opus 4.8+ adaptive thinking (empty-thinking-block fix) ───────────
   // Default SDK builds `thinking: {budget_tokens:hA, type:"enabled"}` from the
-  // caller's maxThinkingTokens option. On Opus 4.7+ the API silently drops
-  // thinking content unless you opt in with display:"summarized" on an
-  // adaptive block. We branch on the model string so older models keep their
-  // legacy enabled+budget form.
+  // caller's maxThinkingTokens option. On Opus 4.7+ (including 4.8) the API
+  // silently drops thinking content unless you opt in with
+  // display:"summarized" on an adaptive block. We branch on the model string
+  // so older models keep their legacy enabled+budget form.
   {
-    name: 'opus-4-7-adaptive-thinking',
+    name: 'opus-4-8-adaptive-thinking',
     find: `KA=B>0?{budget_tokens:hA,type:"enabled"}:void 0`,
     replace: `KA=B>0?(/opus-(?:4-(?:[7-9]|\\d{2,})|[5-9])/.test(String(SA&&SA.model||Y&&Y.model||""))?{type:"adaptive",display:"summarized"}:{budget_tokens:hA,type:"enabled"}):void 0`,
     required: true,
   },
 
-  // ── 6. Opus 4.7+ output_config.effort (keep reasoning slider meaningful) ─
+  // ── 6. Opus 4.8+ output_config.effort (keep reasoning slider meaningful) ─
   // Adaptive thinking removes budget_tokens, so the effort slider (low…max)
-  // loses its effect on 4.7+. Anthropic's sibling `output_config.effort`
-  // field lets callers hint budget. We map the maxThinkingTokens value (B)
-  // back onto the same low/medium/high/xhigh/max scale and inject it only
-  // when we actually picked the adaptive branch above.
+  // loses its effect on 4.7+ (including 4.8). Anthropic's sibling
+  // `output_config.effort` field lets callers hint budget. We map the
+  // maxThinkingTokens value (B) back onto the same low/medium/high/xhigh/max
+  // scale and inject it only when we actually picked the adaptive branch
+  // above.
   {
-    name: 'opus-4-7-output-config-effort',
+    name: 'opus-4-8-output-config-effort',
     find: `metadata:ta(),max_tokens:uA,thinking:KA,`,
     replace: `metadata:ta(),max_tokens:uA,thinking:KA,...(KA&&KA.type==="adaptive"?{output_config:{effort:(B<=2000?"low":B<=16000?"medium":B<=80000?"high":B<=128000?"xhigh":"max")}}:{}),`,
     required: true,
   },
 
-  // ── 7. Opus 4.7+ max_tokens cap (adaptive thinking SSE fix) ──────────────
-  // Opus 4.7 enforces a hard `max_tokens <= 128000` ceiling server-side.
-  // Default SDK: uA = max(B+1, wz0(model)). For opus-4-7 wz0=32000, so at
-  // xhigh (B=128000) uA=128001 → API 400 "max_tokens: 128001 > 128000".
-  // At effort=max (B=200000) it becomes 200001, same failure. The SDK
-  // silently catches that error and falls back to non-streaming mode
-  // (Y.onStreamingFallback), which is why fresh xhigh/max turns emit
-  // zero stream deltas — the retry is a whole-message non-stream call.
-  // Fix: for the adaptive-thinking branch, pin max_tokens to 128000 (the
-  // Opus 4.7 ceiling). Legacy/non-adaptive paths keep the original
-  // max(B+1, wz0(model)) formula so older models are untouched.
+  // ── 7. Opus 4.8+ max_tokens cap (adaptive thinking SSE fix) ──────────────
+  // Opus 4.7+ (including 4.8) enforces a hard `max_tokens <= 128000`
+  // ceiling server-side. Default SDK: uA = max(B+1, wz0(model)). For
+  // opus-4-8 wz0=32000, so at xhigh (B=128000) uA=128001 → API 400
+  // "max_tokens: 128001 > 128000". At effort=max (B=200000) it becomes
+  // 200001, same failure. The SDK silently catches that error and falls
+  // back to non-streaming mode (Y.onStreamingFallback), which is why fresh
+  // xhigh/max turns emit zero stream deltas — the retry is a whole-message
+  // non-stream call. Fix: for the adaptive-thinking branch, pin max_tokens
+  // to 128000 (the Opus 4.7+ ceiling). Legacy/non-adaptive paths keep the
+  // original max(B+1, wz0(model)) formula so older models are untouched.
   {
-    name: 'opus-4-7-max-tokens-cap',
+    name: 'opus-4-8-max-tokens-cap',
     find: `uA=SA?.maxTokensOverride||Y.maxOutputTokensOverride||Math.max(B+1,wz0(Y.model))`,
     replace: `uA=SA?.maxTokensOverride||Y.maxOutputTokensOverride||(KA&&KA.type==="adaptive"?128000:Math.max(B+1,wz0(Y.model)))`,
     required: true,
