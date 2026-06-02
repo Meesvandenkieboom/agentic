@@ -465,7 +465,7 @@ class SessionDatabase {
   }
 
   // Session operations
-  createSession(title: string = "New Chat", workingDirectory?: string, mode: 'general' | 'coder' | 'intense-research' | 'spark' = 'general', githubRepo?: string): Session {
+  createSession(title: string = "New Chat", workingDirectory?: string, mode: 'general' | 'coder' | 'intense-research' | 'spark' = 'general', githubRepo?: string, model?: string): Session {
     const id = randomUUID();
     const now = new Date().toISOString();
 
@@ -489,8 +489,8 @@ class SessionDatabase {
     }
 
     this.db.run(
-      "INSERT INTO sessions (id, title, created_at, updated_at, working_directory, permission_mode, mode, github_repo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, title, now, now, finalWorkingDir, 'default', mode, githubRepo || null]
+      "INSERT INTO sessions (id, title, created_at, updated_at, working_directory, permission_mode, mode, github_repo, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, title, now, now, finalWorkingDir, 'default', mode, githubRepo || null, model || null]
     );
 
     // Setup slash commands for this session
@@ -506,6 +506,7 @@ class SessionDatabase {
       permission_mode: 'default',
       mode,
       github_repo: githubRepo,
+      model,
     };
   }
 

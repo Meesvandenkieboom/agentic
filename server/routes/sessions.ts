@@ -7,6 +7,7 @@ import { sessionDb } from "../database";
 import { backgroundProcessManager } from "../backgroundProcessManager";
 import { sessionStreamManager } from "../sessionStreamManager";
 import { setupSessionCommands } from "../commandSetup";
+import { normalizeModelId } from "../../client/config/models";
 
 /**
  * Handle session-related API routes
@@ -34,8 +35,8 @@ export async function handleSessionRoutes(
 
   // POST /api/sessions - Create new session
   if (url.pathname === '/api/sessions' && req.method === 'POST') {
-    const body = await req.json() as { title?: string; workingDirectory?: string; mode?: 'general' | 'coder' | 'intense-research' | 'spark'; githubRepo?: string };
-    const session = sessionDb.createSession(body.title || 'New Chat', body.workingDirectory, body.mode || 'general', body.githubRepo);
+    const body = await req.json() as { title?: string; workingDirectory?: string; mode?: 'general' | 'coder' | 'intense-research' | 'spark'; githubRepo?: string; model?: string };
+    const session = sessionDb.createSession(body.title || 'New Chat', body.workingDirectory, body.mode || 'general', body.githubRepo, normalizeModelId(body.model));
     return new Response(JSON.stringify(session), {
       headers: { 'Content-Type': 'application/json' },
     });
@@ -327,12 +328,14 @@ export async function handleSessionRoutes(
     const sessionId = url.pathname.split('/')[3];
     const body = await req.json() as { model: string };
 
+    const nextModel = normalizeModelId(body.model);
+
     console.log('🔄 API: Update session model:', {
       sessionId,
-      model: body.model
+      model: nextModel
     });
 
-    const success = sessionDb.updateSessionModel(sessionId, body.model);
+    const success = sessionDb.updateSessionModel(sessionId, nextModel);
 
     if (success) {
       // Clear SDK session ID to force respawn with new model

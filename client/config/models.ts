@@ -27,6 +27,12 @@
 
 export type ProviderType = 'anthropic' | 'codex';
 
+export const DEFAULT_MODEL_ID = 'opus-4-8';
+
+const LEGACY_MODEL_ALIASES: Record<string, string> = {
+  'opus-4-7': DEFAULT_MODEL_ID,
+};
+
 export interface ModelConfig {
   id: string;
   name: string;
@@ -110,5 +116,13 @@ export function getModelConfig(modelId: string): ModelConfig | undefined {
  * Get the default model
  */
 export function getDefaultModel(): ModelConfig {
-  return AVAILABLE_MODELS[0];
+  return AVAILABLE_MODELS.find(m => m.id === DEFAULT_MODEL_ID) || AVAILABLE_MODELS[0];
+}
+
+/**
+ * Normalize persisted/requested model IDs to a currently available selector ID.
+ */
+export function normalizeModelId(modelId?: string | null): string {
+  const candidate = modelId ? LEGACY_MODEL_ALIASES[modelId] || modelId : DEFAULT_MODEL_ID;
+  return getModelConfig(candidate)?.id || getDefaultModel().id;
 }

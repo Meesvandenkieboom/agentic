@@ -46,6 +46,7 @@ import { DEFAULT_EFFORT } from './ReasoningEffortSelector';
 import { ArtifactPanel } from '../artifact/ArtifactPanel';
 import { ResizableDivider } from '../artifact/ResizableDivider';
 import { useArtifactPanel } from '../../hooks/useArtifactPanel';
+import { normalizeModelId } from '../../config/models';
 
 export function ChatContainer() {
   // --- Extracted hooks for message + session state ---
@@ -78,14 +79,11 @@ export function ChatContainer() {
   const [liveTokenCount, setLiveTokenCount] = useState(0);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     const stored = localStorage.getItem('agentic-model');
-    // Migrate legacy stored ids to the current default so users on the
-    // previous Opus generation aren't stranded on a model that no longer
-    // exists in MODEL_MAP.
-    if (stored === 'opus-4-7') {
-      localStorage.setItem('agentic-model', 'opus-4-8');
-      return 'opus-4-8';
+    const normalized = normalizeModelId(stored);
+    if (stored !== normalized) {
+      localStorage.setItem('agentic-model', normalized);
     }
-    return stored || 'opus-4-8';
+    return normalized;
   });
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(() => {
     const stored = localStorage.getItem('agentic-effort');
@@ -219,8 +217,11 @@ export function ChatContainer() {
     const fetchedSessions = await sessionAPI.fetchSessions();
     const session = fetchedSessions.find(s => s.id === sessionId);
     if (session) {
+      const sessionModel = normalizeModelId(session.model);
+      setSelectedModel(sessionModel);
+      localStorage.setItem('agentic-model', sessionModel);
       setIsPlanMode(session.permission_mode === 'plan');
-      setCurrentSessionMode(session.mode);
+      setCurrentSessionMode(sessionModel === 'hive' ? 'hive' : session.mode);
     }
 
     await loadSlashCommands(sessionId);
@@ -425,7 +426,7 @@ export function ChatContainer() {
     try {
       let sessionId = currentSessionId;
       if (!sessionId) {
-        const newSession = await sessionAPI.createSession(undefined, mode || 'general', selectedRepo?.name, selectedDirectory || undefined);
+        const newSession = await sessionAPI.createSession(undefined, mode || 'general', selectedRepo?.name, selectedDirectory || undefined, selectedModel);
         if (!newSession) {
           setSessionLoading(tempSessionId, false);
           return;
@@ -736,7 +737,7 @@ export function ChatContainer() {
           parentSessionTitle={
             sessions.find(s => s.id === branchingSessionId)?.title || 'Chat'
           }
-          currentModel={selectedModel}
+          currentModel={normalizeModelId(sessions.find(s => s.id === branchingSessionId)?.model)}
         />
       )}
 

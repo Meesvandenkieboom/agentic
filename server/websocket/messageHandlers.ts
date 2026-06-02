@@ -40,6 +40,7 @@ import {
   handleKillBackgroundProcess,
   handleStopGeneration,
 } from "./controlHandlers";
+import { normalizeModelId } from "../../client/config/models";
 
 // ───────────────────────────────────────────────
 // Main message router
@@ -133,6 +134,25 @@ async function handleChatMessage(
     return;
   }
 
+  const requestedModelId = typeof model === 'string' ? normalizeModelId(model) : undefined;
+  const storedModelId = session.model ? normalizeModelId(session.model) : undefined;
+  const hasPriorMessages = session.message_count > 0;
+  const effectiveModelId = hasPriorMessages
+    ? (storedModelId || normalizeModelId())
+    : (requestedModelId || storedModelId || normalizeModelId());
+
+  if (session.model !== effectiveModelId) {
+    sessionDb.updateSessionModel(sessionId as string, effectiveModelId);
+
+    if (session.sdk_session_id && storedModelId && storedModelId !== effectiveModelId) {
+      sessionDb.updateSdkSessionId(sessionId as string, null);
+      session.sdk_session_id = undefined;
+      console.log(`🔄 Cleared SDK session ID after model changed from ${storedModelId} to ${effectiveModelId}`);
+    }
+
+    session.model = effectiveModelId;
+  }
+
   const workingDir = session.working_directory;
 
   // Process attachments
@@ -186,7 +206,7 @@ async function handleChatMessage(
   const isNewStream = !sessionStreamManager.hasStream(sessionId as string);
 
   // Configure model and provider
-  const modelConfig = MODEL_MAP[model as string] || MODEL_MAP['opus-4-8'];
+  const modelConfig = MODEL_MAP[effectiveModelId] || MODEL_MAP[normalizeModelId()];
   const { apiModelId, provider } = modelConfig;
   const providerType = provider as 'anthropic' | 'codex';
 
