@@ -244,7 +244,10 @@ async function handleChatMessage(
 
   // Codex provider (separate SDK)
   if (providerType === 'codex') {
-    await handleCodexProvider(ws, sessionId as string, promptText, workingDir);
+    await handleCodexProvider(
+      ws, session, sessionId as string, promptText, workingDir,
+      effort as string | undefined,
+    );
     return;
   }
 
@@ -356,38 +359,110 @@ function handleSpecialCommands(ws: ChatWebSocket, trimmedPrompt: string, session
   return false;
 }
 
+/**
+ * A single persisted content block for a Codex assistant message. Mirrors the
+ * shape the Claude path stores (see responseLoop.ts) so the client renders
+ * Codex and Claude history identically on reload.
+ */
+type CodexBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> };
+
+/**
+ * Runs one Codex turn and bridges its events onto Agentic's WebSocket + DB.
+ *
+ * Unlike the Claude path (which keeps a long-lived SDK subprocess per session),
+ * each Codex turn is self-contained: we register a stream purely so the Stop
+ * button has an AbortController to cancel, then tear it down in `finally`.
+ * Multi-turn continuity comes from Codex's own `resumeThread` keyed on the
+ * thread id we persist in `sdk_session_id` — NOT from the in-memory queue.
+ */
 async function handleCodexProvider(
   ws: ChatWebSocket,
+  session: ReturnType<typeof sessionDb.getSession> & object,
   sessionId: string,
   promptText: string,
   workingDir: string,
+  effort: string | undefined,
 ): Promise<void> {
+  // Register a stream so Stop/reconnect work and an AbortController exists.
+  // We never consume the message queue — only the AbortController matters here.
+  sessionStreamManager.getOrCreateStream(sessionId);
+  sessionStreamManager.updateWebSocket(sessionId, ws);
+  const signal = sessionStreamManager.getAbortController(sessionId)?.signal;
+
+  // Ordered content blocks accumulated across the turn, persisted exactly once.
+  const blocks: CodexBlock[] = [];
+  let persisted = false;
+  const persist = (): void => {
+    if (persisted || blocks.length === 0) return;
+    persisted = true;
+    sessionDb.addMessage(sessionId, 'assistant', JSON.stringify(blocks));
+  };
+
   try {
     const { runCodexStream, isCodexAvailable } = await import('../providers/codex');
+
     const codexAvailable = await isCodexAvailable();
     if (!codexAvailable) {
-      ws.send(JSON.stringify({
+      sessionStreamManager.safeSend(sessionId, JSON.stringify({
         type: 'error',
-        message: 'Codex is not available. Please run "bun run login" and select Codex to authenticate.',
+        message: 'Codex is not available. Run "bun run login" and select Codex to authenticate.',
         sessionId,
       }));
       return;
     }
 
     const paths = getSessionPathsFromWorkingDir(workingDir);
-    ws.send(JSON.stringify({ type: 'generation_started', sessionId }));
 
-    await runCodexStream(promptText, paths.workspace, (event) => {
-      if (event.type === 'assistant_message') {
-        sessionDb.addMessage(sessionId, 'assistant', JSON.stringify([{ type: 'text', text: event.content }]));
-      }
-      ws.send(JSON.stringify({ ...event, sessionId }));
-    });
+    await runCodexStream(
+      promptText,
+      paths.workspace,
+      (event) => {
+        // Accumulate structured blocks for the single end-of-turn DB save.
+        if (event.type === 'assistant_message' && event.content) {
+          const last = blocks[blocks.length - 1];
+          if (last && last.type === 'text') {
+            last.text += event.content;
+          } else {
+            blocks.push({ type: 'text', text: event.content });
+          }
+        } else if (event.type === 'tool_use' && event.toolId) {
+          blocks.push({
+            type: 'tool_use',
+            id: event.toolId,
+            name: event.toolName ?? 'tool',
+            input: event.toolInput ?? {},
+          });
+        } else if (event.type === 'result') {
+          persist();
+        }
+
+        // Relay the event to the client (caller spreads sessionId on top).
+        sessionStreamManager.safeSend(sessionId, JSON.stringify({ ...event, sessionId }));
+      },
+      {
+        resumeThreadId: session.sdk_session_id ?? null,
+        signal,
+        effort,
+        onThreadId: (id) => sessionDb.updateSdkSessionId(sessionId, id),
+      },
+    );
+
+    // Aborted mid-turn (Stop): no `result` arrived — save whatever we have.
+    // `generation_stopped` was already sent by abortSession, so no `result`.
+    if (!persisted && signal?.aborted) persist();
   } catch (error) {
     console.error('❌ Codex provider error:', error);
-    ws.send(JSON.stringify({
-      type: 'error', message: error instanceof Error ? error.message : 'Codex provider error', sessionId,
+    persist(); // keep any partial work produced before the failure
+    sessionStreamManager.safeSend(sessionId, JSON.stringify({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'Codex provider error',
+      sessionId,
     }));
+  } finally {
+    // Tear down the in-memory stream; next turn resumes via resumeThread.
+    sessionStreamManager.cleanupSession(sessionId, 'codex_done');
   }
 }
 
