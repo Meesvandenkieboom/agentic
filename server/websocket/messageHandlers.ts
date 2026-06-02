@@ -247,6 +247,7 @@ async function handleChatMessage(
     await handleCodexProvider(
       ws, session, sessionId as string, promptText, workingDir,
       effort as string | undefined,
+      apiModelId,
     );
     return;
   }
@@ -384,6 +385,7 @@ async function handleCodexProvider(
   promptText: string,
   workingDir: string,
   effort: string | undefined,
+  model: string | undefined,
 ): Promise<void> {
   // Register a stream so Stop/reconnect work and an AbortController exists.
   // We never consume the message queue — only the AbortController matters here.
@@ -445,6 +447,7 @@ async function handleCodexProvider(
         resumeThreadId: session.sdk_session_id ?? null,
         signal,
         effort,
+        model,
         onThreadId: (id) => sessionDb.updateSdkSessionId(sessionId, id),
       },
     );

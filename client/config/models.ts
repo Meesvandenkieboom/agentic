@@ -78,9 +78,23 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
   },
   {
     id: 'codex',
-    name: 'Codex',
-    description: 'OpenAI Codex via ChatGPT subscription - coding agent',
-    apiModelId: 'codex',
+    name: 'Codex (GPT-5.5)',
+    description: 'OpenAI Codex via ChatGPT — latest GPT-5.5 coding agent',
+    apiModelId: 'gpt-5.5',
+    provider: 'codex',
+  },
+  {
+    id: 'codex-5-4',
+    name: 'Codex (GPT-5.4)',
+    description: 'OpenAI Codex via ChatGPT — stable GPT-5.4 coding agent',
+    apiModelId: 'gpt-5.4',
+    provider: 'codex',
+  },
+  {
+    id: 'codex-5-4-mini',
+    name: 'Codex (GPT-5.4 mini)',
+    description: 'OpenAI Codex via ChatGPT — faster, lighter GPT-5.4 mini',
+    apiModelId: 'gpt-5.4-mini',
     provider: 'codex',
   },
 ];

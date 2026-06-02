@@ -55,6 +55,12 @@ export interface RunCodexOptions {
   signal?: AbortSignal;
   /** Raw effort string from the UI; mapped to Codex reasoning effort. */
   effort?: string;
+  /**
+   * Codex model slug to run (e.g. 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini').
+   * Omitted/undefined falls back to the CLI default — which may not be
+   * entitled on every account, so the caller should always pass one.
+   */
+  model?: string;
   /** Fired with the thread id as soon as the thread starts (persist for resume). */
   onThreadId?: (id: string) => void;
 }
@@ -259,6 +265,7 @@ export async function runCodexStream(
     approvalPolicy: 'never' as const,
     networkAccessEnabled: true,
     webSearchEnabled: true,
+    ...(opts.model ? { model: opts.model } : {}),
     ...(reasoningEffort ? { modelReasoningEffort: reasoningEffort } : {}),
   };
 
@@ -267,7 +274,7 @@ export async function runCodexStream(
     : codex.startThread(threadOptions);
 
   console.log(
-    `🤖 Codex ${opts.resumeThreadId ? 'resume' : 'start'} in ${workingDir} — prompt: ${prompt.slice(0, 80)}...`,
+    `🤖 Codex ${opts.resumeThreadId ? 'resume' : 'start'} [${opts.model ?? 'cli-default'}] in ${workingDir} — prompt: ${prompt.slice(0, 80)}...`,
   );
 
   // Per-item cumulative-length tracking for delta diffing.
@@ -296,11 +303,18 @@ export async function runCodexStream(
           onEvent({ type: 'result', success: true });
           break;
 
-        case 'turn.failed':
-          onEvent({ type: 'error', message: event.error?.message || 'Codex turn failed' });
+        case 'turn.failed': {
+          // Codex delivers the real reason (e.g. "model not supported") here as
+          // a JSON event on stdout — the SDK separately throws a generic
+          // "exited with code 1", so log this explicitly or it gets buried.
+          const failMsg = event.error?.message || 'Codex turn failed';
+          console.error(`🤖 Codex turn failed [${opts.model ?? 'cli-default'}]:`, failMsg);
+          onEvent({ type: 'error', message: failMsg });
           break;
+        }
 
         case 'error':
+          console.error(`🤖 Codex error [${opts.model ?? 'cli-default'}]:`, event.message);
           onEvent({ type: 'error', message: event.message || 'Unknown Codex error' });
           break;
       }
