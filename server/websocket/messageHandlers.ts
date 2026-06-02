@@ -15,7 +15,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { sessionDb } from "../database";
 import { getSystemPrompt, injectWorkingDirIntoAgents } from "../systemPrompt";
 import { configureProvider } from "../providers";
-import { getMcpServers } from "../mcpServers";
+import { getMcpServers, toCodexMcpServers } from "../mcpServers";
 import { getPortOwnerPid } from "../mcpCleanup";
 import { getOrCreateMcpBridge, isMcpBridgeRegistered } from "../mcpSingletonBridge";
 import { mcpClientManager } from "../mcpClientManager";
@@ -268,6 +268,7 @@ async function handleChatMessage(
       ws, session, sessionId as string, promptText, workingDir,
       effort as string | undefined,
       apiModelId,
+      mcpServers,
     );
     return;
   }
@@ -406,6 +407,7 @@ async function handleCodexProvider(
   workingDir: string,
   effort: string | undefined,
   model: string | undefined,
+  mcpServers: Record<string, unknown>,
 ): Promise<void> {
   // Register a stream so Stop/reconnect work and an AbortController exists.
   // We never consume the message queue — only the AbortController matters here.
@@ -436,6 +438,16 @@ async function handleCodexProvider(
     }
 
     const paths = getSessionPathsFromWorkingDir(workingDir);
+
+    // Merge UI-connected MCP servers, then bridge port-bound stdio MCPs (eg
+    // rbxstudio-mcp on :3002) through the shared singleton — exactly like the
+    // Claude path (see spawnClaudeStream). This makes Codex connect to the same
+    // HTTP-wrapped child instead of spawning its own and colliding on the port.
+    // Finally convert to the Codex CLI's `mcp_servers.*` config shape.
+    const connectedMcpServers = mcpClientManager.getMcpServersForSDK();
+    const allMcpServers: Record<string, unknown> = { ...mcpServers, ...connectedMcpServers };
+    await bridgeOrExcludePortBoundMcps(allMcpServers);
+    const codexMcpServers = toCodexMcpServers(allMcpServers);
 
     await runCodexStream(
       promptText,
@@ -468,6 +480,7 @@ async function handleCodexProvider(
         signal,
         effort,
         model,
+        mcpServers: codexMcpServers,
         onThreadId: (id) => sessionDb.updateSdkSessionId(sessionId, id),
       },
     );

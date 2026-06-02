@@ -16,6 +16,7 @@ import { homedir } from "os";
 import { join } from "path";
 import type {
   Codex as CodexClass,
+  CodexOptions,
   ModelReasoningEffort,
   ThreadEvent,
   ThreadItem,
@@ -61,6 +62,13 @@ export interface RunCodexOptions {
    * entitled on every account, so the caller should always pass one.
    */
   model?: string;
+  /**
+   * MCP servers to expose to Codex, already in the CLI's `mcp_servers.*` shape
+   * (see `toCodexMcpServers` in ../mcpServers). Injected via the SDK's
+   * `CodexOptions.config`, which flattens this into `--config` overrides.
+   * Empty/undefined = no MCP servers.
+   */
+  mcpServers?: Record<string, unknown>;
   /** Fired with the thread id as soon as the thread starts (persist for resume). */
   onThreadId?: (id: string) => void;
 }
@@ -255,7 +263,19 @@ export async function runCodexStream(
   opts: RunCodexOptions = {},
 ): Promise<void> {
   const Codex = await loadCodexSDK();
-  const codex = new Codex();
+
+  // Inject MCP servers via the SDK's config overrides. ThreadOptions has no
+  // MCP field, but CodexOptions.config flattens `mcp_servers.*` into the
+  // CLI's `--config` flags — the same mechanism as ~/.codex/config.toml.
+  const hasMcp = !!opts.mcpServers && Object.keys(opts.mcpServers).length > 0;
+  // CodexOptions.config is a recursively-typed TOML value tree; our server map
+  // is structurally compatible but typed loosely, so cast through `unknown`.
+  const codexOptions = { config: { mcp_servers: opts.mcpServers } } as unknown as CodexOptions;
+  const codex = hasMcp ? new Codex(codexOptions) : new Codex();
+
+  if (hasMcp) {
+    console.log(`🔌 Codex MCP: ${Object.keys(opts.mcpServers ?? {}).join(', ')}`);
+  }
 
   const reasoningEffort = toReasoningEffort(opts.effort);
   const threadOptions = {

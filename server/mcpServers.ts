@@ -170,6 +170,60 @@ export async function getMcpServers(provider: ProviderType, _modelId?: string): 
 }
 
 /**
+ * Codex MCP server config shape.
+ *
+ * The Codex CLI reads MCP servers from `mcp_servers.<name>.*` config keys
+ * (normally in ~/.codex/config.toml). We inject these at runtime via the
+ * @openai/codex-sdk `CodexOptions.config` object, which the SDK flattens into
+ * `--config key=value` CLI overrides. stdio servers use command/args/env;
+ * streamable-HTTP servers use `url` (+ optional static `http_headers`).
+ */
+type CodexMcpServerConfig =
+  | { command: string; args?: string[]; env?: Record<string, string> }
+  | { url: string; http_headers?: Record<string, string> };
+
+/**
+ * Convert Agentic's internal MCP server map into the shape the Codex CLI
+ * expects under `mcp_servers.*`.
+ *
+ * Agentic uses `{ type: 'http' | 'sse', url, headers? }` and
+ * `{ type: 'stdio', command, args?, env? }`. Codex drops the discriminant and
+ * keys HTTP transports off `url` (renaming `headers` → `http_headers`) and
+ * stdio transports off `command`. Unknown/malformed entries are skipped.
+ *
+ * @param servers - Agentic-shaped MCP server map (post-bridging)
+ * @returns Codex-shaped map suitable for `config.mcp_servers`
+ */
+export function toCodexMcpServers(
+  servers: Record<string, unknown>,
+): Record<string, CodexMcpServerConfig> {
+  const out: Record<string, CodexMcpServerConfig> = {};
+
+  for (const [id, raw] of Object.entries(servers)) {
+    const cfg = raw as Record<string, unknown>;
+    if (!cfg || typeof cfg !== 'object') continue;
+
+    if ((cfg.type === 'http' || cfg.type === 'sse') && typeof cfg.url === 'string') {
+      const headers = cfg.headers as Record<string, string> | undefined;
+      out[id] = {
+        url: cfg.url,
+        ...(headers && Object.keys(headers).length > 0 ? { http_headers: headers } : {}),
+      };
+    } else if (cfg.type === 'stdio' && typeof cfg.command === 'string') {
+      const args = cfg.args as string[] | undefined;
+      const env = cfg.env as Record<string, string> | undefined;
+      out[id] = {
+        command: cfg.command,
+        ...(args && args.length > 0 ? { args } : {}),
+        ...(env && Object.keys(env).length > 0 ? { env } : {}),
+      };
+    }
+  }
+
+  return out;
+}
+
+/**
  * Get allowed tools for a provider's MCP servers
  *
  * @param provider - The provider type
