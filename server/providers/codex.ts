@@ -281,7 +281,14 @@ export async function runCodexStream(
   const threadOptions = {
     workingDirectory: workingDir,
     skipGitRepoCheck: true,
-    sandboxMode: 'workspace-write' as const,
+    // `danger-full-access` (not `workspace-write`) is required for MCP tool
+    // calls to execute. Under the managed `workspace-write`/`read-only`
+    // sandboxes, `codex exec` cancels every MCP tool call with "user cancelled
+    // MCP tool call" — even with `approvalPolicy: 'never'` — because exec mode
+    // has no interactive approval channel (a known Codex regression, see
+    // openai/codex#16685, #19430). Full access matches Agentic's local
+    // full-filesystem design and the Anthropic provider's allow-all posture.
+    sandboxMode: 'danger-full-access' as const,
     approvalPolicy: 'never' as const,
     networkAccessEnabled: true,
     webSearchEnabled: true,
