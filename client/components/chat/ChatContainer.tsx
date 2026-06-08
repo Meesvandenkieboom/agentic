@@ -184,20 +184,22 @@ export function ChatContainer() {
   useEffect(() => {
     const init = async () => {
       const loaded = await loadSessions();
-      const persistedId = localStorage.getItem('agentic-active-session');
-      if (persistedId && loaded.some(s => s.id === persistedId)) {
-        handleSessionSelect(persistedId);
+      const initialSessionId = currentSessionIdRef.current;
+      if (initialSessionId && loaded.some(s => s.id === initialSessionId)) {
+        handleSessionSelect(initialSessionId);
+      } else if (initialSessionId) {
+        setCurrentSessionId(null);
       }
     };
     init();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-switch to hive mode if HIVE model is already selected
   useEffect(() => {
     if (selectedModel === 'hive') {
       setCurrentSessionMode('hive');
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // --- Model selection ---
   const handleModelChange = (modelId: string) => {
@@ -353,22 +355,22 @@ export function ChatContainer() {
   const { isConnected, sendMessage, stopGeneration } = useWebSocket({
     url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
     onConnect: async () => {
-      const persistedSessionId = localStorage.getItem('agentic-active-session');
-      if (persistedSessionId) {
-        await handleSessionSelect(persistedSessionId);
-      }
+      const tabSessionId = currentSessionIdRef.current;
 
       try {
         const res = await fetch('/api/sessions/active-streams');
         const data = await res.json();
         const activeIds: string[] = data.sessionIds || [];
-        for (const sid of activeIds) {
+        const reconnectIds = new Set(activeIds);
+        if (tabSessionId) reconnectIds.add(tabSessionId);
+
+        for (const sid of reconnectIds) {
           sendMessage({ type: 'reconnect', sessionId: sid });
         }
         setLoadingSessions(new Set(activeIds));
       } catch {
-        if (persistedSessionId) {
-          sendMessage({ type: 'reconnect', sessionId: persistedSessionId });
+        if (tabSessionId) {
+          sendMessage({ type: 'reconnect', sessionId: tabSessionId });
         }
       }
     },

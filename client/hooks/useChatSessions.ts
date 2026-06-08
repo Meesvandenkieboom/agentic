@@ -9,6 +9,10 @@ import { toast } from '../utils/toast';
 import type { BackgroundProcess } from '../components/process/BackgroundProcessMonitor';
 import type { SlashCommand } from './useWebSocket';
 
+const TAB_ACTIVE_SESSION_KEY = 'agentic-tab-active-session';
+const LEGACY_ACTIVE_SESSION_KEY = 'agentic-active-session';
+const LAST_ACTIVE_SESSION_KEY = 'agentic-last-session';
+
 export interface ContextUsageData {
   inputTokens: number;
   contextWindow: number;
@@ -16,10 +20,22 @@ export interface ContextUsageData {
   outputTokens: number;
 }
 
+function getInitialActiveSessionId(): string | null {
+  const tabValue = sessionStorage.getItem(TAB_ACTIVE_SESSION_KEY);
+  if (tabValue !== null) {
+    return tabValue || null;
+  }
+
+  return (
+    localStorage.getItem(LEGACY_ACTIVE_SESSION_KEY) ||
+    localStorage.getItem(LAST_ACTIVE_SESSION_KEY)
+  );
+}
+
 export function useChatSessions() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => {
-    return localStorage.getItem('agentic-active-session');
+    return getInitialActiveSessionId();
   });
   const [currentSessionMode, setCurrentSessionMode] = useState<'general' | 'coder' | 'intense-research' | 'spark' | 'hive'>('general');
   const [availableCommands, setAvailableCommands] = useState<SlashCommand[]>([]);
@@ -132,12 +148,15 @@ export function useChatSessions() {
     }
   }, [sessionAPI]);
 
-  // Persist active session to localStorage
+  // Persist active session to this browser tab. Keep a non-authoritative
+  // last-session hint for brand-new tabs, but never let it override a tab.
   const persistSessionId = useCallback((sessionId: string | null) => {
     if (sessionId) {
-      localStorage.setItem('agentic-active-session', sessionId);
+      sessionStorage.setItem(TAB_ACTIVE_SESSION_KEY, sessionId);
+      localStorage.setItem(LAST_ACTIVE_SESSION_KEY, sessionId);
+      localStorage.removeItem(LEGACY_ACTIVE_SESSION_KEY);
     } else {
-      localStorage.removeItem('agentic-active-session');
+      sessionStorage.setItem(TAB_ACTIVE_SESSION_KEY, '');
     }
   }, []);
 

@@ -69,9 +69,9 @@ export function useChatMessages() {
    */
   const updateCachedMessages = useCallback((sessionId: string, updater: (prev: Message[]) => Message[]) => {
     const entry = messageCache.current.get(sessionId);
-    const current = entry?.messages || [];
+    if (!entry) return;
     messageCache.current.set(sessionId, {
-      messages: updater(current),
+      messages: updater(entry.messages),
       lastAccessed: Date.now(),
     });
   }, []);

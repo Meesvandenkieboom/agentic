@@ -27,7 +27,7 @@ interface SessionStream {
   sessionId: string;
   createdAt: number;
   lastActivityAt: number;
-  activeWebSocket: ServerWebSocket<unknown> | null;
+  activeWebSockets: Set<ServerWebSocket<unknown>>;
   isGenerating: boolean; // true when actively processing a response, false when idle between turns
 }
 
@@ -64,7 +64,7 @@ export class SessionStreamManager {
         sessionId,
         createdAt: Date.now(),
         lastActivityAt: Date.now(),
-        activeWebSocket: null,
+        activeWebSockets: new Set(),
         isGenerating: false,
       });
 
@@ -91,9 +91,18 @@ export class SessionStreamManager {
    * Mark session as idle (turn completed, waiting for next user message)
    */
   setIdle(sessionId: string): void {
+    this.setGenerating(sessionId, false);
+  }
+
+  /**
+   * Mark whether a session is actively producing a response.
+   * Used by Codex turns, which do not consume the Anthropic message queue.
+   */
+  setGenerating(sessionId: string, generating: boolean): void {
     const stream = this.streams.get(sessionId);
     if (stream) {
-      stream.isGenerating = false;
+      stream.isGenerating = generating;
+      stream.lastActivityAt = Date.now();
     }
   }
 
@@ -115,22 +124,35 @@ export class SessionStreamManager {
   }
 
   /**
-   * Update active WebSocket for session (on reconnection or first connect)
+   * Attach a WebSocket for session updates (on reconnection or first connect).
+   * Multiple tabs can watch the same session without stealing the stream.
    */
   updateWebSocket(sessionId: string, ws: ServerWebSocket<unknown>): void {
     const stream = this.streams.get(sessionId);
     if (stream) {
-      stream.activeWebSocket = ws;
+      stream.activeWebSockets.add(ws);
       // Client reconnected — cancel any pending disconnect abort
       this.cancelDisconnectGracePeriod(sessionId);
     }
   }
 
   /**
-   * Get active WebSocket for session
+   * Get one active WebSocket for session.
    */
   getWebSocket(sessionId: string): ServerWebSocket<unknown> | null {
-    return this.streams.get(sessionId)?.activeWebSocket || null;
+    const stream = this.streams.get(sessionId);
+    if (!stream) return null;
+    return stream.activeWebSockets.values().next().value ?? null;
+  }
+
+  /**
+   * Detach a WebSocket from a session. Returns the remaining attached sockets.
+   */
+  detachWebSocket(sessionId: string, ws: ServerWebSocket<unknown>): number {
+    const stream = this.streams.get(sessionId);
+    if (!stream) return 0;
+    stream.activeWebSockets.delete(ws);
+    return stream.activeWebSockets.size;
   }
 
   /**
@@ -174,32 +196,35 @@ export class SessionStreamManager {
   }
 
   /**
-   * Safe send to WebSocket (checks readyState)
+   * Safe send to every WebSocket attached to the session (checks readyState)
    */
   safeSend(sessionId: string, data: string): boolean {
     const stream = this.streams.get(sessionId);
-    if (!stream || !stream.activeWebSocket) {
+    if (!stream || stream.activeWebSockets.size === 0) {
       return false;
     }
 
-    try {
-      // Check if WebSocket is open
-      if (stream.activeWebSocket.readyState === 1) { // 1 = OPEN
-        stream.activeWebSocket.send(data);
-        return true;
-      } else {
-        // Silently skip - WebSocket closed/closing is normal (user switched tabs, etc.)
-        return false;
+    let sent = false;
+    for (const ws of Array.from(stream.activeWebSockets)) {
+      try {
+        // Check if WebSocket is open
+        if (ws.readyState === 1) { // 1 = OPEN
+          ws.send(data);
+          sent = true;
+        } else {
+          stream.activeWebSockets.delete(ws);
+        }
+      } catch (error) {
+        stream.activeWebSockets.delete(ws);
+        console.error(`❌ WebSocket send error: ${sessionId.substring(0, 8)}`, error);
       }
-    } catch (error) {
-      console.error(`❌ WebSocket send error: ${sessionId.substring(0, 8)}`, error);
-      return false;
     }
+    return sent;
   }
 
   /**
    * Start a grace period before aborting a disconnected session.
-   * If the client reconnects (via updateWebSocket), the timer is cancelled.
+   * If any client reconnects (via updateWebSocket), the timer is cancelled.
    */
   startDisconnectGracePeriod(sessionId: string, onExpire: () => void, delayMs: number = 10000): void {
     // Cancel any existing timer first
@@ -236,6 +261,8 @@ export class SessionStreamManager {
     // Cancel any pending disconnect grace period
     this.cancelDisconnectGracePeriod(sessionId);
 
+    stream.activeWebSockets.clear();
+
     // Abort SDK subprocess (safe to call even if already aborted)
     if (!stream.abortController.signal.aborted) {
       stream.abortController.abort();
@@ -249,14 +276,14 @@ export class SessionStreamManager {
   }
 
   /**
-   * Find all session IDs whose active WebSocket matches the given ws.
+   * Find all session IDs whose attached WebSockets include the given ws.
    * Used by the close handler to start grace periods for ALL sessions
    * on a disconnecting WebSocket (not just the last one set in ws.data).
    */
   getSessionsByWebSocket(ws: ServerWebSocket<unknown>): string[] {
     const sessionIds: string[] = [];
     for (const [sessionId, stream] of this.streams.entries()) {
-      if (stream.activeWebSocket === ws) {
+      if (stream.activeWebSockets.has(ws)) {
         sessionIds.push(sessionId);
       }
     }

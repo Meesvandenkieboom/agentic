@@ -174,13 +174,16 @@ const server = Bun.serve({
           console.log(`🔌 WebSocket disconnected: ${affectedSessions.length} session(s) affected [${affectedSessions.map(s => s.substring(0, 8)).join(', ')}]`);
 
           for (const sid of affectedSessions) {
-            if (sessionStreamManager.hasStream(sid)) {
+            const remainingSockets = sessionStreamManager.detachWebSocket(sid, ws);
+            if (remainingSockets === 0 && sessionStreamManager.hasStream(sid)) {
               sessionStreamManager.startDisconnectGracePeriod(sid, () => {
                 console.log(`⏱️ Grace period expired for session ${sid.substring(0, 8)} — aborting generation`);
                 sessionStreamManager.abortSession(sid);
                 sessionStreamManager.cleanupSession(sid, 'websocket_disconnected');
                 activeQueries.delete(sid);
               }, 60000);
+            } else if (remainingSockets > 0) {
+              console.log(`🔌 Session ${sid.substring(0, 8)} still has ${remainingSockets} connected client(s)`);
             }
           }
         } else {
@@ -188,7 +191,8 @@ const server = Bun.serve({
           const sid = ws.data.sessionId;
           if (sid) {
             console.log(`🔌 WebSocket disconnected: session ${sid.substring(0, 8)} (fallback)`);
-            if (sessionStreamManager.hasStream(sid)) {
+            const remainingSockets = sessionStreamManager.detachWebSocket(sid, ws);
+            if (remainingSockets === 0 && sessionStreamManager.hasStream(sid)) {
               sessionStreamManager.startDisconnectGracePeriod(sid, () => {
                 console.log(`⏱️ Grace period expired for session ${sid.substring(0, 8)} — aborting generation`);
                 sessionStreamManager.abortSession(sid);

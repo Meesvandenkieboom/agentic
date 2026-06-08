@@ -413,15 +413,23 @@ async function handleCodexProvider(
   // We never consume the message queue — only the AbortController matters here.
   sessionStreamManager.getOrCreateStream(sessionId);
   sessionStreamManager.updateWebSocket(sessionId, ws);
+  sessionStreamManager.setGenerating(sessionId, true);
   const signal = sessionStreamManager.getAbortController(sessionId)?.signal;
 
-  // Ordered content blocks accumulated across the turn, persisted exactly once.
+  // Ordered content blocks accumulated across the turn. Keep a single DB
+  // assistant row updated so reload/reconnect can restore in-progress Codex
+  // output instead of only the user prompt.
   const blocks: CodexBlock[] = [];
-  let persisted = false;
+  let assistantMessageId: string | null = null;
   const persist = (): void => {
-    if (persisted || blocks.length === 0) return;
-    persisted = true;
-    sessionDb.addMessage(sessionId, 'assistant', JSON.stringify(blocks));
+    if (blocks.length === 0) return;
+    const content = JSON.stringify(blocks);
+    if (assistantMessageId) {
+      sessionDb.updateMessage(assistantMessageId, content);
+    } else {
+      const msg = sessionDb.addMessage(sessionId, 'assistant', content);
+      assistantMessageId = msg.id;
+    }
   };
 
   try {
@@ -461,6 +469,7 @@ async function handleCodexProvider(
           } else {
             blocks.push({ type: 'text', text: event.content });
           }
+          persist();
         } else if (event.type === 'tool_use' && event.toolId) {
           blocks.push({
             type: 'tool_use',
@@ -468,6 +477,7 @@ async function handleCodexProvider(
             name: event.toolName ?? 'tool',
             input: event.toolInput ?? {},
           });
+          persist();
         } else if (event.type === 'result') {
           persist();
         }
@@ -485,9 +495,9 @@ async function handleCodexProvider(
       },
     );
 
-    // Aborted mid-turn (Stop): no `result` arrived — save whatever we have.
-    // `generation_stopped` was already sent by abortSession, so no `result`.
-    if (!persisted && signal?.aborted) persist();
+    // Save whatever we have if the SDK exits without an explicit result.
+    // On Stop, `generation_stopped` was already sent by abortSession.
+    persist();
   } catch (error) {
     console.error('❌ Codex provider error:', error);
     persist(); // keep any partial work produced before the failure
@@ -498,6 +508,7 @@ async function handleCodexProvider(
     }));
   } finally {
     // Tear down the in-memory stream; next turn resumes via resumeThread.
+    sessionStreamManager.setIdle(sessionId);
     sessionStreamManager.cleanupSession(sessionId, 'codex_done');
   }
 }
