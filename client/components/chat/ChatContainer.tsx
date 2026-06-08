@@ -110,8 +110,17 @@ export function ChatContainer() {
   const artifactPanelOpen = useArtifactPanel(s => s.isOpen);
   const artifactPanelMaximized = useArtifactPanel(s => s.isMaximized);
   const artifactPanelWidth = useArtifactPanel(s => s.width);
+  const artifactsMap = useArtifactPanel(s => s.artifacts);
   const setArtifactPanelWidth = useArtifactPanel(s => s.setWidth);
   const toggleArtifactPanel = useArtifactPanel(s => s.toggle);
+  const closeArtifactPanel = useArtifactPanel(s => s.close);
+  const listArtifactsForSession = useArtifactPanel(s => s.listForSession);
+  const visibleArtifactCount = useMemo(
+    () => listArtifactsForSession(currentSessionId).length,
+    [artifactsMap, currentSessionId, listArtifactsForSession],
+  );
+  const shouldShowArtifactPanel = artifactPanelOpen && visibleArtifactCount > 0;
+  const shouldMaximizeArtifactPanel = shouldShowArtifactPanel && artifactPanelMaximized;
 
   const scrollContainerRef = useRef<HTMLDivElement>(null) as React.RefObject<HTMLDivElement>;
   const activeLongRunningCommandRef = useRef<string | null>(null);
@@ -280,6 +289,7 @@ export function ChatContainer() {
     setInputValue('');
     setSelectedRepo(null);
     setSelectedDirectory(null);
+    closeArtifactPanel();
   };
 
   // --- Chat deletion with cache + map cleanup ---
@@ -287,6 +297,7 @@ export function ChatContainer() {
     clearCache(chatId);
     if (chatId === currentSessionId) {
       setMessages([]);
+      closeArtifactPanel();
     }
     await baseHandleChatDelete(chatId);
   };
@@ -599,7 +610,7 @@ export function ChatContainer() {
       />
 
       <div className="flex flex-row flex-1 h-screen min-w-0" style={{ marginLeft: isSidebarOpen ? '260px' : '0', transition: 'margin-left 0.2s ease-in-out' }}>
-        {!artifactPanelMaximized && (
+        {!shouldMaximizeArtifactPanel && (
         <div className="flex flex-col flex-1 min-w-0 h-screen">
         <ChatHeader
           isSidebarOpen={isSidebarOpen}
@@ -698,9 +709,9 @@ export function ChatContainer() {
         </div>
         )}
 
-        {artifactPanelOpen && (
+        {shouldShowArtifactPanel && (
           <>
-            {!artifactPanelMaximized && (
+            {!shouldMaximizeArtifactPanel && (
               <ResizableDivider
                 width={artifactPanelWidth}
                 onResize={setArtifactPanelWidth}
@@ -708,7 +719,7 @@ export function ChatContainer() {
             )}
             <div
               className="h-screen shrink-0"
-              style={{ width: artifactPanelMaximized ? '100%' : `${artifactPanelWidth}px` }}
+              style={{ width: shouldMaximizeArtifactPanel ? '100%' : `${artifactPanelWidth}px` }}
             >
               <ArtifactPanel sessionId={currentSessionId} />
             </div>

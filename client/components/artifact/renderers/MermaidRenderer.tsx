@@ -10,6 +10,7 @@
 
 import React, { memo, useEffect, useRef } from 'react';
 import mermaid from 'mermaid';
+import { ZoomableViewport } from '../ZoomableViewport';
 
 let initialised = false;
 function ensureInit(): void {
@@ -63,9 +64,9 @@ export const MermaidRenderer = memo(function MermaidRenderer({ content, isStream
   }, [content, isStreaming]);
 
   return (
-    <div className="w-full h-full overflow-auto p-6 bg-black/20 rounded-b-lg">
-      <div ref={ref} className="w-full h-full flex items-center justify-center [&_svg]:max-w-full" />
-    </div>
+    <ZoomableViewport contentClassName="[&_svg]:max-w-full [&_svg]:h-auto [&_svg]:overflow-visible">
+      <div ref={ref} className="flex min-h-40 min-w-40 items-center justify-center" />
+    </ZoomableViewport>
   );
 });
 

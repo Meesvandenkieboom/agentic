@@ -10,6 +10,7 @@
 
 import React, { memo, useMemo } from 'react';
 import DOMPurify from 'isomorphic-dompurify';
+import { ZoomableViewport } from '../ZoomableViewport';
 
 interface SvgRendererProps {
   content: string;
@@ -27,11 +28,10 @@ export const SvgRenderer = memo(function SvgRenderer({ content }: SvgRendererPro
   }, [content]);
 
   return (
-    <div className="w-full h-full overflow-auto bg-[#111] rounded-b-lg p-6 flex items-center justify-center">
+    <ZoomableViewport contentClassName="max-w-none [&>svg]:max-w-full [&>svg]:max-h-[70vh] [&>svg]:h-auto [&>svg]:w-auto">
       <div
-        className="max-w-full max-h-full [&>svg]:max-w-full [&>svg]:max-h-full [&>svg]:h-auto [&>svg]:w-auto"
         dangerouslySetInnerHTML={{ __html: safeSvg }}
       />
-    </div>
+    </ZoomableViewport>
   );
 });

@@ -65,7 +65,7 @@ interface ArtifactPanelState {
   setMaximized: (v: boolean) => void;
   setWidth: (width: number) => void;
 
-  /** Return ordered list of artifacts for a given session (or all) */
+  /** Return ordered list of artifacts for a given session. */
   listForSession: (sessionId: string | null) => Artifact[];
 }
 
@@ -174,10 +174,9 @@ export const useArtifactPanel = create<ArtifactPanelState>((set, get) => ({
   },
 
   listForSession: (sessionId) => {
+    if (!sessionId) return [];
     const all = Array.from(get().artifacts.values());
-    const filtered = sessionId
-      ? all.filter(a => a.sessionId === sessionId || a.sessionId == null)
-      : all;
+    const filtered = all.filter(a => a.sessionId === sessionId);
     return filtered.sort((a, b) => a.createdAt - b.createdAt);
   },
 }));

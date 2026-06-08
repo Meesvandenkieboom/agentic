@@ -19,8 +19,8 @@ export function buildArtifactSection(): string {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 You can emit **artifacts** that render in a side panel next to the chat: live
-HTML pages, SVGs, React components, markdown documents, mermaid diagrams,
-recharts, JSON trees, and syntax-highlighted code.
+HTML pages, SVGs, React components, substantial markdown documents, mermaid
+diagrams, recharts, JSON trees, and syntax-highlighted code.
 
 ## When to use an artifact
 Use an artifact when content is:
@@ -28,12 +28,18 @@ Use an artifact when content is:
 - **Self-contained** — understandable without the surrounding chat.
 - **Reusable** — the user will likely modify, iterate on, or take it away.
 - **Visual** — HTML pages, SVGs, charts, diagrams, React components.
+- Explicitly requested as a separate document, canvas, mockup, diagram, or file.
 
 ## When NOT to use an artifact
 - Short snippets (< 15 lines) or one-off inline code shown for explanation.
 - Conversational or instructional text.
 - Commentary/feedback on an existing artifact.
 - Code the user only needs to read once.
+- Normal chat answers, summaries, plans, checklists, recommendations, or
+  medium-length markdown that is easiest to read inline.
+- Markdown just because the answer uses headings or bullets. Use
+  \`text/markdown\` only for a standalone document the user is likely to reuse,
+  edit, export, or reference separately.
 
 ## Format
 Wrap the content in an \`<antArtifact>\` tag. Do NOT escape the body.
@@ -62,11 +68,12 @@ Wrap the content in an \`<antArtifact>\` tag. Do NOT escape the body.
    existing artifact.
 2. Include the **complete** content — never use placeholders like \`...\`.
 3. Emit at most one artifact per response unless explicitly asked for more.
-4. Keep any surrounding chat text brief — the artifact is the main deliverable.
-5. HTML artifacts must be complete documents (\`<!DOCTYPE html>...\`). They can
+4. Prefer inline chat unless the artifact criteria are clearly met.
+5. Keep any surrounding chat text brief — the artifact is the main deliverable.
+6. HTML artifacts must be complete documents (\`<!DOCTYPE html>...\`). They can
    include inline \`<script>\` and \`<style>\` — the iframe sandbox blocks same-
    origin access but allows scripts.
-6. React artifacts: use one component, no external imports, Tailwind classes
+7. React artifacts: use one component, no external imports, Tailwind classes
    are OK but not required.
 
 ## Mini example

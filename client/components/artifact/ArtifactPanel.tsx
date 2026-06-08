@@ -10,6 +10,7 @@
  */
 
 import React, { memo, useCallback, useEffect, useMemo } from 'react';
+import { Copy, Download, Maximize2, Minimize2, X } from 'lucide-react';
 import { useArtifactPanel } from '../../hooks/useArtifactPanel';
 import { ArtifactTabs } from './ArtifactTabs';
 import { ArtifactRenderer } from './ArtifactRenderer';
@@ -17,7 +18,7 @@ import { ARTIFACT_TYPE_LABEL, fileExtensionFor, type Artifact } from './types';
 import { toast } from '../../utils/toast';
 
 interface ArtifactPanelProps {
-  /** Session scope for tabs. Null means "show all". */
+  /** Session scope for tabs. Null means no artifact is selected. */
   sessionId: string | null;
 }
 
@@ -99,7 +100,11 @@ export const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: Artifact
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, artifacts, active, close, setActive]);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (isOpen && artifacts.length === 0) close();
+  }, [artifacts.length, close, isOpen]);
+
+  if (!isOpen || artifacts.length === 0) return null;
 
   return (
     <div
@@ -128,43 +133,23 @@ export const ArtifactPanel = memo(function ArtifactPanel({ sessionId }: Artifact
         {/* Actions */}
         <div className="flex items-center gap-1">
           <IconButton onClick={handleCopy} title="Copy content" disabled={!active}>
-            <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
+            <Copy className="size-4" />
           </IconButton>
           <IconButton onClick={handleDownload} title="Download" disabled={!active}>
-            <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
+            <Download className="size-4" />
           </IconButton>
           <IconButton
             onClick={() => setMaximized(!isMaximized)}
             title={isMaximized ? 'Restore' : 'Maximize'}
           >
             {isMaximized ? (
-              <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="4 14 10 14 10 20" />
-                <polyline points="20 10 14 10 14 4" />
-                <line x1="14" y1="10" x2="21" y2="3" />
-                <line x1="3" y1="21" x2="10" y2="14" />
-              </svg>
+              <Minimize2 className="size-4" />
             ) : (
-              <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="15 3 21 3 21 9" />
-                <polyline points="9 21 3 21 3 15" />
-                <line x1="21" y1="3" x2="14" y2="10" />
-                <line x1="3" y1="21" x2="10" y2="14" />
-              </svg>
+              <Maximize2 className="size-4" />
             )}
           </IconButton>
           <IconButton onClick={close} title="Close panel (Esc)">
-            <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <X className="size-4" />
           </IconButton>
         </div>
       </div>
