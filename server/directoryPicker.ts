@@ -105,7 +105,7 @@ export function openDirectoryPicker(): Promise<string | null> {
               const drive = dirPath[0].toLowerCase();
               const pathPart = dirPath.slice(3).replace(/\\/g, '/');
               dirPath = `/mnt/${drive}/${pathPart}`;
-            } else if (dirPath.match(/^\\\\wsl[\$\\]/i)) {
+            } else if (dirPath.match(/^\\\\wsl[$\\]/i)) {
               // WSL network path: \\wsl$\Ubuntu\home\user\... → /home/user/...
               // or \\wsl.localhost\Ubuntu\home\user\... → /home/user/...
               const parts = dirPath.replace(/\\\\/g, '').replace(/\\/g, '/').split('/');
