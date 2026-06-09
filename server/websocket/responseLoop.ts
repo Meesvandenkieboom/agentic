@@ -95,6 +95,9 @@ export function startResponseLoop(
     let currentMessageId: string | null = null;
     let exitPlanModeSentThisTurn = false;
     let toolUseCount = 0;
+    // Tracks the last model the API reported serving, so we log model
+    // verification once per change instead of on every assistant message.
+    let lastServedModel: string | null = null;
     // Tracks whether stream_event messages have been received for the current
     // model response. The SDK falls back to non-streaming on transient API
     // errors (e.g. max_tokens > 128000), in which case text/thinking blocks
@@ -194,6 +197,24 @@ export function startResponseLoop(
 
         // Handle assistant messages (tool use blocks, content)
         if (message.type === 'assistant') {
+          // Model verification: the API stamps every assistant message with
+          // the model that actually generated it. Log it so the served model
+          // is never silent — and warn loudly if it differs from what we
+          // requested. Sub-agent messages are skipped (they legitimately run
+          // on different models, e.g. sonnet workers).
+          const isSubagentMessage = Boolean(
+            (message as { parent_tool_use_id?: string | null }).parent_tool_use_id
+          );
+          const servedModel = (message.message as { model?: string } | undefined)?.model;
+          if (!isSubagentMessage && servedModel && servedModel !== lastServedModel) {
+            lastServedModel = servedModel;
+            if (servedModel === apiModelId) {
+              console.log(`🤖 Model verified: API served ${servedModel} (as requested)`);
+            } else {
+              console.warn(`⚠️ MODEL MISMATCH: requested ${apiModelId}, API served ${servedModel}`);
+            }
+          }
+
           const assistantResult = handleAssistantMessage(
             message, sessionId, artifactParser, receivedStreamEvent,
             currentMessageContent, currentMessageId,

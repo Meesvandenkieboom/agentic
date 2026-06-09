@@ -57,10 +57,17 @@ function processModelUsage(
 ): void {
   let usage = modelUsage[apiModelId];
 
-  // Fallback: If model ID doesn't match, use first available
+  // Fallback: If model ID doesn't match, use first available — but never
+  // silently. A mismatch here means the API billed a different model than
+  // the one we requested (or sub-agents dominated usage), so make it loud.
   if (!usage && Object.keys(modelUsage).length > 0) {
-    const firstModelId = Object.keys(modelUsage)[0];
-    usage = modelUsage[firstModelId];
+    const reportedModels = Object.keys(modelUsage);
+    console.warn(
+      `⚠️ MODEL MISMATCH in usage report: requested ${apiModelId}, ` +
+      `API reported usage for: ${reportedModels.join(', ')} — ` +
+      `using ${reportedModels[0]} for context tracking`
+    );
+    usage = modelUsage[reportedModels[0]];
   }
 
   if (!usage) {
