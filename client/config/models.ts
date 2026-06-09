@@ -48,6 +48,13 @@ export interface ModelConfig {
  */
 export const AVAILABLE_MODELS: ModelConfig[] = [
   {
+    id: 'fable-5',
+    name: 'Claude Fable 5',
+    description: 'Newest Claude model — just launched, built for advanced reasoning and coding',
+    apiModelId: 'claude-fable-5',
+    provider: 'anthropic',
+  },
+  {
     id: 'opus-4-8',
     name: 'Claude Opus 4.8',
     description: 'Latest and most capable Opus model for advanced reasoning and coding',
