@@ -330,23 +330,23 @@ export function MCPServersTab() {
     const conn = getConnectionForServer(server.id);
 
     if (conn?.status === 'connected') {
-      return <CheckCircle2 size={16} className="text-green-400" title={`Connected - ${conn.tools?.length || 0} tools`} />;
+      return <span title={`Connected - ${conn.tools?.length || 0} tools`}><CheckCircle2 size={16} className="text-green-400" /></span>;
     }
     if (conn?.status === 'connecting') {
-      return <Loader2 size={16} className="text-blue-400 animate-spin" title="Connecting..." />;
+      return <span title="Connecting..."><Loader2 size={16} className="text-blue-400 animate-spin" /></span>;
     }
     if (conn?.status === 'error') {
-      return <XCircle size={16} className="text-red-400" title={conn.error || 'Connection error'} />;
+      return <span title={conn.error || 'Connection error'}><XCircle size={16} className="text-red-400" /></span>;
     }
 
     // Fallback to server status
     switch (server.status) {
       case 'connected':
-        return <CheckCircle2 size={16} className="text-green-400" title="Connected" />;
+        return <span title="Connected"><CheckCircle2 size={16} className="text-green-400" /></span>;
       case 'needs-auth':
-        return <KeyRound size={16} className="text-amber-400" title="Needs connection" />;
+        return <span title="Needs connection"><KeyRound size={16} className="text-amber-400" /></span>;
       case 'error':
-        return <XCircle size={16} className="text-red-400" title="Connection error" />;
+        return <span title="Connection error"><XCircle size={16} className="text-red-400" /></span>;
       default:
         return null;
     }

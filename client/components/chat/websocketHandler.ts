@@ -4,7 +4,6 @@
  * to the appropriate state updaters (current session or background cache).
  */
 
-import { flushSync } from 'react-dom';
 import type { Message, ArtifactBlock, ArtifactBlockType } from '../message/types';
 import type { BackgroundProcess } from '../process/BackgroundProcessMonitor';
 import { generateMessageId } from '../../hooks/useChatMessages';

@@ -143,7 +143,7 @@ export function useChatMessages() {
   /**
    * Apply a message updater to either current state or background cache
    */
-  const createMessageUpdater = useCallback((activeSessionId: string | null) => {
+  const createMessageUpdater = useCallback((_activeSessionId: string | null) => {
     return {
       updateMsgs: (msgSessionId: string | null, isBackground: boolean, updater: (prev: Message[]) => Message[]) => {
         if (!isBackground) {

@@ -271,7 +271,7 @@ class MCPClientManager {
             }
           }
         }
-      } catch (e) {
+      } catch {
         console.warn(`⚠️ MCP [${id}]: Failed to parse message:`, line.slice(0, 100));
       }
     }

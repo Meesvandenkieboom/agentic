@@ -431,7 +431,7 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
     // Detect OAuth provider
     const serverUrl = serverConfig.type === 'http' ? serverConfig.url : undefined;
     const authProvider = serverConfig.type === 'http' && 'authProvider' in serverConfig
-      ? serverConfig.authProvider
+      ? (serverConfig as { authProvider?: string }).authProvider
       : (serverUrl ? detectAuthProvider(serverUrl) : undefined);
 
     if (!authProvider || !OAUTH_PROVIDERS[authProvider]) {
@@ -658,7 +658,7 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
     }
 
     try {
-      const name = serverConfig.name || id;
+      const name = (serverConfig as { name?: string }).name || id;
       const connection = await mcpClientManager.connect(id, name, mcpUrl);
 
       return new Response(JSON.stringify({

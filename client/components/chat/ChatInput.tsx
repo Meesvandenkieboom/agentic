@@ -56,7 +56,7 @@ interface ChatInputProps {
   onReasoningEffortChange?: (effort: ReasoningEffort) => void;
 }
 
-export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, isCloning, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo, reasoningEffort, onReasoningEffortChange }: ChatInputProps) {
+export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, isCloning, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel: _selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo, reasoningEffort, onReasoningEffortChange }: ChatInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusMenuRef = useRef<HTMLDivElement>(null);

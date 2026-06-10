@@ -23,10 +23,6 @@ interface MCPServersConfig extends ConfigBase {
   nameOverrides: Record<string, string>;
 }
 
-interface AgentsConfig extends ConfigBase {
-  agents: Record<string, unknown>;
-}
-
 interface MigrationResult {
   success: boolean;
   migrated: boolean;
@@ -163,11 +159,11 @@ export async function migrateMCPServersConfig(configPath: string): Promise<Migra
     const backupPath = await backupConfig(configPath);
 
     try {
-      let migrated = config;
+      let migrated: Record<string, unknown> | MCPServersConfig = config;
 
       // Apply migrations in sequence
       if (currentVersion < 1) {
-        migrated = migrateMCPServersV0toV1(migrated);
+        migrated = migrateMCPServersV0toV1(config);
       }
 
       // Write migrated config

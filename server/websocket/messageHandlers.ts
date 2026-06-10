@@ -765,12 +765,15 @@ IMPORTANT: Do not modify files outside the workspace directory.
       // (legacy) thinking. If B+1 > 128000 the API rejects the request and
       // the SDK silently falls back to non-streaming, which our response
       // loop renders as missing text/thinking blocks (only tool calls show).
-      // Adaptive-thinking models (Opus 4.7+, including 4.8) get capped via
+      // Adaptive-thinking models (Opus 4.7+, Fable 5, Mythos) get capped via
       // the SDK patch in scripts/patch-sdk-reminders.mjs
       // (`opus-4-8-max-tokens-cap`).
       // Here we cap legacy/non-adaptive models so max_tokens stays under
       // the 128000 ceiling. Mirrors the regex used by the adaptive patch.
-      const isAdaptiveThinking = /opus-(?:4-(?:[7-9]|\d{2,})|[5-9])/.test(apiModelId);
+      // NOTE: Fable 5 / Mythos 5 REQUIRE adaptive thinking — manual
+      // {type:"enabled",budget_tokens:N} is rejected with a 400, so they
+      // must match this regex (and the SDK patch regex) or thinking breaks.
+      const isAdaptiveThinking = /opus-(?:4-(?:[7-9]|\d{2,})|[5-9])|fable-[5-9]|mythos/.test(apiModelId);
       if (!isAdaptiveThinking && thinkingTokens > 127_000) {
         console.log(`⚠️  Capping maxThinkingTokens for ${apiModelId}: ${thinkingTokens} → 127000 (API ceiling)`);
         thinkingTokens = 127_000;

@@ -27,11 +27,13 @@
  *      scaffolding (new test files, new components). The principle version
  *      still discourages clutter without creating binary refusals.
  *
- *   5. Opus 4.8+ empty thinking fix. Starting with Opus 4.7, Anthropic
- *      changed the thinking API: manual {type:"enabled",budget_tokens:N} is
- *      legacy, and `display` now defaults to "omitted" so the thinking
- *      field streams empty. We swap the SDK's request construction so
- *      models matching /opus-(?:4-[7-9]|[5-9])/ get
+ *   5. Adaptive-thinking empty/rejected thinking fix (Opus 4.7+, Fable 5,
+ *      Mythos). Starting with Opus 4.7, Anthropic changed the thinking API:
+ *      manual {type:"enabled",budget_tokens:N} is legacy (rejected with 400
+ *      on Opus 4.7+/Fable 5/Mythos 5), and `display` now defaults to
+ *      "omitted" so the thinking field streams empty. We swap the SDK's
+ *      request construction so models matching
+ *      /opus-(?:4-(?:[7-9]|\d{2,})|[5-9])|fable-[5-9]|mythos/ get
  *      {type:"adaptive",display:"summarized"} instead, which populates
  *      thinking_delta events again. Older models keep the legacy
  *      enabled+budget_tokens form.
@@ -60,7 +62,7 @@
  * before re-applying so patches stay idempotent even across version bumps.
  */
 
-import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, statSync, chmodSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -74,7 +76,7 @@ const CLI_PATH = resolve(
   'cli.js',
 );
 
-const MARKER = '/* agentic:sdk-patched:v9 */';
+const MARKER = '/* agentic:sdk-patched:v10 */';
 
 function log(msg) {
   console.log(`[patch-sdk-reminders] ${msg}`);
@@ -88,13 +90,32 @@ if (!existsSync(CLI_PATH)) {
 let currentSrc = readFileSync(CLI_PATH, 'utf8');
 
 if (currentSrc.includes(MARKER)) {
-  log('Already patched (v9). Skipping.');
+  log('Already patched (v10). Skipping.');
   process.exit(0);
 }
 
-// Keep a backup next to the original on first install.
+const ANY_MARKER = /\/\* agentic:sdk-patched:(?:v\d+|malware-reminder-removed) \*\//;
+const isPatched = (src) => ANY_MARKER.test(src);
+
+// Keep a backup next to the original on first install — but NEVER back up an
+// already-patched file as "pristine". This can happen when bun's global cache
+// got contaminated by an earlier patch run (bun installs via hardlinks, so an
+// in-place write to node_modules/.../cli.js can poison the shared cache copy)
+// and a fresh install then delivers a pre-patched cli.js.
 const backupPath = `${CLI_PATH}.orig`;
+const backupContaminated = existsSync(backupPath) && isPatched(readFileSync(backupPath, 'utf8'));
+if (backupContaminated) {
+  log('WARNING: cli.js.orig backup is itself patched (contaminated) — deleting it.');
+  unlinkSync(backupPath);
+}
 if (!existsSync(backupPath)) {
+  if (isPatched(currentSrc)) {
+    log('ERROR: installed cli.js is already patched and no pristine backup exists.');
+    log('Cannot recover a pristine source to patch against. Fix with:');
+    log('  bun pm cache rm && bun install --force');
+    log('then re-run this script.');
+    process.exit(1);
+  }
   copyFileSync(CLI_PATH, backupPath);
   log(`Wrote backup to ${backupPath}`);
 }
@@ -102,9 +123,7 @@ if (!existsSync(backupPath)) {
 // If an older patched version is present, restore pristine source first so we
 // can re-apply all patches cleanly instead of trying to patch already-patched
 // text (which would miss the original `find` strings and bail out).
-const hasOlderMarker = /\/\* agentic:sdk-patched:v[1-8] \*\//.test(currentSrc)
-  || currentSrc.includes('/* agentic:sdk-patched:malware-reminder-removed */');
-if (hasOlderMarker) {
+if (isPatched(currentSrc)) {
   log('Detected older patch marker — restoring from .orig before re-applying.');
   currentSrc = readFileSync(backupPath, 'utf8');
 }
@@ -168,16 +187,20 @@ const patches = [
     required: true,
   },
 
-  // ── 5. Opus 4.8+ adaptive thinking (empty-thinking-block fix) ───────────
+  // ── 5. Adaptive thinking for Opus 4.7+ / Fable 5 / Mythos ───────────────
   // Default SDK builds `thinking: {budget_tokens:hA, type:"enabled"}` from the
   // caller's maxThinkingTokens option. On Opus 4.7+ (including 4.8) the API
   // silently drops thinking content unless you opt in with
-  // display:"summarized" on an adaptive block. We branch on the model string
-  // so older models keep their legacy enabled+budget form.
+  // display:"summarized" on an adaptive block. On Fable 5 / Mythos 5,
+  // adaptive thinking is ALWAYS on and manual enabled+budget_tokens is
+  // rejected with a 400 — and display defaults to "omitted", so without
+  // display:"summarized" thinking blocks stream with an empty `thinking`
+  // field. We branch on the model string so older models keep their legacy
+  // enabled+budget form.
   {
     name: 'opus-4-8-adaptive-thinking',
     find: `KA=B>0?{budget_tokens:hA,type:"enabled"}:void 0`,
-    replace: `KA=B>0?(/opus-(?:4-(?:[7-9]|\\d{2,})|[5-9])/.test(String(SA&&SA.model||Y&&Y.model||""))?{type:"adaptive",display:"summarized"}:{budget_tokens:hA,type:"enabled"}):void 0`,
+    replace: `KA=B>0?(/opus-(?:4-(?:[7-9]|\\d{2,})|[5-9])|fable-[5-9]|mythos/.test(String(SA&&SA.model||Y&&Y.model||""))?{type:"adaptive",display:"summarized"}:{budget_tokens:hA,type:"enabled"}):void 0`,
     required: true,
   },
 
@@ -250,6 +273,13 @@ if (misses.length > 0) {
 }
 
 src += `\n${MARKER}\n`;
+
+// Break any hardlink to bun's global cache before writing: bun installs with
+// the hardlink backend by default, so an in-place write would also rewrite the
+// shared cache copy and contaminate every future install on this machine.
+const { mode } = statSync(CLI_PATH);
+unlinkSync(CLI_PATH);
 writeFileSync(CLI_PATH, src);
+chmodSync(CLI_PATH, mode);
 log('');
 log(`Applied ${appliedCount}/${patches.length} patch(es). Done.`);

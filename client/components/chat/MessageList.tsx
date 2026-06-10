@@ -284,7 +284,7 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
       const lowerQuery = searchQuery.toLowerCase();
 
       // Walk each rendered message element individually (preserves message boundaries)
-      const messageEls = container.querySelectorAll<HTMLElement>('[data-message-id]');
+      const messageEls = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'));
       for (const msgEl of messageEls) {
         const msgId = msgEl.getAttribute('data-message-id')!;
         const msgRanges: Range[] = [];

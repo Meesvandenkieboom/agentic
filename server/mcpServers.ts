@@ -72,7 +72,7 @@ async function loadMcpConfig(): Promise<McpServersConfig> {
 /**
  * Load header overrides from config file
  */
-async function loadHeaderOverrides(): Promise<Record<string, Record<string, string>>> {
+async function _loadHeaderOverrides(): Promise<Record<string, Record<string, string>>> {
   const config = await loadMcpConfig();
   return config.headerOverrides;
 }

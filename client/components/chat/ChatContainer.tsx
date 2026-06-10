@@ -57,7 +57,7 @@ export function ChatContainer() {
   const {
     sessions, setSessions, currentSessionId, setCurrentSessionId, currentSessionIdRef,
     currentSessionMode, setCurrentSessionMode,
-    availableCommands, setAvailableCommands,
+    availableCommands, setAvailableCommands: _setAvailableCommands,
     contextUsage, setContextUsage,
     backgroundProcesses, setBackgroundProcesses,
     isPlanMode, setIsPlanMode,
