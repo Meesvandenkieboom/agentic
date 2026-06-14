@@ -23,6 +23,7 @@ import type { AgentDefinition } from './agents';
 import type { UserConfig } from './userConfig';
 import { getUserDisplayName } from './userConfig';
 import { buildArtifactSection } from './artifacts/systemPromptSection';
+import { loadModePrompt } from './modes';
 
 /**
  * Format current date and time for the given timezone (compact version)
@@ -54,6 +55,17 @@ function formatCurrentDateTime(timezone?: string): string {
  */
 function buildModePrompt(mode: string, userConfig?: UserConfig): string {
   const userName = userConfig ? getUserDisplayName(userConfig) : null;
+
+  // General mode sources its full system prompt from server/modes/general.txt
+  // (the Claude Fable 5 system prompt). The file is the single source of truth,
+  // so the prompt can be edited without touching code. Falls back to the
+  // hardcoded personality below if the file is missing or empty.
+  if (mode === 'general') {
+    const filePrompt = loadModePrompt('general');
+    if (filePrompt.trim().length > 0) {
+      return filePrompt;
+    }
+  }
 
   // Mode-specific personalities
   const modePrompts: Record<string, string> = {
