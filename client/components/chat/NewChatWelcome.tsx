@@ -28,9 +28,8 @@ import { GitHubRepoSelector } from './GitHubRepoSelector';
 import { ReasoningEffortSelector, type ReasoningEffort } from './ReasoningEffortSelector';
 
 interface NewChatWelcomeProps {
-  inputValue: string;
-  onInputChange: (value: string) => void;
-  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive') => void;
+  /** Returns true if the message was sent, so the input can clear its draft. */
+  onSubmit: (text: string, files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive') => Promise<boolean> | boolean;
   onStop?: () => void;
   disabled?: boolean;
   isGenerating?: boolean;
@@ -58,7 +57,8 @@ const CAPABILITIES = [
   "I can analyze data and files"
 ];
 
-export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, disabled, isGenerating, isCloning, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard: _onOpenBuildWizard, mode, onRepoSelected, selectedRepo, selectedModel: _selectedModel, onDirectorySelected, selectedDirectory, reasoningEffort, onReasoningEffortChange }: NewChatWelcomeProps) {
+export function NewChatWelcome({ onSubmit, onStop, disabled, isGenerating, isCloning, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard: _onOpenBuildWizard, mode, onRepoSelected, selectedRepo, selectedModel: _selectedModel, onDirectorySelected, selectedDirectory, reasoningEffort, onReasoningEffortChange }: NewChatWelcomeProps) {
+  const [inputValue, setInputValue] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusMenuRef = useRef<HTMLDivElement>(null);
@@ -223,7 +223,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
         const selectedCommand = filteredCommands[selectedCommandIndex];
         if (selectedCommand) {
           const commandWithSlash = `/${selectedCommand.name} `;
-          onInputChange(commandWithSlash);
+          setInputValue(commandWithSlash);
           setShowCommandMenu(false);
         }
         return;
@@ -238,14 +238,16 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
     // Normal submit handling
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      onSubmit(attachedFiles.length > 0 ? attachedFiles : undefined, effectiveMode);
-      setAttachedFiles([]);
+      void handleSubmit();
     }
   };
 
-  const handleSubmit = () => {
-    onSubmit(attachedFiles.length > 0 ? attachedFiles : undefined, effectiveMode);
-    setAttachedFiles([]);
+  const handleSubmit = async () => {
+    const sent = await onSubmit(inputValue, attachedFiles.length > 0 ? attachedFiles : undefined, effectiveMode);
+    if (sent) {
+      setInputValue('');
+      setAttachedFiles([]);
+    }
   };
 
   const handleFileClick = () => {
@@ -411,7 +413,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                     key={cmd.name}
                     type="button"
                     onClick={() => {
-                      onInputChange(`/${cmd.name} `);
+                      setInputValue(`/${cmd.name} `);
                       setShowCommandMenu(false);
                       textareaRef.current?.focus();
                     }}
@@ -515,7 +517,7 @@ export function NewChatWelcome({ inputValue, onInputChange, onSubmit, onStop, di
                   id="chat-input"
                   dir="auto"
                   value={inputValue}
-                  onChange={(e) => onInputChange(e.target.value)}
+                  onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
                   onPaste={handlePaste}
                   placeholder="How can I help you today?"

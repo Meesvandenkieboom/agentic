@@ -31,9 +31,8 @@ import { GitHubRepoSelector } from './GitHubRepoSelector';
 import { ReasoningEffortSelector, type ReasoningEffort } from './ReasoningEffortSelector';
 
 interface ChatInputProps {
-  value: string;
-  onChange: (value: string) => void;
-  onSubmit: (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive') => void;
+  /** Returns true if the message was sent, so the input can clear its draft. */
+  onSubmit: (text: string, files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive') => Promise<boolean> | boolean;
   onStop?: () => void;
   disabled?: boolean;
   isGenerating?: boolean;
@@ -56,7 +55,8 @@ interface ChatInputProps {
   onReasoningEffortChange?: (effort: ReasoningEffort) => void;
 }
 
-export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGenerating, isCloning, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel: _selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo, reasoningEffort, onReasoningEffortChange }: ChatInputProps) {
+export function ChatInput({ onSubmit, onStop, disabled, isGenerating, isCloning, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel: _selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo, reasoningEffort, onReasoningEffortChange }: ChatInputProps) {
+  const [value, setValue] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusMenuRef = useRef<HTMLDivElement>(null);
@@ -193,7 +193,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
         const selectedCommand = filteredCommands[selectedCommandIndex];
         if (selectedCommand) {
           const commandWithSlash = `/${selectedCommand.name} `;
-          onChange(commandWithSlash);
+          setValue(commandWithSlash);
           setShowCommandMenu(false);
         }
         return;
@@ -209,17 +209,17 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (value.trim() && !disabled) {
-        onSubmit(attachedFiles.length > 0 ? attachedFiles : undefined, mode);
-        setAttachedFiles([]);
-        // Refocus input after submit
-        setTimeout(() => textareaRef.current?.focus(), 0);
+        void handleSubmit();
       }
     }
   };
 
-  const handleSubmit = () => {
-    onSubmit(attachedFiles.length > 0 ? attachedFiles : undefined, mode);
-    setAttachedFiles([]);
+  const handleSubmit = async () => {
+    const sent = await onSubmit(value, attachedFiles.length > 0 ? attachedFiles : undefined, mode);
+    if (sent) {
+      setValue('');
+      setAttachedFiles([]);
+    }
     // Refocus input after submit
     setTimeout(() => textareaRef.current?.focus(), 0);
   };
@@ -339,7 +339,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
                     e.preventDefault();
                   }}
                   onClick={() => {
-                    onChange(`/${cmd.name} `);
+                    setValue(`/${cmd.name} `);
                     setShowCommandMenu(false);
                     // Textarea maintains focus - no need to refocus
                   }}
@@ -442,7 +442,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
               id="chat-input"
               dir="auto"
               value={value}
-              onChange={(e) => onChange(e.target.value)}
+              onChange={(e) => setValue(e.target.value)}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               placeholder={placeholder || "Send a Message"}
@@ -647,7 +647,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
         <StyleConfigModal
           onComplete={(prompt) => {
             setIsStyleConfigOpen(false);
-            onChange(prompt);
+            setValue(prompt);
             // Focus textarea after modal closes
             setTimeout(() => {
               textareaRef.current?.focus();
@@ -662,7 +662,7 @@ export function ChatInput({ value, onChange, onSubmit, onStop, disabled, isGener
         <FeaturesModal
           onComplete={(prompt) => {
             setIsFeaturesModalOpen(false);
-            onChange(prompt);
+            setValue(prompt);
             // Focus textarea after modal closes
             setTimeout(() => {
               textareaRef.current?.focus();

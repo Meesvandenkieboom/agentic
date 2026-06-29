@@ -74,7 +74,9 @@ export function ChatContainer() {
   } = sessionHook;
 
   // --- Local UI state ---
-  const [inputValue, setInputValue] = useState('');
+  // Prompt text lives inside the input components (ChatInput/NewChatWelcome) so typing
+  // doesn't re-render this container. Bumping this nonce remounts the input to clear a draft.
+  const [newChatNonce, setNewChatNonce] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [liveTokenCount, setLiveTokenCount] = useState(0);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -288,7 +290,7 @@ export function ChatContainer() {
     setCurrentSessionId(null);
     setCurrentSessionMode('general');
     setMessages([]);
-    setInputValue('');
+    setNewChatNonce(n => n + 1);
     setSelectedRepo(null);
     setSelectedDirectory(null);
     closeArtifactPanel();
@@ -422,14 +424,15 @@ export function ChatContainer() {
   };
 
   // --- Submit with double-submit guard ---
-  const handleSubmit = async (files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive', messageOverride?: string) => {
-    const messageText = messageOverride || inputValue;
-    if (!messageText.trim() || !isConnected) return;
+  // Returns true when the message was accepted for sending, so the caller can clear its draft.
+  const handleSubmit = async (text: string, files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive'): Promise<boolean> => {
+    const messageText = text;
+    if (!messageText.trim() || !isConnected) return false;
 
-    if (isSubmittingRef.current) return;
+    if (isSubmittingRef.current) return false;
     if (currentSessionId && isSessionLoading(currentSessionId)) {
       toast.info('This chat is already generating. Wait for it to complete or stop it first.');
-      return;
+      return false;
     }
 
     isSubmittingRef.current = true;
@@ -442,7 +445,7 @@ export function ChatContainer() {
         const newSession = await sessionAPI.createSession(undefined, mode || 'general', selectedRepo?.name, selectedDirectory || undefined, selectedModel);
         if (!newSession) {
           setSessionLoading(tempSessionId, false);
-          return;
+          return false;
         }
         sessionId = newSession.id;
         setCurrentSessionMode(newSession.mode);
@@ -517,12 +520,13 @@ export function ChatContainer() {
         effort: reasoningEffort,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
-      setInputValue('');
+      return true;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       showError('SEND_MESSAGE', errorMsg);
       setSessionLoading(tempSessionId, false);
       if (currentSessionId) setSessionLoading(currentSessionId, false);
+      return false;
     } finally {
       isSubmittingRef.current = false;
     }
@@ -541,7 +545,7 @@ export function ChatContainer() {
     setCurrentSessionId(null);
     setCurrentSessionMode('coder');
     setMessages([]);
-    setTimeout(() => handleSubmit(undefined, 'coder', prompt), 100);
+    setTimeout(() => handleSubmit(prompt, undefined, 'coder'), 100);
   };
 
   // --- Branching ---
@@ -634,9 +638,7 @@ export function ChatContainer() {
 
         {messages.length === 0 ? (
           <NewChatWelcome
-            key={currentSessionId || 'welcome'}
-            inputValue={inputValue}
-            onInputChange={setInputValue}
+            key={currentSessionId || `new-${newChatNonce}`}
             onSubmit={handleSubmit}
             onStop={handleStop}
             disabled={!isConnected || isCloning}
@@ -683,9 +685,7 @@ export function ChatContainer() {
               />
             ) : (
               <ChatInput
-                key={currentSessionId || 'new-chat'}
-                value={inputValue}
-                onChange={setInputValue}
+                key={currentSessionId || `new-${newChatNonce}`}
                 onSubmit={handleSubmit}
                 onStop={handleStop}
                 disabled={!isConnected || isCurrentSessionLoading || isCloning}
