@@ -8,7 +8,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)](https://reactjs.org/)
 [![Bun](https://img.shields.io/badge/Bun-Latest-black?logo=bun)](https://bun.sh/)
-[![Claude](https://img.shields.io/badge/Claude-Sonnet_4.6-8B5CF6)](https://www.anthropic.com/claude)
+[![Claude](https://img.shields.io/badge/Claude-Sonnet_5-8B5CF6)](https://www.anthropic.com/claude)
 
 <img src="agentic.png" alt="Agentic" width="600" />
 
@@ -55,7 +55,7 @@ Agentic is a **desktop-first chat interface** that brings the power of Anthropic
 ## ✨ Features
 
 ### 🤖 Powered by Claude Agent SDK
-- **Claude Sonnet 4.6** - Anthropic's most intelligent model
+- **Claude Sonnet 5** - Anthropic's most intelligent model
 - **Specialized Sub-Agents** - Researcher, code reviewer, debugger, test writer, documenter
 - **Full Tool Access** - Read, write, edit files, search code, run commands
 - **MCP Integration** - Model Context Protocol for extensibility
@@ -179,7 +179,7 @@ The app starts at **http://localhost:3001** and opens automatically in your brow
 
 1. Click **"New Chat"** to create a session
 2. Select a working directory (or use default)
-3. Choose your model (Claude Sonnet 4.6 recommended)
+3. Choose your model (Claude Sonnet 5 recommended)
 4. Start your conversation!
 
 ### 4. Updating
@@ -222,7 +222,7 @@ agentic --update
 ### Model Selection
 
 **Anthropic Models:**
-- **Claude Sonnet 4.6** ⭐ - Best for complex tasks
+- **Claude Sonnet 5** ⭐ - Best for complex tasks
 - Direct API access to latest Claude models
 
 **OpenAI Codex:**

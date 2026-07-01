@@ -549,7 +549,7 @@ function Set-ApiConfiguration {
             Write-Success "Anthropic API key already configured"
             Write-Host ""
             Write-Info "Models available:"
-            Write-ColorMessage "  • " "Green" -NoNewline; Write-Host "Claude Sonnet 4.6, Claude Opus 4.5"
+            Write-ColorMessage "  • " "Green" -NoNewline; Write-Host "Claude Sonnet 5, Claude Opus 4.5"
             Write-ColorMessage "  • " "Green" -NoNewline; Write-Host "OpenAI Codex (via 'bun run login' CLI auth)"
             Write-Host ""
             return
