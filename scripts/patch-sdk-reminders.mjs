@@ -27,13 +27,13 @@
  *      scaffolding (new test files, new components). The principle version
  *      still discourages clutter without creating binary refusals.
  *
- *   5. Adaptive-thinking empty/rejected thinking fix (Opus 4.7+, Fable 5,
- *      Mythos). Starting with Opus 4.7, Anthropic changed the thinking API:
- *      manual {type:"enabled",budget_tokens:N} is legacy (rejected with 400
- *      on Opus 4.7+/Fable 5/Mythos 5), and `display` now defaults to
+ *   5. Adaptive-thinking empty/rejected thinking fix (Opus 4.7+, Sonnet 5,
+ *      Fable 5, Mythos). Starting with Opus 4.7, Anthropic changed the
+ *      thinking API: manual {type:"enabled",budget_tokens:N} is legacy
+ *      (rejected with 400 on newer models), and `display` now defaults to
  *      "omitted" so the thinking field streams empty. We swap the SDK's
  *      request construction so models matching
- *      /opus-(?:4-(?:[7-9]|\d{2,})|[5-9])|fable-[5-9]|mythos/ get
+ *      /opus-(?:4-(?:[7-9]|\d{2,})|[5-9])|sonnet-[5-9]|fable-[5-9]|mythos/ get
  *      {type:"adaptive",display:"summarized"} instead, which populates
  *      thinking_delta events again. Older models keep the legacy
  *      enabled+budget_tokens form.
@@ -76,7 +76,7 @@ const CLI_PATH = resolve(
   'cli.js',
 );
 
-const MARKER = '/* agentic:sdk-patched:v10 */';
+const MARKER = '/* agentic:sdk-patched:v11 */';
 
 function log(msg) {
   console.log(`[patch-sdk-reminders] ${msg}`);
@@ -90,7 +90,7 @@ if (!existsSync(CLI_PATH)) {
 let currentSrc = readFileSync(CLI_PATH, 'utf8');
 
 if (currentSrc.includes(MARKER)) {
-  log('Already patched (v10). Skipping.');
+  log('Already patched (v11). Skipping.');
   process.exit(0);
 }
 
@@ -187,20 +187,20 @@ const patches = [
     required: true,
   },
 
-  // ── 5. Adaptive thinking for Opus 4.7+ / Fable 5 / Mythos ───────────────
+  // ── 5. Adaptive thinking for Opus 4.7+ / Sonnet 5 / Fable 5 / Mythos ─────
   // Default SDK builds `thinking: {budget_tokens:hA, type:"enabled"}` from the
   // caller's maxThinkingTokens option. On Opus 4.7+ (including 4.8) the API
   // silently drops thinking content unless you opt in with
-  // display:"summarized" on an adaptive block. On Fable 5 / Mythos 5,
-  // adaptive thinking is ALWAYS on and manual enabled+budget_tokens is
-  // rejected with a 400 — and display defaults to "omitted", so without
+  // display:"summarized" on an adaptive block. On Sonnet 5 / Fable 5 /
+  // Mythos 5, adaptive thinking is ALWAYS on and manual enabled+budget_tokens
+  // is rejected with a 400 — and display defaults to "omitted", so without
   // display:"summarized" thinking blocks stream with an empty `thinking`
   // field. We branch on the model string so older models keep their legacy
   // enabled+budget form.
   {
     name: 'opus-4-8-adaptive-thinking',
     find: `KA=B>0?{budget_tokens:hA,type:"enabled"}:void 0`,
-    replace: `KA=B>0?(/opus-(?:4-(?:[7-9]|\\d{2,})|[5-9])|fable-[5-9]|mythos/.test(String(SA&&SA.model||Y&&Y.model||""))?{type:"adaptive",display:"summarized"}:{budget_tokens:hA,type:"enabled"}):void 0`,
+    replace: `KA=B>0?(/opus-(?:4-(?:[7-9]|\\d{2,})|[5-9])|sonnet-[5-9]|fable-[5-9]|mythos/.test(String(SA&&SA.model||Y&&Y.model||""))?{type:"adaptive",display:"summarized"}:{budget_tokens:hA,type:"enabled"}):void 0`,
     required: true,
   },
 

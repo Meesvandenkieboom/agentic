@@ -87,41 +87,6 @@ export async function handleSessionRoutes(
     });
   }
 
-  // PATCH /api/sessions/:id - Rename session folder
-  if (url.pathname.match(/^\/api\/sessions\/[^/]+$/) && req.method === 'PATCH') {
-    const sessionId = url.pathname.split('/').pop()!;
-    const body = await req.json() as { folderName: string };
-
-    console.log('📝 API: Rename folder request:', {
-      sessionId,
-      folderName: body.folderName
-    });
-
-    const result = sessionDb.renameFolderAndSession(sessionId, body.folderName);
-
-    if (result.success) {
-      const session = sessionDb.getSession(sessionId);
-
-      // Clear SDK session ID to prevent resume with old directory path in transcripts
-      sessionDb.updateSdkSessionId(sessionId, null);
-
-      // Cleanup SDK stream to force respawn with new cwd on next message
-      sessionStreamManager.cleanupSession(sessionId, 'folder_renamed');
-      activeQueries.delete(sessionId);
-
-      console.log(`🔄 SDK subprocess will restart with new folder path on next message (no resume)`);
-
-      return new Response(JSON.stringify({ success: true, session }), {
-        headers: { 'Content-Type': 'application/json' },
-      });
-    } else {
-      return new Response(JSON.stringify({ success: false, error: result.error }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-  }
-
   // GET /api/sessions/:id/messages - Get session messages
   if (url.pathname.match(/^\/api\/sessions\/[^/]+\/messages$/) && req.method === 'GET') {
     const sessionId = url.pathname.split('/')[3];

@@ -180,41 +180,7 @@ export function useSessionAPI() {
   }, []);
 
   /**
-   * Rename a session folder (and title)
-   */
-  const renameSession = useCallback(async (sessionId: string, newFolderName: string): Promise<{ success: boolean; error?: string }> => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(`${API_BASE}/sessions/${sessionId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ folderName: newFolderName }),
-      });
-
-      const result = await response.json() as { success: boolean; error?: string; session?: Session };
-
-      if (!response.ok || !result.success) {
-        const errorMsg = result.error || `HTTP error! status: ${response.status}`;
-        setError(errorMsg);
-        return { success: false, error: errorMsg };
-      }
-
-      return { success: true };
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to rename session';
-      setError(errorMsg);
-      return { success: false, error: errorMsg };
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  /**
-   * Rename a session title (display name only, no folder change)
+   * Rename a session title (display name only, never touches the directory)
    */
   const renameSessionTitle = useCallback(async (sessionId: string, title: string): Promise<{ success: boolean; error?: string }> => {
     try {
@@ -375,7 +341,6 @@ export function useSessionAPI() {
     fetchSessionMessages,
     createSession,
     deleteSession,
-    renameSession,
     renameSessionTitle,
     updateWorkingDirectory,
     validateDirectory,
