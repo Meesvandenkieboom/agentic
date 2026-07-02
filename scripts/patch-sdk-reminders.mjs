@@ -32,8 +32,8 @@
  *      thinking API: manual {type:"enabled",budget_tokens:N} is legacy
  *      (rejected with 400 on newer models), and `display` now defaults to
  *      "omitted" so the thinking field streams empty. We swap the SDK's
- *      request construction so models matching
- *      /opus-(?:4-(?:[7-9]|\d{2,})|[5-9])|sonnet-[5-9]|fable-[5-9]|mythos/ get
+ *      request construction so models matching the shared regex in
+ *      shared/adaptiveThinkingModels.mjs get
  *      {type:"adaptive",display:"summarized"} instead, which populates
  *      thinking_delta events again. Older models keep the legacy
  *      enabled+budget_tokens form.
@@ -65,6 +65,7 @@
 import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, statSync, chmodSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ADAPTIVE_THINKING_MODEL_REGEX_SOURCE } from '../shared/adaptiveThinkingModels.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = resolve(
@@ -195,12 +196,13 @@ const patches = [
   // Mythos 5, adaptive thinking is ALWAYS on and manual enabled+budget_tokens
   // is rejected with a 400 — and display defaults to "omitted", so without
   // display:"summarized" thinking blocks stream with an empty `thinking`
-  // field. We branch on the model string so older models keep their legacy
+  // field. We branch on the model string (shared regex, see
+  // shared/adaptiveThinkingModels.mjs) so older models keep their legacy
   // enabled+budget form.
   {
     name: 'opus-4-8-adaptive-thinking',
     find: `KA=B>0?{budget_tokens:hA,type:"enabled"}:void 0`,
-    replace: `KA=B>0?(/opus-(?:4-(?:[7-9]|\\d{2,})|[5-9])|sonnet-[5-9]|fable-[5-9]|mythos/.test(String(SA&&SA.model||Y&&Y.model||""))?{type:"adaptive",display:"summarized"}:{budget_tokens:hA,type:"enabled"}):void 0`,
+    replace: `KA=B>0?(/${ADAPTIVE_THINKING_MODEL_REGEX_SOURCE}/.test(String(SA&&SA.model||Y&&Y.model||""))?{type:"adaptive",display:"summarized"}:{budget_tokens:hA,type:"enabled"}):void 0`,
     required: true,
   },
 

@@ -28,6 +28,7 @@
     "client/**/*.ts",
     "client/**/*.tsx",
     "server/**/*.ts",
+    "shared/**/*.ts",
     "build-css.ts",
     "cli.ts",
     "setup.ts"

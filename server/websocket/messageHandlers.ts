@@ -41,6 +41,7 @@ import {
   handleStopGeneration,
 } from "./controlHandlers";
 import { normalizeModelId } from "../../client/config/models";
+import { isAdaptiveThinkingModel } from "../../shared/adaptiveThinkingModels.mjs";
 
 // ───────────────────────────────────────────────
 // Main message router
@@ -769,12 +770,9 @@ IMPORTANT: Do not modify files outside the workspace directory.
       // capped via the SDK patch in scripts/patch-sdk-reminders.mjs
       // (`opus-4-8-max-tokens-cap`).
       // Here we cap legacy/non-adaptive models so max_tokens stays under
-      // the 128000 ceiling. Mirrors the regex used by the adaptive patch.
-      // NOTE: Sonnet 5 / Fable 5 / Mythos 5 REQUIRE adaptive thinking —
-      // manual {type:"enabled",budget_tokens:N} is rejected with a 400, so
-      // they must match this regex (and the SDK patch regex) or thinking
-      // blocks stream empty.
-      const isAdaptiveThinking = /opus-(?:4-(?:[7-9]|\d{2,})|[5-9])|sonnet-[5-9]|fable-[5-9]|mythos/.test(apiModelId);
+      // the 128000 ceiling. Uses the same shared regex the SDK patch embeds
+      // (shared/adaptiveThinkingModels.mjs) so the two can't drift.
+      const isAdaptiveThinking = isAdaptiveThinkingModel(apiModelId);
       if (!isAdaptiveThinking && thinkingTokens > 127_000) {
         console.log(`⚠️  Capping maxThinkingTokens for ${apiModelId}: ${thinkingTokens} → 127000 (API ceiling)`);
         thinkingTokens = 127_000;
