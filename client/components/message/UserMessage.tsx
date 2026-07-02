@@ -19,9 +19,11 @@
  */
 
 import React, { useState } from 'react';
+import { GitBranch } from 'lucide-react';
 import { UserMessage as UserMessageType, UserToolResultMessage } from './types';
 import { showError } from '../../utils/errorMessages';
 import { CommandTextRenderer } from './CommandTextRenderer';
+import { dispatchBranchFromMessage } from '../../utils/branchEvents';
 
 interface UserMessageProps {
   message: UserMessageType | UserToolResultMessage;
@@ -176,6 +178,14 @@ export function UserMessage({ message }: UserMessageProps) {
                       <path strokeLinejoin="round" d="M12.0703 4.87476H2.92969C2.3472 4.87476 1.875 5.34696 1.875 5.92944V15.0701C1.875 15.6526 2.3472 16.1248 2.92969 16.1248H12.0703C12.6528 16.1248 13.125 15.6526 13.125 15.0701V5.92944C13.125 5.34696 12.6528 4.87476 12.0703 4.87476Z" />
                     </svg>
                   )}
+                </button>
+                <button
+                  onClick={() => dispatchBranchFromMessage(message.id)}
+                  className="message-action-btn message-action-btn-hidden"
+                  aria-label="Branch from here"
+                  title="Branch chat from here"
+                >
+                  <GitBranch className="size-4" strokeWidth={1.5} />
                 </button>
               </div>
             </div>

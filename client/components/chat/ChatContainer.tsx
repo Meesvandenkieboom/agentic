@@ -39,6 +39,8 @@ import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
 import { handleWebSocketMessage } from './websocketHandler';
 import { QUESTION_ANSWER_EVENT, type QuestionAnswerDetail } from '../../utils/questionEvents';
+import { BRANCH_MESSAGE_EVENT, type BranchMessageDetail } from '../../utils/branchEvents';
+import { resolveBranchPointId } from '../../utils/branchPoint';
 import { QuestionInput, type PendingQuestionData } from '../question/QuestionInput';
 import { dispatchQuestionAnswer } from '../../utils/questionEvents';
 import type { ReasoningEffort } from './ReasoningEffortSelector';
@@ -104,6 +106,8 @@ export function ChatContainer() {
   const [isCloning, setIsCloning] = useState(false);
   const [branchDialogOpen, setBranchDialogOpen] = useState(false);
   const [branchingSessionId, setBranchingSessionId] = useState<string | null>(null);
+  // Set when branching from a specific message (per-message button); null = branch whole chat
+  const [branchFromMessage, setBranchFromMessage] = useState<{ id: string; index: number; preview: string } | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchFocusKey, setSearchFocusKey] = useState(0);
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestionData | null>(null);
@@ -550,9 +554,33 @@ export function ChatContainer() {
 
   // --- Branching ---
   const handleChatBranch = (chatId: string) => {
+    setBranchFromMessage(null);
     setBranchingSessionId(chatId);
     setBranchDialogOpen(true);
   };
+
+  // Per-message "branch from here" buttons dispatch this event
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { messageId } = (e as CustomEvent<BranchMessageDetail>).detail;
+      if (!currentSessionId) return;
+      const index = messages.findIndex(m => m.id === messageId);
+      if (index === -1) return;
+      const msg = messages[index];
+      let preview = '';
+      if (typeof msg.content === 'string') {
+        preview = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        const textBlock = msg.content.find(b => b.type === 'text');
+        preview = textBlock && 'text' in textBlock ? textBlock.text : '';
+      }
+      setBranchFromMessage({ id: messageId, index, preview });
+      setBranchingSessionId(currentSessionId);
+      setBranchDialogOpen(true);
+    };
+    window.addEventListener(BRANCH_MESSAGE_EVENT, handler);
+    return () => window.removeEventListener(BRANCH_MESSAGE_EVENT, handler);
+  }, [currentSessionId, messages]);
 
   const handleBranchConfirm = async (config: { model?: string; title?: string }) => {
     if (!branchingSessionId) return;
@@ -561,9 +589,20 @@ export function ChatContainer() {
       toast.error('Cannot branch empty chat', { description: 'Add some messages first before branching.' });
       return;
     }
-    const lastMessage = sessionMessages[sessionMessages.length - 1];
+    // Default (sidebar branch): branch from the last message.
+    // Per-message branch: resolve the clicked message to its DB row, since
+    // messages sent live in this tab have local IDs that don't exist in the DB.
+    let branchPointId = sessionMessages[sessionMessages.length - 1].id;
+    if (branchFromMessage) {
+      const resolved = resolveBranchPointId(messages, sessionMessages, branchFromMessage.id);
+      if (!resolved) {
+        toast.error('Could not locate message', { description: 'Try branching from a different message.' });
+        return;
+      }
+      branchPointId = resolved;
+    }
     const branchedSession = await createBranch(branchingSessionId, {
-      messageId: lastMessage.id,
+      messageId: branchPointId,
       model: config.model,
       title: config.title,
     });
@@ -572,6 +611,7 @@ export function ChatContainer() {
       handleSessionSelect(branchedSession.id);
       setBranchDialogOpen(false);
       setBranchingSessionId(null);
+      setBranchFromMessage(null);
     }
   };
 
@@ -745,11 +785,13 @@ export function ChatContainer() {
       {branchDialogOpen && branchingSessionId && (
         <BranchDialog
           isOpen={branchDialogOpen}
-          onClose={() => { setBranchDialogOpen(false); setBranchingSessionId(null); }}
+          onClose={() => { setBranchDialogOpen(false); setBranchingSessionId(null); setBranchFromMessage(null); }}
           onConfirm={handleBranchConfirm}
           parentSessionTitle={
             sessions.find(s => s.id === branchingSessionId)?.title || 'Chat'
           }
+          messagePreview={branchFromMessage?.preview || undefined}
+          messageIndex={branchFromMessage?.index}
           currentModel={normalizeModelId(sessions.find(s => s.id === branchingSessionId)?.model)}
         />
       )}

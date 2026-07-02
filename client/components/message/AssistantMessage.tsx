@@ -31,9 +31,10 @@ import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
 import { MermaidDiagram } from './MermaidDiagram';
 import { ArtifactCard } from './ArtifactCard';
-import { Shield } from 'lucide-react';
+import { Shield, GitBranch } from 'lucide-react';
 import { showError } from '../../utils/errorMessages';
 import { AskUserQuestionComponent } from '../question/AskUserQuestionComponent';
+import { dispatchBranchFromMessage } from '../../utils/branchEvents';
 
 interface AssistantMessageProps {
   message: AssistantMessageType;
@@ -1979,6 +1980,14 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
                     <path strokeLinejoin="round" d="M12.0703 4.87476H2.92969C2.3472 4.87476 1.875 5.34696 1.875 5.92944V15.0701C1.875 15.6526 2.3472 16.1248 2.92969 16.1248H12.0703C12.6528 16.1248 13.125 15.6526 13.125 15.0701V5.92944C13.125 5.34696 12.6528 4.87476 12.0703 4.87476Z" />
                   </svg>
                 )}
+              </button>
+              <button
+                onClick={() => dispatchBranchFromMessage(message.id)}
+                className="message-action-btn"
+                aria-label="Branch from here"
+                title="Branch chat from here"
+              >
+                <GitBranch className="size-4" strokeWidth={1.5} />
               </button>
               {message.metadata && (
                 <button
