@@ -52,9 +52,4 @@ bunx eslint .
 
 Fix ALL errors/warnings before continuing.
 
-**Server restart (if needed):**
-```bash
-lsof -ti:3001 | xargs kill -9 2>/dev/null; bun run dev
-```
-
-Read server output and fix ALL warnings/errors.
+**Server restart:** NEVER kill port 3001 or start anything on it — the user's live Agentic instance runs there (it is what you are running inside). Ask the user to restart it instead.

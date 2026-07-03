@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Edit3, Search, Trash2, Check, Edit, FolderOpen, Github, Loader2, LogOut, Settings as SettingsIcon, GitBranch } from 'lucide-react';
+import { Menu, Edit3, Search, Trash2, Check, Edit, FolderOpen, Github, Loader2, LogOut, Settings as SettingsIcon, GitBranch, Download, Upload } from 'lucide-react';
 import { toast } from '../../utils/toast';
 import { GitHubOAuthSetupModal } from '../setup/GitHubOAuthSetupModal';
 import { Settings } from '../settings/Settings';
@@ -54,10 +54,11 @@ interface SidebarProps {
   onChatDelete?: (chatId: string) => void;
   onChatRename?: (chatId: string, newTitle: string) => void;
   onChatBranch?: (chatId: string) => void;
+  onChatImport?: (file: File) => void;
   currentSessionId?: string | null;
 }
 
-export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect, onChatDelete, onChatRename, onChatBranch, currentSessionId: _currentSessionId }: SidebarProps) {
+export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect, onChatDelete, onChatRename, onChatBranch, onChatImport, currentSessionId: _currentSessionId }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isAllChatsExpanded, setIsAllChatsExpanded] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -69,6 +70,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
   const [showSettings, setShowSettings] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   // Check GitHub status on mount
   useEffect(() => {
@@ -247,6 +249,35 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
     onChatBranch?.(chatId);
   };
 
+  const handleExportClick = async (chatId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const response = await fetch(`/api/sessions/${chatId}/export`);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+      const blob = await response.blob();
+      const disposition = response.headers.get('Content-Disposition');
+      const filename = disposition?.match(/filename="(.+)"/)?.[1] || 'chat.agentic.json';
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error('Failed to export chat', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  };
+
+  const handleImportFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) onChatImport?.(file);
+    e.target.value = ''; // allow re-importing the same file
+  };
+
   const handleOpenChatFolder = async () => {
     try {
       const response = await fetch('/api/open-chat-folder', {
@@ -295,6 +326,19 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
           <FolderOpen size={20} opacity={0.8} />
           <span>Open Chat Folder</span>
         </button>
+
+        {/* Import Chat Button */}
+        <button className="sidebar-new-chat-btn" onClick={() => importInputRef.current?.click()} style={{ marginTop: '0.5rem' }}>
+          <Upload size={20} opacity={0.8} />
+          <span>Import Chat</span>
+        </button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept=".json,application/json"
+          style={{ display: 'none' }}
+          onChange={handleImportFileSelected}
+        />
 
         {/* GitHub Connect Button */}
         <button
@@ -529,6 +573,34 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                                 }}
                               >
                                 <GitBranch size={14} />
+                              </button>
+                              <button
+                                className="sidebar-chat-menu-btn"
+                                aria-label="Export Chat"
+                                title="Download this chat as a file"
+                                onClick={(e) => handleExportClick(chat.id, e)}
+                                style={{
+                                  padding: '0.25rem',
+                                  background: chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))',
+                                  border: 'none',
+                                  borderRadius: '0.25rem',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: 'rgb(var(--text-secondary))',
+                                  transition: 'all 0.15s',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                                  e.currentTarget.style.color = 'rgb(var(--text-primary))';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
+                                  e.currentTarget.style.color = 'rgb(var(--text-secondary))';
+                                }}
+                              >
+                                <Download size={14} />
                               </button>
                               <button
                                 className="sidebar-chat-menu-btn"

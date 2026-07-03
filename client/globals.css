@@ -668,8 +668,11 @@
 
 .message-user-actions {
   display: flex;
-  justify-content: flex-end;
+  width: fit-content;
   color: rgb(var(--text-secondary));
+  /* Expanded hover zone around the icons (padding offset by negative margins, no layout shift) */
+  padding: 0.75rem;
+  margin: -0.75rem -0.75rem -0.75rem auto;
 }
 
 /* Assistant Message */
@@ -724,13 +727,14 @@
 
 .message-assistant-actions {
   display: flex;
-  overflow-x: auto;
-  justify-content: flex-start;
-  margin-top: 0.125rem; /* mt-0.5 */
+  width: fit-content;
   color: rgb(var(--text-secondary));
+  /* Expanded hover zone around the icons (padding offset by negative margins, no layout shift) */
+  padding: 0.75rem;
+  margin: calc(0.125rem - 0.75rem) -0.75rem -0.75rem; /* keep mt-0.5 */
 }
 
-/* Action Buttons */
+/* Action Buttons - hidden until the cursor is near where they sit */
 .message-action-btn {
   padding: 0.375rem; /* p-1.5 */
   border-radius: 0.5rem; /* rounded-lg */
@@ -738,7 +742,9 @@
   border: none;
   cursor: pointer;
   color: rgb(var(--text-secondary));
-  transition: all 0.15s;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, background-color 0.15s, color 0.15s;
 }
 
 .message-action-btn:hover {
@@ -751,12 +757,12 @@
   height: 1rem;
 }
 
-.message-action-btn-hidden {
-  visibility: hidden;
-}
-
-.message-container:hover .message-action-btn-hidden {
-  visibility: visible;
+.message-user-actions:hover .message-action-btn,
+.message-user-actions:focus-within .message-action-btn,
+.message-assistant-actions:hover .message-action-btn,
+.message-assistant-actions:focus-within .message-action-btn {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* Connection indicator */

@@ -228,6 +228,78 @@ export async function handleSessionRoutes(
     }
   }
 
+  // ========== EXPORT / IMPORT ROUTES ==========
+
+  // GET /api/sessions/:id/export - Download session as portable JSON
+  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/export$/) && req.method === 'GET') {
+    const sessionId = url.pathname.split('/')[3];
+    const session = sessionDb.getSession(sessionId);
+
+    if (!session) {
+      return new Response(JSON.stringify({ error: 'Session not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const messages = sessionDb.getSessionMessages(sessionId);
+    const exportData = {
+      format: 'agentic-chat',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      session: {
+        title: session.title,
+        mode: session.mode,
+        permission_mode: session.permission_mode,
+        model: session.model || null,
+        github_repo: session.github_repo || null,
+        created_at: session.created_at,
+      },
+      messages: messages.map(m => ({ type: m.type, content: m.content, timestamp: m.timestamp })),
+    };
+
+    const safeName = session.title.replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'chat';
+    return new Response(JSON.stringify(exportData, null, 2), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Disposition': `attachment; filename="${safeName}.agentic.json"`,
+      },
+    });
+  }
+
+  // POST /api/sessions/import - Create a new session from an exported chat file
+  if (url.pathname === '/api/sessions/import' && req.method === 'POST') {
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(JSON.stringify({ success: false, error: 'Invalid JSON file' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const data = body as { format?: string; session?: Record<string, unknown>; messages?: unknown };
+    if (data?.format !== 'agentic-chat' || !data.session || !Array.isArray(data.messages)) {
+      return new Response(JSON.stringify({ success: false, error: 'Not a valid Agentic chat export' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const session = sessionDb.importSession(data as Parameters<typeof sessionDb.importSession>[0]);
+
+    if (session) {
+      return new Response(JSON.stringify({ success: true, session }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ success: false, error: 'Failed to import chat' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   // ========== BRANCHING ROUTES ==========
 
   // POST /api/sessions/:id/branch - Create branch from message

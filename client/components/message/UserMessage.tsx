@@ -164,7 +164,7 @@ export function UserMessage({ message }: UserMessageProps) {
               <div className="message-user-actions">
                 <button
                   onClick={handleCopy}
-                  className="message-action-btn message-action-btn-hidden"
+                  className="message-action-btn"
                   aria-label={copied ? "Copied!" : "Copy"}
                   title={copied ? "Copied!" : "Copy message"}
                 >
@@ -181,7 +181,7 @@ export function UserMessage({ message }: UserMessageProps) {
                 </button>
                 <button
                   onClick={() => dispatchBranchFromMessage(message.id)}
-                  className="message-action-btn message-action-btn-hidden"
+                  className="message-action-btn"
                   aria-label="Branch from here"
                   title="Branch chat from here"
                 >

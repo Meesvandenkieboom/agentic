@@ -615,6 +615,30 @@ export function ChatContainer() {
     }
   };
 
+  // --- Import chat from exported file ---
+  const handleChatImport = async (file: File) => {
+    try {
+      const text = await file.text();
+      const response = await fetch('/api/sessions/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: text,
+      });
+      const result = await response.json() as { success: boolean; session?: { id: string; title: string }; error?: string };
+      if (!response.ok || !result.success || !result.session) {
+        toast.error('Failed to import chat', { description: result.error || 'Unknown error' });
+        return;
+      }
+      await loadSessions();
+      handleSessionSelect(result.session.id);
+      toast.success('Chat imported', { description: result.session.title });
+    } catch (error) {
+      toast.error('Failed to import chat', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  };
+
   // --- Search helpers ---
   const handleToggleSearch = () => {
     if (isSearchOpen) {
@@ -652,6 +676,7 @@ export function ChatContainer() {
         onChatDelete={handleChatDelete}
         onChatRename={handleChatRename}
         onChatBranch={handleChatBranch}
+        onChatImport={handleChatImport}
         currentSessionId={currentSessionId}
       />
 

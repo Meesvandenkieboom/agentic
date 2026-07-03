@@ -847,6 +847,47 @@ class SessionDatabase {
     }
   }
 
+  /**
+   * Import a session from an exported chat file.
+   * Creates a fresh session directory; messages keep their original timestamps.
+   * The SDK session ID is intentionally left empty so the first message on the
+   * new machine triggers history injection (same path as branch starts).
+   */
+  importSession(data: {
+    session: { title?: string; mode?: string; permission_mode?: string; model?: string; github_repo?: string | null };
+    messages: Array<{ type: 'user' | 'assistant'; content: string; timestamp: string }>;
+  }): Session | null {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const workingDir = this.createChatDirectory(id);
+
+    const validModes = ['general', 'coder', 'intense-research', 'spark'];
+    const mode = (validModes.includes(data.session.mode ?? '') ? data.session.mode : 'general') as Session['mode'];
+    const validPermissionModes = ['default', 'acceptEdits', 'bypassPermissions', 'plan'];
+    const permissionMode = validPermissionModes.includes(data.session.permission_mode ?? '')
+      ? data.session.permission_mode!
+      : 'default';
+
+    this.db.run(
+      "INSERT INTO sessions (id, title, created_at, updated_at, working_directory, permission_mode, mode, github_repo, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, data.session.title || 'Imported Chat', now, now, workingDir, permissionMode, mode, data.session.github_repo || null, data.session.model || null]
+    );
+
+    for (const msg of data.messages) {
+      if (msg.type !== 'user' && msg.type !== 'assistant') continue;
+      this.db.run(
+        "INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+        [randomUUID(), id, msg.type, String(msg.content ?? ''), msg.timestamp || now]
+      );
+    }
+
+    setupSessionCommands(workingDir, mode);
+
+    console.log(`📥 Imported session ${id.substring(0, 8)} with ${data.messages.length} messages`);
+
+    return this.getSession(id);
+  }
+
   // ========== BRANCHING METHODS ==========
 
   /**
