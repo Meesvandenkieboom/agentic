@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Edit3, Search, Trash2, Check, Edit, FolderOpen, Github, Loader2, LogOut, Settings as SettingsIcon, GitBranch, Download, Upload } from 'lucide-react';
+import { Menu, Edit3, Search, Trash2, Check, Edit, FolderOpen, Github, Loader2, LogOut, Settings as SettingsIcon, GitBranch, Download, Upload, MoreHorizontal } from 'lucide-react';
 import { toast } from '../../utils/toast';
 import { GitHubOAuthSetupModal } from '../setup/GitHubOAuthSetupModal';
 import { Settings } from '../settings/Settings';
@@ -69,8 +69,20 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
   const [showGitHubSetup, setShowGitHubSetup] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+
+  // Close the per-chat popover on any outside click (popover buttons stop propagation)
+  useEffect(() => {
+    if (!openMenuId) return;
+    const close = () => {
+      setOpenMenuId(null);
+      setConfirmDeleteId(null);
+    };
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [openMenuId]);
 
   // Check GitHub status on mount
   useEffect(() => {
@@ -200,6 +212,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
 
   const handleRenameClick = (chat: Chat, e: React.MouseEvent) => {
     e.stopPropagation();
+    setOpenMenuId(null);
     setEditingId(chat.id);
     setEditingTitle(chat.title);
   };
@@ -234,10 +247,17 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
     setEditingTitle('');
   };
 
+  const handleMenuToggle = (chatId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmDeleteId(null);
+    setOpenMenuId(openMenuId === chatId ? null : chatId);
+  };
+
   const handleDeleteClick = (chatId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirmDeleteId === chatId) {
       setConfirmDeleteId(null);
+      setOpenMenuId(null);
       onChatDelete?.(chatId);
     } else {
       setConfirmDeleteId(chatId);
@@ -246,11 +266,13 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
 
   const handleBranchClick = (chatId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    setOpenMenuId(null);
     onChatBranch?.(chatId);
   };
 
   const handleExportClick = async (chatId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    setOpenMenuId(null);
     try {
       const response = await fetch(`/api/sessions/${chatId}/export`);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -270,6 +292,19 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
         description: error instanceof Error ? error.message : 'Unknown error'
       });
     }
+  };
+
+  const menuActionBtnStyle: React.CSSProperties = {
+    padding: '0.25rem',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '0.25rem',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: 'rgb(var(--text-secondary))',
+    transition: 'all 0.15s',
   };
 
   const handleImportFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -518,29 +553,20 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                                 )}
                               </div>
                             </button>
-                            <div className={`sidebar-chat-menu ${chat.isActive ? '' : 'sidebar-chat-menu-hidden'}`} style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                            <div className={`sidebar-chat-menu ${chat.isActive || openMenuId === chat.id ? '' : 'sidebar-chat-menu-hidden'}`} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                               <button
                                 className="sidebar-chat-menu-btn"
                                 aria-label="Rename Chat"
+                                title="Rename this chat"
                                 onClick={(e) => handleRenameClick(chat, e)}
                                 style={{
-                                  padding: '0.25rem',
+                                  ...menuActionBtnStyle,
                                   background: chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))',
-                                  border: 'none',
-                                  borderRadius: '0.25rem',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  color: 'rgb(var(--text-secondary))',
-                                  transition: 'all 0.15s',
                                 }}
                                 onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                                   e.currentTarget.style.color = 'rgb(var(--text-primary))';
                                 }}
                                 onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
                                   e.currentTarget.style.color = 'rgb(var(--text-secondary))';
                                 }}
                               >
@@ -548,92 +574,84 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                               </button>
                               <button
                                 className="sidebar-chat-menu-btn"
-                                aria-label="Branch Chat"
-                                title="Create a branch from this chat"
-                                onClick={(e) => handleBranchClick(chat.id, e)}
+                                aria-label="Chat Options"
+                                title="Chat options"
+                                onClick={(e) => handleMenuToggle(chat.id, e)}
                                 style={{
-                                  padding: '0.25rem',
+                                  ...menuActionBtnStyle,
                                   background: chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))',
-                                  border: 'none',
-                                  borderRadius: '0.25rem',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  color: 'rgb(var(--text-secondary))',
-                                  transition: 'all 0.15s',
+                                  color: openMenuId === chat.id ? 'rgb(var(--text-primary))' : 'rgb(var(--text-secondary))',
                                 }}
                                 onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)';
-                                  e.currentTarget.style.color = 'rgb(165, 180, 252)';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
-                                  e.currentTarget.style.color = 'rgb(var(--text-secondary))';
-                                }}
-                              >
-                                <GitBranch size={14} />
-                              </button>
-                              <button
-                                className="sidebar-chat-menu-btn"
-                                aria-label="Export Chat"
-                                title="Download this chat as a file"
-                                onClick={(e) => handleExportClick(chat.id, e)}
-                                style={{
-                                  padding: '0.25rem',
-                                  background: chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))',
-                                  border: 'none',
-                                  borderRadius: '0.25rem',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  color: 'rgb(var(--text-secondary))',
-                                  transition: 'all 0.15s',
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                                   e.currentTarget.style.color = 'rgb(var(--text-primary))';
                                 }}
                                 onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
-                                  e.currentTarget.style.color = 'rgb(var(--text-secondary))';
+                                  if (openMenuId !== chat.id) e.currentTarget.style.color = 'rgb(var(--text-secondary))';
                                 }}
                               >
-                                <Download size={14} />
-                              </button>
-                              <button
-                                className="sidebar-chat-menu-btn"
-                                aria-label={confirmDeleteId === chat.id ? 'Confirm Delete' : 'Delete Chat'}
-                                title={confirmDeleteId === chat.id ? 'Click again to confirm' : 'Delete Chat'}
-                                onClick={(e) => handleDeleteClick(chat.id, e)}
-                                style={{
-                                  padding: '0.25rem',
-                                  background: confirmDeleteId === chat.id
-                                    ? 'rgba(239, 68, 68, 0.25)'
-                                    : chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))',
-                                  border: 'none',
-                                  borderRadius: '0.25rem',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  color: confirmDeleteId === chat.id ? '#ef4444' : 'rgb(var(--text-secondary))',
-                                  transition: 'all 0.15s',
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
-                                  e.currentTarget.style.color = '#ef4444';
-                                }}
-                                onMouseLeave={(e) => {
-                                  setConfirmDeleteId(null);
-                                  e.currentTarget.style.background = chat.isActive ? 'rgb(var(--bg-tertiary))' : 'rgb(var(--bg-secondary))';
-                                  e.currentTarget.style.color = 'rgb(var(--text-secondary))';
-                                }}
-                              >
-                                {confirmDeleteId === chat.id ? <Check size={14} /> : <Trash2 size={14} />}
+                                <MoreHorizontal size={14} />
                               </button>
                             </div>
+                            {openMenuId === chat.id && (
+                              <div className="sidebar-chat-popover" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  className="sidebar-chat-menu-btn"
+                                  aria-label="Branch Chat"
+                                  title="Create a branch from this chat"
+                                  onClick={(e) => handleBranchClick(chat.id, e)}
+                                  style={menuActionBtnStyle}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)';
+                                    e.currentTarget.style.color = 'rgb(165, 180, 252)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'transparent';
+                                    e.currentTarget.style.color = 'rgb(var(--text-secondary))';
+                                  }}
+                                >
+                                  <GitBranch size={14} />
+                                </button>
+                                <button
+                                  className="sidebar-chat-menu-btn"
+                                  aria-label="Export Chat"
+                                  title="Download this chat as a file"
+                                  onClick={(e) => handleExportClick(chat.id, e)}
+                                  style={menuActionBtnStyle}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                                    e.currentTarget.style.color = 'rgb(var(--text-primary))';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'transparent';
+                                    e.currentTarget.style.color = 'rgb(var(--text-secondary))';
+                                  }}
+                                >
+                                  <Download size={14} />
+                                </button>
+                                <button
+                                  className="sidebar-chat-menu-btn"
+                                  aria-label={confirmDeleteId === chat.id ? 'Confirm Delete' : 'Delete Chat'}
+                                  title={confirmDeleteId === chat.id ? 'Click again to confirm' : 'Delete Chat'}
+                                  onClick={(e) => handleDeleteClick(chat.id, e)}
+                                  style={{
+                                    ...menuActionBtnStyle,
+                                    background: confirmDeleteId === chat.id ? 'rgba(239, 68, 68, 0.25)' : 'transparent',
+                                    color: confirmDeleteId === chat.id ? '#ef4444' : 'rgb(var(--text-secondary))',
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+                                    e.currentTarget.style.color = '#ef4444';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    setConfirmDeleteId(null);
+                                    e.currentTarget.style.background = 'transparent';
+                                    e.currentTarget.style.color = 'rgb(var(--text-secondary))';
+                                  }}
+                                >
+                                  {confirmDeleteId === chat.id ? <Check size={14} /> : <Trash2 size={14} />}
+                                </button>
+                              </div>
+                            )}
                           </>
                         )}
                       </div>
