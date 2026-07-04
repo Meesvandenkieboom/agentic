@@ -691,6 +691,14 @@ IMPORTANT: Do not modify files outside the workspace directory.
     const agentsWithWorkingDir = injectWorkingDirIntoAgents(AGENT_REGISTRY, workspaceDir);
 
     let stderrOutput = '';
+    // Set when the SDK CLI reports the resume target is missing. A stored
+    // sdk_session_id can point at a conversation the local CLI has no
+    // transcript for (imported chats, deleted transcripts, moved machines);
+    // resuming it exits the subprocess 1, and since the id stays in the DB
+    // every later message fails identically. Detected here so onLoopError
+    // can clear the id and retry the turn fresh.
+    let resumeSessionNotFound = false;
+    let recoveryAttempted = false;
 
     // Check resume capability
     const sessionMessages = sessionDb.getSessionMessages(sessionId);
@@ -749,6 +757,10 @@ IMPORTANT: Do not modify files outside the workspace directory.
         const trimmedData = data.trim();
         if (trimmedData.includes('Spawning Claude Code process:') && trimmedData.includes('--system-prompt')) return;
         console.error(`🔴 SDK CLI stderr [${providerType}/${apiModelId}]:`, trimmedData);
+
+        if (trimmedData.includes('No conversation found with session ID')) {
+          resumeSessionNotFound = true;
+        }
 
         const lowerData = trimmedData.toLowerCase();
         const isActualError = /error[:\s]|invalid api key|authentication|unauthorized|permission|forbidden|credit|insufficient|quota|billing|rate limit|failed|401|403|429/.test(lowerData);
@@ -819,6 +831,30 @@ IMPORTANT: Do not modify files outside the workspace directory.
     // PreToolUse hooks
     queryOptions.hooks = createPreToolUseHooks(sessionId, workingDir);
 
+    // Self-heal a stale resume target: if the SDK CLI can't find the
+    // conversation we asked it to resume, clear the dead sdk_session_id and
+    // re-run this turn fresh (branch injection rebuilds full context from the
+    // DB). Guarded to fire once so it can never loop. Only reachable on the
+    // resume path, so `messageContent` here is still the untouched user
+    // message (branch injection mutates it only when not resuming).
+    const onLoopError = (): boolean => {
+      if (!resumeSessionNotFound || recoveryAttempted) return false;
+      recoveryAttempted = true;
+      console.warn(
+        `♻️ Resume target missing for ${sessionId.substring(0, 8)} ` +
+        `(stale SDK session ${session.sdk_session_id}) — clearing and retrying fresh`,
+      );
+      sessionDb.updateSdkSessionId(sessionId, null);
+      sessionStreamManager.cleanupSession(sessionId, 'resume_recovery');
+      activeQueries.delete(sessionId);
+      void spawnClaudeStream(
+        ws, { ...session, sdk_session_id: undefined }, sessionId, workingDir,
+        messageContent, apiModelId, providerType, timezone,
+        mcpServers, activeQueries, effort,
+      );
+      return true;
+    };
+
     // Retry loop
     const MAX_RETRIES = 3;
     const INITIAL_DELAY_MS = 2000;
@@ -861,7 +897,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
         }
 
         // Start background response loop (non-blocking)
-        startResponseLoop(sessionId, apiModelId, result, activeQueries);
+        startResponseLoop(sessionId, apiModelId, result, activeQueries, onLoopError);
 
         break; // Exit retry loop on success
       } catch (error) {

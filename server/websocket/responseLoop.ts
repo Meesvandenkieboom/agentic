@@ -74,12 +74,18 @@ function findArtifactBlock(
  * Start the background response processing loop for a session.
  * This is a fire-and-forget async IIFE that runs until the SDK
  * stream ends or is aborted.
+ *
+ * `onLoopError` lets the turn launcher self-heal fatal errors (eg a stale
+ * resume target). It's invoked on a non-abort loop error; returning true
+ * means recovery was initiated and this loop should stay silent (the
+ * launcher owns cleanup + any client-facing signal).
  */
 export function startResponseLoop(
   sessionId: string,
   apiModelId: string,
   result: AsyncIterable<unknown>,
   activeQueries: Map<string, unknown>,
+  onLoopError?: () => boolean,
 ): void {
   (async () => {
     // Per-turn state (resets after each completion)
@@ -230,7 +236,7 @@ export function startResponseLoop(
         }
       }
     } catch (error) {
-      handleLoopError(error, sessionId, activeQueries, currentMessageContent, currentTextResponse, currentMessageId);
+      handleLoopError(error, sessionId, activeQueries, currentMessageContent, currentTextResponse, currentMessageId, onLoopError);
     } finally {
       clearInterval(heartbeatInterval);
     }
@@ -588,6 +594,7 @@ async function handleLoopError(
   currentMessageContent: unknown[],
   currentTextResponse: string,
   currentMessageId: string | null,
+  onLoopError?: () => boolean,
 ): Promise<void> {
   const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -620,6 +627,13 @@ async function handleLoopError(
 
   // Actual error
   console.error(`❌ Background response loop error for session ${sessionId}:`, error);
+
+  // Give the turn launcher a chance to self-heal (eg a stale resume target).
+  // If it handles recovery it owns cleanup + respawn, so stay silent here.
+  if (onLoopError && onLoopError()) {
+    return;
+  }
+
   sessionStreamManager.cleanupSession(sessionId, 'loop_error');
   activeQueries.delete(sessionId);
 
