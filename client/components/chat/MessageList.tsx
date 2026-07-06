@@ -30,9 +30,10 @@ interface MessageListProps {
   isLoading?: boolean;
   liveTokenCount?: number;
   scrollContainerRef?: React.RefObject<HTMLDivElement>;
+  sessionId?: string | null;
 }
 
-export const MessageList = React.memo(function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef }: MessageListProps) {
+export const MessageList = React.memo(function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef, sessionId }: MessageListProps) {
   const parentRef = scrollContainerRef || useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const { query: searchQuery, currentMatchMessageIndex, currentMatchIndex, currentMatch, allMatches } = useSearchContext();
@@ -384,6 +385,7 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
 
   // Track previous message count to detect bulk loads (session switch, refresh, reconnect)
   const prevMessageCountRef = useRef(0);
+  const prevSessionIdRef = useRef(sessionId);
 
   // Scroll to bottom when messages change (only if user hasn't manually scrolled up)
   useEffect(() => {
@@ -393,9 +395,14 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
     const prevCount = prevMessageCountRef.current;
     prevMessageCountRef.current = messages.length;
 
+    // Cache-hit session switches replace messages A->B with no empty state in
+    // between, so the prevCount === 0 check alone misses them
+    const isSessionSwitch = prevSessionIdRef.current !== sessionId;
+    prevSessionIdRef.current = sessionId;
+
     // Bulk load detected: messages jumped from 0/empty to many (session load, refresh, reconnect)
     // Always scroll to bottom and reset scroll tracking state
-    const isBulkLoad = prevCount === 0 && messages.length > 0;
+    const isBulkLoad = prevCount === 0 || isSessionSwitch;
     if (isBulkLoad) {
       userScrolledUpRef.current = false;
       scrollCooldownRef.current = false;
@@ -430,7 +437,7 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
         container.scrollTop = container.scrollHeight;
       }
     });
-  }, [messages, parentRef, checkIfAtBottom]);
+  }, [messages, sessionId, parentRef, checkIfAtBottom]);
 
   if (messages.length === 0 && !isLoading) {
     return (

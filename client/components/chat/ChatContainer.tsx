@@ -730,6 +730,7 @@ export function ChatContainer() {
                 isLoading={isCurrentSessionLoading}
                 liveTokenCount={liveTokenCount}
                 scrollContainerRef={scrollContainerRef}
+                sessionId={currentSessionId}
               />
             </SearchContext.Provider>
             {pendingQuestion ? (
