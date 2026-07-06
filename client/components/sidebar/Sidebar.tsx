@@ -521,7 +521,11 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                                   </span>
                                 )}
                                 {chat.isLoading && (
-                                  <span className="sidebar-chat-running" title="Agent is running" aria-label="Agent is running" />
+                                  <span className="sidebar-chat-running" title="Agent is running" aria-label="Agent is running">
+                                    <span></span>
+                                    <span></span>
+                                    <span></span>
+                                  </span>
                                 )}
                               </div>
                             </button>
