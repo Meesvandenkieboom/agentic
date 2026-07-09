@@ -57,7 +57,7 @@ export interface RunCodexOptions {
   /** Raw effort string from the UI; mapped to Codex reasoning effort. */
   effort?: string;
   /**
-   * Codex model slug to run (e.g. 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini').
+   * Codex model slug to run (e.g. 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.5').
    * Omitted/undefined falls back to the CLI default — which may not be
    * entitled on every account, so the caller should always pass one.
    */

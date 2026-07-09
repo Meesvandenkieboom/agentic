@@ -44,6 +44,13 @@ export interface ToolEdit {
   replace_all?: boolean;
 }
 
+// Codex `file_change` entry: the Codex SDK reports only path + kind per
+// edited file (no line-level diff content).
+export interface CodexFileChange {
+  path: string;
+  kind: 'add' | 'delete' | 'update';
+}
+
 export interface TodoItem {
   content: string;
   activeForm: string;
@@ -63,6 +70,8 @@ export interface ToolUseBlock {
     new_string?: string;
     replace_all?: boolean;
     edits?: ToolEdit[];
+    changes?: CodexFileChange[];
+    status?: string;
     command?: string;
     description?: string;
     run_in_background?: boolean;

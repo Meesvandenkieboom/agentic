@@ -25,7 +25,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { diffLines, type Change } from 'diff';
 import { SyntaxHighlighter, vscDarkPlus } from '../../utils/syntaxHighlighter';
-import { AssistantMessage as AssistantMessageType, ToolUseBlock, TextBlock, TodoItem, LongRunningCommandBlock } from './types';
+import { AssistantMessage as AssistantMessageType, ToolUseBlock, TextBlock, TodoItem, LongRunningCommandBlock, CodexFileChange } from './types';
 import { ThinkingBlock } from './ThinkingBlock';
 import { CodeBlockWithCopy } from './CodeBlockWithCopy';
 import { URLBadge } from './URLBadge';
@@ -750,8 +750,16 @@ function getToolSummary(toolUse: ToolUseBlock): string {
       case 'Read':
         return String(input.file_path || '');
       case 'Write':
-      case 'Edit':
-        return String(input.file_path || '');
+      case 'Edit': {
+        if (input.file_path) return String(input.file_path);
+        // Codex edits: changes[] list instead of file_path
+        const changes = input.changes;
+        if (Array.isArray(changes) && changes.length > 0) {
+          const first = changes[0]?.path || '';
+          return changes.length === 1 ? first : `${first} +${changes.length - 1} more`;
+        }
+        return '';
+      }
       case 'Bash':
         return String(input.command || '').substring(0, 50);
       case 'BashOutput':
@@ -1461,6 +1469,68 @@ function EditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
   );
 }
 
+// Codex edit tool: the Codex SDK reports edits as a list of { path, kind }
+// with no line-level diff, so show the changed files instead of a fake +0 -0.
+function CodexFileChangeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const changes = (toolUse.input.changes as CodexFileChange[]) || [];
+  const failed = toolUse.input.status === 'failed';
+
+  const kindStyles: Record<CodexFileChange['kind'], { label: string; className: string }> = {
+    add: { label: 'A', className: 'text-green-500' },
+    update: { label: 'M', className: 'text-yellow-500' },
+    delete: { label: 'D', className: 'text-red-500' },
+  };
+
+  return (
+    <div className="w-full border border-white/10 rounded-xl my-3 overflow-hidden">
+      {/* Header */}
+      <div className="flex justify-between px-4 py-2 w-full text-xs bg-[#0C0E10] border-b border-white/10">
+        <div className="flex overflow-hidden flex-1 gap-2 items-center whitespace-nowrap">
+          <svg className="size-4" strokeWidth="1.5" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M5.33398 4.33301L1.33398 8.47707L5.33398 12.333" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M10.666 4.33301L14.666 8.47707L10.666 12.333" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M9.33333 1.33301L7 14.6663" stroke="currentColor" strokeLinecap="round" />
+          </svg>
+          <span className="text-sm font-medium leading-6">Edit</span>
+          <div className="bg-gray-700 shrink-0 min-h-4 w-[1px] h-4" role="separator" aria-orientation="vertical" />
+          <span className="flex-1 min-w-0 text-xs truncate text-white/60">
+            {changes[0]?.path || ''}
+          </span>
+        </div>
+        <div className="flex gap-1.5 items-center whitespace-nowrap">
+          {failed && <span className="text-red-500">failed</span>}
+          <span className="text-white/60">{changes.length} file{changes.length !== 1 ? 's' : ''}</span>
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            data-collapsed={!isExpanded}
+            className="p-1.5 rounded-lg transition-all data-[collapsed=true]:-rotate-180"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="3.5" stroke="currentColor" className="size-3">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Changed files list */}
+      {isExpanded && (
+        <div className="max-h-[400px] overflow-auto bg-[#0d1117]">
+          {changes.map((change, idx) => {
+            const kind = kindStyles[change.kind] || kindStyles.update;
+            return (
+              <div key={`${change.path}-${idx}`} className="flex gap-2 items-center px-4 py-1 text-xs font-mono border-b border-white/5 last:border-b-0">
+                <span className={`w-3 shrink-0 font-semibold ${kind.className}`}>{kind.label}</span>
+                <span className="truncate text-white/80">{change.path}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ToolUseComponent({ toolUse }: { toolUse: ToolUseBlock }) {
   // Use ExitPlanModeComponent for ExitPlanMode tool
   if (toolUse.name === 'ExitPlanMode') {
@@ -1485,6 +1555,11 @@ function ToolUseComponent({ toolUse }: { toolUse: ToolUseBlock }) {
   // Use KillShellToolComponent for KillShell
   if (toolUse.name === 'KillShell') {
     return <KillShellToolComponent toolUse={toolUse} />;
+  }
+
+  // Codex edits carry a changes[] list instead of old_string/new_string
+  if (toolUse.name === 'Edit' && Array.isArray(toolUse.input.changes)) {
+    return <CodexFileChangeComponent toolUse={toolUse} />;
   }
 
   // Use EditToolComponent for Edit/Write tools
