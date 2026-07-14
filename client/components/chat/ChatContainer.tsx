@@ -44,11 +44,11 @@ import { resolveBranchPointId } from '../../utils/branchPoint';
 import { QuestionInput, type PendingQuestionData } from '../question/QuestionInput';
 import { dispatchQuestionAnswer } from '../../utils/questionEvents';
 import type { ReasoningEffort } from './ReasoningEffortSelector';
-import { DEFAULT_EFFORT } from './ReasoningEffortSelector';
+import { DEFAULT_EFFORT, ALL_EFFORTS, normalizeEffort } from './ReasoningEffortSelector';
 import { ArtifactPanel } from '../artifact/ArtifactPanel';
 import { ResizableDivider } from '../artifact/ResizableDivider';
 import { useArtifactPanel } from '../../hooks/useArtifactPanel';
-import { normalizeModelId } from '../../config/models';
+import { normalizeModelId, getModelConfig } from '../../config/models';
 
 export function ChatContainer() {
   // --- Extracted hooks for message + session state ---
@@ -91,13 +91,17 @@ export function ChatContainer() {
   });
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(() => {
     const stored = localStorage.getItem('agentic-effort');
-    const valid: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-    return (valid as string[]).includes(stored || '') ? (stored as ReasoningEffort) : DEFAULT_EFFORT;
+    return (ALL_EFFORTS as string[]).includes(stored || '') ? (stored as ReasoningEffort) : DEFAULT_EFFORT;
   });
   const handleEffortChange = (effort: ReasoningEffort) => {
     setReasoningEffort(effort);
     localStorage.setItem('agentic-effort', effort);
   };
+  // Clamp the stored effort to the active provider's ladder (e.g. Codex 'ultra'
+  // has no Claude equivalent). The raw preference stays in state/localStorage so
+  // switching back to Codex restores it.
+  const modelProvider = getModelConfig(selectedModel)?.provider ?? 'anthropic';
+  const effectiveEffort = normalizeEffort(reasoningEffort, modelProvider);
   const [isBuildWizardOpen, setIsBuildWizardOpen] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<{ url: string; name: string } | null>(null);
   const [selectedDirectory, setSelectedDirectory] = useState<string | null>(null);
@@ -521,7 +525,7 @@ export function ChatContainer() {
         content: messageContent,
         sessionId,
         model: selectedModel,
-        effort: reasoningEffort,
+        effort: effectiveEffort,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       return true;
@@ -719,7 +723,7 @@ export function ChatContainer() {
             selectedModel={selectedModel}
             onDirectorySelected={handleDirectorySelected}
             selectedDirectory={selectedDirectory}
-            reasoningEffort={reasoningEffort}
+            reasoningEffort={effectiveEffort}
             onReasoningEffortChange={handleEffortChange}
           />
         ) : (
@@ -768,7 +772,7 @@ export function ChatContainer() {
                 onRepoSelected={handleRepoSelected}
                 selectedRepo={selectedRepo}
                 connectedRepo={currentSessionId ? sessions.find(s => s.id === currentSessionId)?.github_repo : null}
-                reasoningEffort={reasoningEffort}
+                reasoningEffort={effectiveEffort}
                 onReasoningEffortChange={handleEffortChange}
               />
             )}

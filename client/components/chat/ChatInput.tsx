@@ -31,6 +31,7 @@ import { StyleConfigModal } from './StyleConfigModal';
 import { FeaturesModal } from './FeaturesModal';
 import { GitHubRepoSelector } from './GitHubRepoSelector';
 import { ReasoningEffortSelector, type ReasoningEffort } from './ReasoningEffortSelector';
+import { getModelConfig } from '../../config/models';
 
 interface ChatInputProps {
   /** Returns true if the message was sent, so the input can clear its draft. */
@@ -57,7 +58,7 @@ interface ChatInputProps {
   onReasoningEffortChange?: (effort: ReasoningEffort) => void;
 }
 
-export function ChatInput({ onSubmit, onStop, disabled, isGenerating, isCloning, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel: _selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo, reasoningEffort, onReasoningEffortChange }: ChatInputProps) {
+export function ChatInput({ onSubmit, onStop, disabled, isGenerating, isCloning, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo, reasoningEffort, onReasoningEffortChange }: ChatInputProps) {
   const [value, setValue] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -455,6 +456,7 @@ export function ChatInput({ onSubmit, onStop, disabled, isGenerating, isCloning,
                   <ReasoningEffortSelector
                     effort={reasoningEffort}
                     onChange={onReasoningEffortChange}
+                    provider={getModelConfig(selectedModel || '')?.provider}
                   />
                 )}
 

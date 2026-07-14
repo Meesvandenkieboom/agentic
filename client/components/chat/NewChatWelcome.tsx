@@ -28,6 +28,7 @@ import type { SlashCommand } from '../../hooks/useWebSocket';
 import { CommandTextRenderer } from '../message/CommandTextRenderer';
 import { GitHubRepoSelector } from './GitHubRepoSelector';
 import { ReasoningEffortSelector, type ReasoningEffort } from './ReasoningEffortSelector';
+import { getModelConfig } from '../../config/models';
 
 interface NewChatWelcomeProps {
   /** Returns true if the message was sent, so the input can clear its draft. */
@@ -59,7 +60,7 @@ const CAPABILITIES = [
   "I can analyze data and files"
 ];
 
-export function NewChatWelcome({ onSubmit, onStop, disabled, isGenerating, isCloning, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard: _onOpenBuildWizard, mode, onRepoSelected, selectedRepo, selectedModel: _selectedModel, onDirectorySelected, selectedDirectory, reasoningEffort, onReasoningEffortChange }: NewChatWelcomeProps) {
+export function NewChatWelcome({ onSubmit, onStop, disabled, isGenerating, isCloning, isPlanMode, onTogglePlanMode, availableCommands = [], onOpenBuildWizard: _onOpenBuildWizard, mode, onRepoSelected, selectedRepo, selectedModel, onDirectorySelected, selectedDirectory, reasoningEffort, onReasoningEffortChange }: NewChatWelcomeProps) {
   const [inputValue, setInputValue] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -536,6 +537,7 @@ export function NewChatWelcome({ onSubmit, onStop, disabled, isGenerating, isClo
                       <ReasoningEffortSelector
                         effort={reasoningEffort}
                         onChange={onReasoningEffortChange}
+                        provider={getModelConfig(selectedModel || '')?.provider}
                         welcomeStyle
                       />
                     )}

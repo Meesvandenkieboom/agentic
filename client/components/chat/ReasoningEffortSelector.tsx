@@ -7,10 +7,13 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Brain, ChevronDown, Check } from 'lucide-react';
+import type { ProviderType } from '../../config/models';
 
-export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
 
 export const DEFAULT_EFFORT: ReasoningEffort = 'high';
+
+export const ALL_EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 
 interface EffortOption {
   id: ReasoningEffort;
@@ -18,7 +21,7 @@ interface EffortOption {
   description: string;
 }
 
-const EFFORT_OPTIONS: EffortOption[] = [
+const CLAUDE_EFFORT_OPTIONS: EffortOption[] = [
   { id: 'low',    label: 'Low',    description: 'Fastest, minimal thinking' },
   { id: 'medium', label: 'Medium', description: 'Balanced speed and depth' },
   { id: 'high',   label: 'High',   description: 'Default — strong reasoning' },
@@ -26,14 +29,37 @@ const EFFORT_OPTIONS: EffortOption[] = [
   { id: 'max',    label: 'Max',    description: 'Exhaustive — slowest, highest quality' },
 ];
 
+// ChatGPT/Codex reasoning ladder (GPT-5.6 era). Ultra is Codex-specific:
+// it fans work out to parallel subagents rather than just thinking longer.
+const CODEX_EFFORT_OPTIONS: EffortOption[] = [
+  { id: 'low',    label: 'Low',        description: 'Fast responses with lighter reasoning' },
+  { id: 'medium', label: 'Medium',     description: 'Balances speed and reasoning depth' },
+  { id: 'high',   label: 'High',       description: 'Greater reasoning depth for complex problems' },
+  { id: 'xhigh',  label: 'Extra High', description: 'Extra-high reasoning depth for complex problems' },
+  { id: 'max',    label: 'Max',        description: 'Maximum reasoning depth for the hardest problems' },
+  { id: 'ultra',  label: 'Ultra',      description: 'Maximum reasoning with parallel subagent delegation' },
+];
+
+export function effortOptionsFor(provider: ProviderType): EffortOption[] {
+  return provider === 'codex' ? CODEX_EFFORT_OPTIONS : CLAUDE_EFFORT_OPTIONS;
+}
+
+/** Clamp an effort to the selected provider's ladder (e.g. Codex 'ultra' → Claude 'max'). */
+export function normalizeEffort(effort: ReasoningEffort, provider: ProviderType): ReasoningEffort {
+  if (effortOptionsFor(provider).some(o => o.id === effort)) return effort;
+  return effort === 'ultra' ? 'max' : DEFAULT_EFFORT;
+}
+
 interface ReasoningEffortSelectorProps {
   effort: ReasoningEffort;
   onChange: (effort: ReasoningEffort) => void;
+  /** Provider of the selected model; decides which effort ladder to show. */
+  provider?: ProviderType;
   /** When true, renders the button with the NewChatWelcome styling. */
   welcomeStyle?: boolean;
 }
 
-export function ReasoningEffortSelector({ effort, onChange, welcomeStyle = false }: ReasoningEffortSelectorProps) {
+export function ReasoningEffortSelector({ effort, onChange, provider = 'anthropic', welcomeStyle = false }: ReasoningEffortSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -49,7 +75,8 @@ export function ReasoningEffortSelector({ effort, onChange, welcomeStyle = false
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
-  const current = EFFORT_OPTIONS.find(o => o.id === effort) ?? EFFORT_OPTIONS[2];
+  const options = effortOptionsFor(provider);
+  const current = options.find(o => o.id === effort) ?? options.find(o => o.id === DEFAULT_EFFORT)!;
 
   const buttonClass = welcomeStyle
     ? 'border border-white/10 bg-transparent text-white hover:bg-gray-800 rounded-lg transition outline-none focus:outline-none flex items-center gap-1'
@@ -78,7 +105,7 @@ export function ReasoningEffortSelector({ effort, onChange, welcomeStyle = false
           <div className="px-3 py-2 text-[11px] uppercase tracking-wide text-gray-500 border-b border-white/5">
             Reasoning Effort
           </div>
-          {EFFORT_OPTIONS.map((opt, index) => {
+          {options.map((opt, index) => {
             const isSelected = opt.id === effort;
             return (
               <button

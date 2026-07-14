@@ -133,8 +133,12 @@ function toReasoningEffort(effort?: string): ModelReasoningEffort | undefined {
     case 'low':     return 'low';
     case 'medium':  return 'medium';
     case 'high':    return 'high';
-    case 'xhigh':
-    case 'max':     return 'xhigh';
+    case 'xhigh':   return 'xhigh';
+    // GPT-5.6 efforts the CLI accepts but the SDK type (≤0.144) hasn't caught
+    // up with: max = deeper single-agent reasoning, ultra = parallel subagents.
+    // On models without GPT-5.6 access Codex silently falls back to its default.
+    case 'max':
+    case 'ultra':   return effort as ModelReasoningEffort;
     default:        return undefined;
   }
 }

@@ -297,6 +297,7 @@ function effortToThinkingTokens(effort: string | undefined): number {
     case 'high':   return 80_000;   // previous hard-coded default
     case 'xhigh':  return 128_000;
     case 'max':    return 200_000;
+    case 'ultra':  return 200_000;  // Codex-only level; treat as max if it slips through
     default:       return 80_000;
   }
 }
