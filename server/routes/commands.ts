@@ -6,6 +6,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { sessionDb } from "../database";
+import { setupSessionCommands } from '../commandSetup';
+import { getRuntimeSessionPaths } from '../sessionWorkspace';
 
 interface SlashCommand {
   name: string;
@@ -50,37 +52,39 @@ function parseFrontmatter(content: string): { description: string; argumentHint:
 }
 
 /**
- * Load commands from session's .claude/commands directory
+ * Load app-owned commands plus any commands intentionally present in the
+ * selected project. Project commands win on name collisions.
  */
-async function loadSessionCommands(workingDir: string, mode: string): Promise<SlashCommand[]> {
-  const commandsDir = path.join(workingDir, '.claude', 'commands');
+async function loadSessionCommands(
+  workspaceDir: string,
+  metadataDir: string,
+  mode: string,
+): Promise<SlashCommand[]> {
+  const appCommandsDir = path.join(metadataDir, '.claude', 'commands');
 
-  // If commands don't exist yet (old session), set them up now
-  if (!fs.existsSync(commandsDir)) {
-    console.log(`📋 Commands not found, setting up for: ${workingDir.split('/').pop()}`);
-    // Dynamic import to avoid circular dependency
-    const commandSetup = await import('../commandSetup');
-    commandSetup.setupSessionCommands(workingDir, mode);
+  if (!fs.existsSync(appCommandsDir)) {
+    setupSessionCommands(metadataDir, mode);
   }
 
-  const commands: SlashCommand[] = [];
-  const files = fs.readdirSync(commandsDir);
-
-  for (const file of files) {
-    if (file.endsWith('.md')) {
+  const commands = new Map<string, SlashCommand>();
+  const commandDirs = [appCommandsDir, path.join(workspaceDir, '.claude', 'commands')];
+  for (const commandsDir of commandDirs) {
+    if (!fs.existsSync(commandsDir)) continue;
+    for (const file of fs.readdirSync(commandsDir)) {
+      if (!file.endsWith('.md')) continue;
       const filePath = path.join(commandsDir, file);
       const content = fs.readFileSync(filePath, 'utf-8');
       const { description, argumentHint } = parseFrontmatter(content);
-
-      commands.push({
-        name: file.replace('.md', ''),
+      const name = file.replace('.md', '');
+      commands.set(name, {
+        name,
         description,
         argumentHint,
       });
     }
   }
 
-  return commands;
+  return [...commands.values()];
 }
 
 /**
@@ -103,7 +107,8 @@ export async function handleCommandRoutes(
       });
     }
 
-    const customCommands = await loadSessionCommands(session.working_directory, session.mode);
+    const paths = getRuntimeSessionPaths(session);
+    const customCommands = await loadSessionCommands(paths.workspace, paths.metadata, session.mode);
 
     // Merge built-in commands with custom commands
     const commands = [...BUILT_IN_COMMANDS, ...customCommands];

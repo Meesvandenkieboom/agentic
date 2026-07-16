@@ -61,6 +61,31 @@ describe('formatBranchHistory', () => {
     ]);
     const out = formatBranchHistory([msg('assistant', content)]);
     expect(out).toContain('[Used 2 tool(s): WebSearch, Read]');
+    expect(out).toContain('[Tool call: WebSearch; input: {}]');
+  });
+
+  it('carries stored tool results without carrying thinking blocks', () => {
+    const content = JSON.stringify([
+      { type: 'thinking', thinking: 'private-reasoning-marker' },
+      { type: 'tool_result', tool_use_id: 'tool-1', content: 'command output' },
+    ]);
+    const out = formatBranchHistory([msg('assistant', content)]);
+    expect(out).toContain('[Tool result: command output]');
+    expect(out).not.toContain('private-reasoning-marker');
+  });
+
+  it('describes structured user attachments without embedding their base64', () => {
+    const content = JSON.stringify([
+      { type: 'text', text: 'Review these.' },
+      { type: 'document', name: 'report.pdf', data: 'base64-secret' },
+      { type: 'image', source: { data: 'image-secret' } },
+    ]);
+    const out = formatBranchHistory([msg('user', content)]);
+    expect(out).toContain('Review these.');
+    expect(out).toContain('[Attached file: report.pdf]');
+    expect(out).toContain('[Image attached in the original message]');
+    expect(out).not.toContain('base64-secret');
+    expect(out).not.toContain('image-secret');
   });
 
   it('keeps plain (non-JSON) assistant text as-is', () => {
@@ -86,6 +111,7 @@ describe('formatBranchHistory', () => {
     expect(out).toContain('[... earlier messages omitted for brevity ...]');
     // The most recent message must survive.
     expect(out).toContain('MSG39-');
+    expect(out.indexOf('[... earlier messages omitted')).toBeLessThan(out.indexOf('MSG39-'));
   });
 
   it('handles an empty history', () => {

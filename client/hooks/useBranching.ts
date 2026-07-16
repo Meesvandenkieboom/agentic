@@ -23,6 +23,7 @@ export interface Session {
   parent_session_id?: string;
   branch_point_message_id?: string;
   model?: string;
+  workspace_status?: 'ready' | 'preparing' | 'failed';
   // ... other session fields
 }
 
@@ -34,7 +35,7 @@ interface BranchTree {
 }
 
 interface BranchConfig {
-  messageId: string;
+  messageId?: string;
   model?: string;
   title?: string;
 }

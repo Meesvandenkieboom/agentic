@@ -150,6 +150,9 @@ export function getDefaultWorkingDirectory(): string {
  * NOTE: Includes automatic migration from legacy 'agent-smith-app' directory
  */
 export function getAppDataDirectory(): string {
+  const configured = process.env.AGENTIC_APP_DATA_DIR;
+  if (configured) return expandPath(configured);
+
   const homeDir = os.homedir();
   const newDir = path.join(homeDir, 'Documents', 'agentic-app');
   const legacyDir = path.join(homeDir, 'Documents', 'agent-smith-app');

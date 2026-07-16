@@ -12,14 +12,18 @@ interface BranchIndicatorProps {
   parentSessionTitle: string;
   parentSessionId: string;
   onNavigateToParent: () => void;
+  fidelity?: 'native' | 'portable' | 'display';
   compact?: boolean;
 }
 
 export function BranchIndicator({
   parentSessionTitle,
   onNavigateToParent,
+  fidelity = 'portable',
   compact = false,
 }: BranchIndicatorProps) {
+  const fidelityLabel = fidelity === 'native' ? 'Native fork' : fidelity === 'display'
+    ? 'Display-only copy' : 'Portable handoff';
   if (compact) {
     return (
       <button
@@ -28,10 +32,11 @@ export function BranchIndicator({
                    bg-[rgba(99,102,241,0.15)] border border-[rgba(99,102,241,0.3)]
                    hover:bg-[rgba(99,102,241,0.25)] transition-all
                    text-[rgb(165,180,252)] text-xs font-medium"
-        title={`Branch of: ${parentSessionTitle}`}
+        title={`Branch of: ${parentSessionTitle} · ${fidelityLabel}`}
       >
         <GitBranch size={12} />
         <span className="max-w-[100px] truncate">{parentSessionTitle}</span>
+        <span className="opacity-60">· {fidelityLabel}</span>
         <ArrowLeft size={10} className="opacity-60" />
       </button>
     );

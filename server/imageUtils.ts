@@ -125,27 +125,3 @@ export function saveFileToSessionFiles(
 
   return relativePath;
 }
-
-/**
- * Delete pictures directory for a session
- */
-export function deleteSessionPictures(workingDir: string): void {
-  const picturesPath = path.join(workingDir, 'pictures');
-
-  if (fs.existsSync(picturesPath)) {
-    fs.rmSync(picturesPath, { recursive: true, force: true });
-    console.log('🗑️  Deleted pictures directory:', picturesPath);
-  }
-}
-
-/**
- * Delete files directory for a session
- */
-export function deleteSessionFiles(workingDir: string): void {
-  const filesPath = path.join(workingDir, 'files');
-
-  if (fs.existsSync(filesPath)) {
-    fs.rmSync(filesPath, { recursive: true, force: true });
-    console.log('🗑️  Deleted files directory:', filesPath);
-  }
-}

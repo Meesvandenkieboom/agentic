@@ -47,7 +47,8 @@ function parseFrontmatter(content: string): {
  */
 export function expandSlashCommand(
   message: string,
-  workingDir: string
+  workingDir: string,
+  metadataDir?: string,
 ): string | null {
   // Check if message starts with slash command
   const commandMatch = message.match(/^\/([a-z-]+)(\s+(.*))?$/);
@@ -63,12 +64,16 @@ export function expandSlashCommand(
     return message; // Return original message unchanged - SDK will handle it
   }
 
-  // Look for custom command file in .claude/commands/
-  const commandsDir = path.join(workingDir, '.claude', 'commands');
-  const commandFile = path.join(commandsDir, `${commandName}.md`);
+  // User project commands take precedence; Agentic's app-owned commands are
+  // stored in the session metadata directory so selected repos stay clean.
+  const commandFiles = [
+    path.join(workingDir, '.claude', 'commands', `${commandName}.md`),
+    metadataDir ? path.join(metadataDir, '.claude', 'commands', `${commandName}.md`) : null,
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const commandFile = commandFiles.find(candidate => fs.existsSync(candidate));
 
-  if (!fs.existsSync(commandFile)) {
-    console.warn(`⚠️  Slash command not found: /${commandName} (looked in ${commandFile})`);
+  if (!commandFile) {
+    console.warn(`⚠️  Slash command not found: /${commandName} (looked in ${commandFiles.join(', ')})`);
     return null; // Command file not found
   }
 

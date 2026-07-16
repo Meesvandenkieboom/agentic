@@ -447,6 +447,7 @@ export async function handleGitHubRoutes(
       const body = await req.json() as { repoUrl: string; targetDir?: string; sessionId?: string };
       const { repoUrl, sessionId } = body;
       let { targetDir } = body;
+      let mayReplaceWorkspaceContents = false;
 
       // Phase 0.1: Clone into workspace/ subdirectory instead of session root
       // If sessionId is provided, look up the working directory and get workspace path
@@ -455,10 +456,15 @@ export async function handleGitHubRoutes(
         const { sessionDb } = await import('../database');
         const session = sessionDb.getSession(sessionId);
         if (session) {
-          // Session working_directory points to root, we want workspace/
-          const paths = getSessionPaths(sessionId);
-          workspaceDir = paths.workspace;
+          if (session.workspace_origin !== 'managed') {
+            return new Response(JSON.stringify({
+              success: false,
+              error: 'Refusing to clone over a user-selected or legacy directory',
+            }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+          }
+          workspaceDir = session.workspace_path;
           targetDir = session.working_directory; // Keep for compatibility
+          mayReplaceWorkspaceContents = true;
         }
       } else if (targetDir) {
         // If targetDir is provided directly, assume it's session root and derive workspace
@@ -508,6 +514,12 @@ export async function handleGitHubRoutes(
         if (stderr) console.log(stderr);
         console.log('✅ Repository updated');
       } else if (dirExists && dirContents.length > 0) {
+        if (!mayReplaceWorkspaceContents) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Refusing to clear a directory that is not explicitly Agentic-owned',
+          }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+        }
         // Directory exists with content but no .git - clear it and clone fresh
         console.log(`📂 Workspace exists with content, clearing and cloning fresh...`);
 
@@ -610,7 +622,7 @@ export async function handleGitHubRoutes(
         const { sessionDb } = await import('../database');
         const session = sessionDb.getSession(sessionId);
         if (session) {
-          repoDir = session.working_directory;
+          repoDir = session.workspace_path;
         }
       }
 

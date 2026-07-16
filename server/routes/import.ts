@@ -91,7 +91,9 @@ export async function handleImportRoutes(
 
       // Generate random folder name for import
       const importFolderName = generateRandomFolderName();
-      const importFolderPath = path.join(session.working_directory, importFolderName);
+      const runtimePaths = sessionDb.getRuntimePaths(sessionId);
+      if (!runtimePaths) throw new Error('Session workspace is unavailable');
+      const importFolderPath = path.join(runtimePaths.workspace, importFolderName);
 
       console.log(`📂 Creating import folder: ${importFolderPath}`);
 

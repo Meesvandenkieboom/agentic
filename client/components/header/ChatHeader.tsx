@@ -117,6 +117,7 @@ export function ChatHeader({
                 parentSessionTitle={parentSession.title || 'Parent'}
                 parentSessionId={parentSession.id}
                 onNavigateToParent={() => onSessionSelect(parentSession.id)}
+                fidelity={currentSession?.context_fidelity}
                 compact
               />
             )}
@@ -126,6 +127,7 @@ export function ChatHeader({
             {currentSessionId && currentSession?.working_directory && (
               <WorkingDirectoryDisplay
                 directory={currentSession.working_directory}
+                workspaceOrigin={currentSession.workspace_origin}
                 sessionId={currentSessionId}
                 onChangeDirectory={onChangeDirectory}
               />

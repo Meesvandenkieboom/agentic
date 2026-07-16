@@ -29,6 +29,10 @@ export interface Session {
   updated_at: string;
   message_count: number;
   working_directory: string;
+  workspace_path?: string;
+  workspace_origin?: 'managed' | 'external' | 'legacy';
+  workspace_status?: 'ready' | 'preparing' | 'failed';
+  workspace_error?: string;
   permission_mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
   mode: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive';
   context_input_tokens?: number;
@@ -39,6 +43,8 @@ export interface Session {
   // Branching support
   parent_session_id?: string; // Parent session ID (null for root sessions)
   branch_point_message_id?: string; // Message ID where branch occurred
+  branch_history_mode?: 'copied' | 'shared';
+  context_fidelity?: 'native' | 'portable' | 'display';
   model?: string; // Model selection per chat
 }
 

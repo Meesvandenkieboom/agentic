@@ -5,16 +5,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getBinaryDir } from './startup';
-import { getSessionPaths } from './directoryUtils';
 
 /**
  * Setup slash commands for a session by copying template .md files
- * Creates .claude/commands/ directory in session's working directory
- * and populates it with shared + mode-specific commands
- * Also copies mode-specific CLAUDE.md to working directory root
+ * App-owned commands and mode metadata live outside the working tree. This is
+ * especially important for user-selected repositories, which Agentic must not
+ * mutate merely to attach a chat to them.
  */
-export function setupSessionCommands(workingDir: string, mode: string): void {
-  const commandsDir = path.join(workingDir, '.claude', 'commands');
+export function setupSessionCommands(metadataDir: string, mode: string): void {
+  const commandsDir = path.join(metadataDir, '.claude', 'commands');
 
   // Create .claude/commands/ directory
   if (!fs.existsSync(commandsDir)) {
@@ -50,17 +49,12 @@ export function setupSessionCommands(workingDir: string, mode: string): void {
     }
   }
 
-  // Phase 0.1: Write CLAUDE.md to metadata/ directory instead of root
-  // Extract session ID from working directory path (e.g., chat-446f7a5e)
-  const sessionId = path.basename(workingDir).replace('chat-', '');
-  const paths = getSessionPaths(sessionId);
-
   const templateClaudeFile = path.join(baseDir, 'server', 'templates', mode, 'CLAUDE.md');
-  const destClaudeFile = paths.claudeMd;
+  const destClaudeFile = path.join(metadataDir, 'CLAUDE.md');
 
   // Ensure metadata directory exists
-  if (!fs.existsSync(paths.metadata)) {
-    fs.mkdirSync(paths.metadata, { recursive: true });
+  if (!fs.existsSync(metadataDir)) {
+    fs.mkdirSync(metadataDir, { recursive: true });
   }
 
   // Only copy if template exists and destination doesn't exist (don't overwrite user's CLAUDE.md)
@@ -78,8 +72,8 @@ export function setupSessionCommands(workingDir: string, mode: string): void {
 /**
  * Get count of available commands for a session
  */
-export function getCommandCount(workingDir: string): number {
-  const commandsDir = path.join(workingDir, '.claude', 'commands');
+export function getCommandCount(metadataDir: string): number {
+  const commandsDir = path.join(metadataDir, '.claude', 'commands');
 
   if (!fs.existsSync(commandsDir)) {
     return 0;

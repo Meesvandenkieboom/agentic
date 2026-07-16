@@ -15,8 +15,6 @@ import {
   ensurePicturesDirectory,
   saveImageToSessionPictures,
   saveFileToSessionFiles,
-  deleteSessionPictures,
-  deleteSessionFiles,
 } from './imageUtils';
 
 // 1x1 transparent PNG
@@ -115,27 +113,5 @@ describe('saveFileToSessionFiles', () => {
   it('handles raw base64 without a data URL prefix', () => {
     saveFileToSessionFiles('aGk=', 'raw.txt', 'session-1', tmpDir); // "hi"
     expect(fs.readFileSync(path.join(tmpDir, 'files', 'raw.txt'), 'utf-8')).toBe('hi');
-  });
-});
-
-describe('deleteSessionPictures / deleteSessionFiles', () => {
-  it('removes the pictures directory', () => {
-    ensurePicturesDirectory(tmpDir);
-    deleteSessionPictures(tmpDir);
-    expect(fs.existsSync(path.join(tmpDir, 'pictures'))).toBe(false);
-  });
-
-  it('is a no-op when pictures directory is absent', () => {
-    expect(() => deleteSessionPictures(tmpDir)).not.toThrow();
-  });
-
-  it('removes the files directory', () => {
-    saveFileToSessionFiles('aGk=', 'x.txt', 's', tmpDir);
-    deleteSessionFiles(tmpDir);
-    expect(fs.existsSync(path.join(tmpDir, 'files'))).toBe(false);
-  });
-
-  it('is a no-op when files directory is absent', () => {
-    expect(() => deleteSessionFiles(tmpDir)).not.toThrow();
   });
 });

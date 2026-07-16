@@ -17,6 +17,7 @@ interface BranchDialogProps {
   messagePreview?: string;
   messageIndex?: number;
   currentModel: string;
+  workspaceOrigin?: 'managed' | 'external' | 'legacy';
 }
 
 export function BranchDialog({
@@ -27,6 +28,7 @@ export function BranchDialog({
   messagePreview,
   messageIndex,
   currentModel,
+  workspaceOrigin,
 }: BranchDialogProps) {
   const [selectedModel, setSelectedModel] = useState(currentModel);
   const [isCreating, setIsCreating] = useState(false);
@@ -125,6 +127,14 @@ export function BranchDialog({
                 Will switch to this model in the new branch
               </p>
             )}
+            <p className="text-xs text-[rgb(156,163,175)]">
+              Portable handoff: visible conversation records are transferred, but provider-private reasoning and native session state are not.
+            </p>
+            <p className="text-xs text-[rgb(156,163,175)]">
+              {workspaceOrigin === 'managed'
+                ? 'The Agentic-managed workspace will be copied in the background.'
+                : 'The branch will share the selected working directory; no project files will be copied.'}
+            </p>
           </div>
 
           {/* Error message */}

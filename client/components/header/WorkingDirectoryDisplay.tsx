@@ -24,11 +24,12 @@ import { showError } from '../../utils/errorMessages';
 
 interface WorkingDirectoryDisplayProps {
   directory: string;
+  workspaceOrigin?: 'managed' | 'external' | 'legacy';
   sessionId?: string;
   onChangeDirectory?: (sessionId: string, newDirectory: string) => Promise<void>;
 }
 
-export function WorkingDirectoryDisplay({ directory, sessionId, onChangeDirectory }: WorkingDirectoryDisplayProps) {
+export function WorkingDirectoryDisplay({ directory, workspaceOrigin, sessionId, onChangeDirectory }: WorkingDirectoryDisplayProps) {
   const [isChanging, setIsChanging] = useState(false);
 
   // Extract just the chat folder name (e.g., "chat-a1b2c3d4")
@@ -69,13 +70,19 @@ export function WorkingDirectoryDisplay({ directory, sessionId, onChangeDirector
   };
 
   return (
-    <div className="flex items-center gap-2 py-2 text-xs group" title={directory}>
+    <div
+      className="flex items-center gap-2 py-2 text-xs group"
+      title={workspaceOrigin === 'managed' ? directory : `${directory} (shared external directory; never deleted by Agentic)`}
+    >
       <span
         className="font-mono"
         style={{ color: 'rgb(var(--text-secondary))' }}
       >
         {getFolderName(directory)}
       </span>
+      {workspaceOrigin && workspaceOrigin !== 'managed' && (
+        <span className="opacity-60">shared</span>
+      )}
       {sessionId && onChangeDirectory && (
         <button
           onClick={handleChangeDirectory}

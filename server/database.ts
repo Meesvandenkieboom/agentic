@@ -22,12 +22,21 @@ import { Database } from "bun:sqlite";
 import { randomUUID } from "crypto";
 import * as path from "path";
 import * as fs from "fs";
-import { getDefaultWorkingDirectory, expandPath, validateDirectory, getAppDataDirectory, getSessionPaths, getSessionPathsFromWorkingDir } from "./directoryUtils";
-import { deleteSessionPictures, deleteSessionFiles } from "./imageUtils";
+import { getDefaultWorkingDirectory, expandPath, validateDirectory, getAppDataDirectory } from "./directoryUtils";
 import { setupSessionCommands } from "./commandSetup";
-import { migrateSessionIfNeeded } from "./migrations/migrateSessionStructure";
 // Title generation moved to messageHandlers.ts (needs SDK auth configured first)
 import { configureGitCredentials, isGitHubConnected } from "./routes/github";
+import {
+  copyManagedWorkspace,
+  createManagedWorkspace,
+  createSessionMetadata,
+  deleteManagedWorkspace,
+  deleteSessionMetadata,
+  getRuntimeSessionPaths,
+  type WorkspaceOrigin,
+  type WorkspaceRecord,
+  type WorkspaceStatus,
+} from './sessionWorkspace';
 
 export interface Session {
   id: string;
@@ -36,6 +45,14 @@ export interface Session {
   updated_at: string;
   message_count: number;
   working_directory: string;
+  workspace_id?: string;
+  workspace_path?: string;
+  workspace_origin?: WorkspaceOrigin;
+  workspace_status?: WorkspaceStatus;
+  workspace_error?: string;
+  managed_root?: string;
+  metadata_directory?: string;
+  deleted_at?: string;
   permission_mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
   mode: 'general' | 'coder' | 'intense-research' | 'spark';
   sdk_session_id?: string; // SDK's internal session ID for resume functionality
@@ -47,6 +64,10 @@ export interface Session {
   // Branching support
   parent_session_id?: string; // Parent session ID (null for root sessions)
   branch_point_message_id?: string; // Message ID where branch occurred
+  branch_history_mode?: 'copied' | 'shared';
+  inherited_message_count?: number;
+  handoff_pending?: number;
+  context_fidelity?: 'native' | 'portable' | 'display';
   model?: string; // Model selection per chat (allows switching models on branch)
 }
 
@@ -65,15 +86,24 @@ export interface SessionMessage {
   type: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  ordinal?: number;
 }
 
-class SessionDatabase {
+export class SessionDatabase {
   private db: Database;
+  private readonly activeCopyWorkspaceIds = new Set<string>();
+  private readonly appDataDirectory: string;
+  private readonly managedBaseDirectory: string;
 
-  constructor(dbPath?: string) {
+  constructor(
+    dbPath?: string,
+    storage: { appDataDirectory?: string; managedBaseDirectory?: string } = {},
+  ) {
+    this.appDataDirectory = storage.appDataDirectory || getAppDataDirectory();
+    this.managedBaseDirectory = storage.managedBaseDirectory || getDefaultWorkingDirectory();
     // Use app data directory if no path provided
     if (!dbPath) {
-      const appDataDir = getAppDataDirectory();
+      const appDataDir = this.appDataDirectory;
       // Create directory if it doesn't exist
       if (!fs.existsSync(appDataDir)) {
         fs.mkdirSync(appDataDir, { recursive: true });
@@ -84,6 +114,7 @@ class SessionDatabase {
 
     try {
       this.db = new Database(dbPath, { create: true });
+      this.db.run('PRAGMA foreign_keys = ON');
       this.initialize();
     } catch (error) {
       // Handle SQLITE_AUTH error (usually from corruption)
@@ -111,6 +142,7 @@ class SessionDatabase {
         // Retry with fresh database
         try {
           this.db = new Database(dbPath, { create: true });
+          this.db.run('PRAGMA foreign_keys = ON');
           this.initialize();
           console.log('✅ Successfully created fresh database');
         } catch (retryError) {
@@ -176,6 +208,10 @@ class SessionDatabase {
 
     // Migration: Add branching columns if they don't exist
     this.migrateBranching();
+
+    // Explicit workspace provenance, structural history, and stable ordering.
+    this.migrateWorkspaceOwnership();
+    this.migrateStructuralHistory();
   }
 
   private migrateWorkingDirectory() {
@@ -464,91 +500,208 @@ class SessionDatabase {
     }
   }
 
+  private migrateWorkspaceOwnership() {
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS workspaces (
+        id TEXT PRIMARY KEY,
+        path TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        deletion_policy TEXT NOT NULL,
+        managed_root TEXT,
+        ownership_token TEXT,
+        status TEXT NOT NULL DEFAULT 'ready',
+        error TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+
+    const columns = this.db.query<{ name: string }, []>('PRAGMA table_info(sessions)').all();
+    const names = new Set(columns.map(column => column.name));
+    if (!names.has('workspace_id')) this.db.run('ALTER TABLE sessions ADD COLUMN workspace_id TEXT');
+    if (!names.has('metadata_directory')) this.db.run('ALTER TABLE sessions ADD COLUMN metadata_directory TEXT');
+    if (!names.has('deleted_at')) this.db.run('ALTER TABLE sessions ADD COLUMN deleted_at TEXT');
+
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_sessions_workspace_id ON sessions(workspace_id)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_sessions_deleted_at ON sessions(deleted_at)');
+    this.db.run(`UPDATE workspaces SET status = 'failed', error = 'Application restarted during workspace copy'
+      WHERE status = 'preparing'`);
+
+    const legacySessions = this.db.query<{
+      id: string;
+      working_directory: string;
+    }, []>('SELECT id, working_directory FROM sessions WHERE workspace_id IS NULL').all();
+
+    const insertWorkspace = this.db.query(`INSERT INTO workspaces (
+      id, path, origin, deletion_policy, managed_root, ownership_token, status, created_at
+    ) VALUES (?, ?, 'legacy', 'never', NULL, NULL, 'ready', ?)`);
+    const attachWorkspace = this.db.query(
+      'UPDATE sessions SET workspace_id = ?, metadata_directory = ? WHERE id = ?'
+    );
+    const now = new Date().toISOString();
+
+    this.db.transaction(() => {
+      for (const session of legacySessions) {
+        const expectedRoot = path.join(
+          this.managedBaseDirectory, `chat-${session.id.substring(0, 8)}`,
+        );
+        const expectedWorkspace = path.join(expectedRoot, 'workspace');
+        const storedPath = session.working_directory || this.managedBaseDirectory;
+        const isKnownManagedLayout = path.resolve(storedPath) === path.resolve(expectedRoot)
+          && fs.existsSync(expectedWorkspace);
+        const workspacePath = isKnownManagedLayout ? expectedWorkspace : storedPath;
+        const workspaceId = randomUUID();
+        const metadataDirectory = createSessionMetadata(session.id, this.appDataDirectory);
+        insertWorkspace.run(workspaceId, workspacePath, now);
+        attachWorkspace.run(workspaceId, metadataDirectory, session.id);
+      }
+    })();
+  }
+
+  private migrateStructuralHistory() {
+    const sessionColumns = this.db.query<{ name: string }, []>('PRAGMA table_info(sessions)').all();
+    const sessionNames = new Set(sessionColumns.map(column => column.name));
+    if (!sessionNames.has('branch_history_mode')) {
+      this.db.run("ALTER TABLE sessions ADD COLUMN branch_history_mode TEXT NOT NULL DEFAULT 'copied'");
+    }
+    if (!sessionNames.has('inherited_message_count')) {
+      this.db.run('ALTER TABLE sessions ADD COLUMN inherited_message_count INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!sessionNames.has('handoff_pending')) {
+      this.db.run('ALTER TABLE sessions ADD COLUMN handoff_pending INTEGER NOT NULL DEFAULT 0');
+      this.db.run(`UPDATE sessions SET handoff_pending = 1
+        WHERE parent_session_id IS NOT NULL AND sdk_session_id IS NULL`);
+    }
+    if (!sessionNames.has('context_fidelity')) {
+      this.db.run("ALTER TABLE sessions ADD COLUMN context_fidelity TEXT NOT NULL DEFAULT 'native'");
+      this.db.run(`UPDATE sessions SET context_fidelity = 'portable'
+        WHERE parent_session_id IS NOT NULL`);
+    }
+
+    const messageColumns = this.db.query<{ name: string }, []>('PRAGMA table_info(messages)').all();
+    if (!messageColumns.some(column => column.name === 'ordinal')) {
+      this.db.run('ALTER TABLE messages ADD COLUMN ordinal INTEGER');
+    }
+
+    const unordered = this.db.query<{
+      id: string;
+      session_id: string;
+    }, []>(`SELECT id, session_id FROM messages WHERE ordinal IS NULL
+      ORDER BY session_id, timestamp, rowid`).all();
+    let currentSession = '';
+    let ordinal = 0;
+    const updateOrdinal = this.db.query('UPDATE messages SET ordinal = ? WHERE id = ?');
+    this.db.transaction(() => {
+      for (const message of unordered) {
+        if (message.session_id !== currentSession) {
+          currentSession = message.session_id;
+          ordinal = 0;
+        }
+        updateOrdinal.run(ordinal++, message.id);
+      }
+    })();
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_messages_session_ordinal ON messages(session_id, ordinal)');
+  }
+
   // Session operations
   createSession(title: string = "New Chat", workingDirectory?: string, mode: 'general' | 'coder' | 'intense-research' | 'spark' = 'general', githubRepo?: string, model?: string): Session {
     const id = randomUUID();
     const now = new Date().toISOString();
-
+    const workspaceId = randomUUID();
+    const metadataDirectory = createSessionMetadata(id, this.appDataDirectory);
+    const makeManagedWorkspace = () => {
+      try {
+        return createManagedWorkspace(id, workspaceId, this.managedBaseDirectory);
+      } catch (error) {
+        deleteSessionMetadata(id, this.appDataDirectory);
+        throw error;
+      }
+    };
     let finalWorkingDir: string;
+    let workspace: WorkspaceRecord;
 
     if (workingDirectory) {
-      // User provided a custom directory
       const expandedPath = expandPath(workingDirectory);
       const validation = validateDirectory(expandedPath);
 
       if (!validation.valid) {
         console.warn('⚠️  Invalid working directory provided:', validation.error);
-        // Fall back to auto-generated chat folder
-        finalWorkingDir = this.createChatDirectory(id);
+        const managed = makeManagedWorkspace();
+        finalWorkingDir = managed.root;
+        workspace = {
+          id: workspaceId,
+          path: managed.workspacePath,
+          origin: 'managed',
+          deletion_policy: 'delete_when_unreferenced',
+          managed_root: managed.root,
+          ownership_token: managed.ownershipToken,
+          status: 'ready',
+        };
       } else {
         finalWorkingDir = expandedPath;
+        workspace = {
+          id: workspaceId,
+          path: expandedPath,
+          origin: 'external',
+          deletion_policy: 'never',
+          status: 'ready',
+        };
       }
     } else {
-      // Auto-generate chat folder: ~/Documents/agentic/chat-{short-id}/
-      finalWorkingDir = this.createChatDirectory(id);
+      const managed = makeManagedWorkspace();
+      finalWorkingDir = managed.root;
+      workspace = {
+        id: workspaceId,
+        path: managed.workspacePath,
+        origin: 'managed',
+        deletion_policy: 'delete_when_unreferenced',
+        managed_root: managed.root,
+        ownership_token: managed.ownershipToken,
+        status: 'ready',
+      };
     }
-
-    this.db.run(
-      "INSERT INTO sessions (id, title, created_at, updated_at, working_directory, permission_mode, mode, github_repo, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, title, now, now, finalWorkingDir, 'default', mode, githubRepo || null, model || null]
-    );
-
-    // Setup slash commands for this session
-    setupSessionCommands(finalWorkingDir, mode);
-
-    return {
-      id,
-      title,
-      created_at: now,
-      updated_at: now,
-      message_count: 0,
-      working_directory: finalWorkingDir,
-      permission_mode: 'default',
-      mode,
-      github_repo: githubRepo,
-      model,
-    };
-  }
-
-  private createChatDirectory(sessionId: string): string {
-    // Phase 0.1: Create new directory structure with metadata/ and workspace/ separation
-    const paths = getSessionPaths(sessionId);
 
     try {
-      // Create directory structure
-      if (!fs.existsSync(paths.root)) {
-        fs.mkdirSync(paths.root, { recursive: true });
-        console.log('✅ Created session root:', paths.root);
-      }
-
-      if (!fs.existsSync(paths.claudeDir)) {
-        fs.mkdirSync(paths.claudeDir, { recursive: true });
-        console.log('✅ Created .claude directory');
-      }
-
-      if (!fs.existsSync(paths.metadata)) {
-        fs.mkdirSync(paths.metadata, { recursive: true });
-        console.log('✅ Created metadata directory');
-      }
-
-      if (!fs.existsSync(paths.attachments)) {
-        fs.mkdirSync(paths.attachments, { recursive: true });
-        console.log('✅ Created attachments directory');
-      }
-
-      if (!fs.existsSync(paths.workspace)) {
-        fs.mkdirSync(paths.workspace, { recursive: true });
-        console.log('✅ Created workspace directory');
-      }
-
+      setupSessionCommands(metadataDirectory, mode);
+      this.db.transaction(() => {
+        this.insertWorkspace(workspace, now);
+        this.db.run(
+          `INSERT INTO sessions (
+            id, title, created_at, updated_at, working_directory, permission_mode,
+            mode, github_repo, model, workspace_id, metadata_directory
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, title, now, now, finalWorkingDir, 'default', mode, githubRepo || null,
+            model || null, workspaceId, metadataDirectory]
+        );
+      })();
     } catch (error) {
-      console.error('❌ Failed to create session directory structure:', error);
-      // Fall back to base directory if creation fails
-      return getDefaultWorkingDirectory();
+      this.db.run('DELETE FROM workspaces WHERE id = ?', [workspaceId]);
+      if (workspace.origin === 'managed') {
+        deleteManagedWorkspace(workspace, this.managedBaseDirectory);
+      }
+      deleteSessionMetadata(id, this.appDataDirectory);
+      throw error;
     }
 
-    // Return root (stored in database as working_directory)
-    return paths.root;
+    return this.getSession(id)!;
+  }
+
+  private insertWorkspace(workspace: WorkspaceRecord, createdAt: string): void {
+    this.db.run(
+      `INSERT INTO workspaces (
+        id, path, origin, deletion_policy, managed_root, ownership_token,
+        status, error, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [workspace.id, workspace.path, workspace.origin, workspace.deletion_policy,
+        workspace.managed_root || null, workspace.ownership_token || null,
+        workspace.status, workspace.error || null, createdAt]
+    );
+  }
+
+  private getWorkspace(workspaceId: string | undefined): WorkspaceRecord | null {
+    if (!workspaceId) return null;
+    return this.db.query<WorkspaceRecord, [string]>(
+      'SELECT * FROM workspaces WHERE id = ?'
+    ).get(workspaceId) || null;
   }
 
   getSessions(): { sessions: Session[]; recreatedDirectories: string[] } {
@@ -570,29 +723,35 @@ class SessionDatabase {
           s.github_repo,
           s.parent_session_id,
           s.branch_point_message_id,
+          s.branch_history_mode,
+          s.inherited_message_count,
+          s.handoff_pending,
+          s.context_fidelity,
           s.model,
-          COUNT(m.id) as message_count
+          s.workspace_id,
+          s.metadata_directory,
+          w.path as workspace_path,
+          w.origin as workspace_origin,
+          w.status as workspace_status,
+          w.error as workspace_error,
+          w.managed_root,
+          COALESCE(s.inherited_message_count, 0) + COUNT(m.id) as message_count
         FROM sessions s
         LEFT JOIN messages m ON s.id = m.session_id
+        LEFT JOIN workspaces w ON s.workspace_id = w.id
+        WHERE s.deleted_at IS NULL
         GROUP BY s.id
         ORDER BY s.updated_at DESC`
       )
       .all();
 
-    // Validate and recreate missing directories
+    // Missing external paths must never be recreated by Agentic. Managed paths
+    // also require a valid ownership marker, so report them without mutation.
     const recreatedDirectories: string[] = [];
 
     for (const session of sessions) {
-      if (session.working_directory && !fs.existsSync(session.working_directory)) {
-        console.warn(`⚠️  Missing directory for session ${session.id}: ${session.working_directory}`);
-
-        try {
-          fs.mkdirSync(session.working_directory, { recursive: true });
-          console.log(`✅ Recreated directory: ${session.working_directory}`);
-          recreatedDirectories.push(session.working_directory);
-        } catch (error) {
-          console.error(`❌ Failed to recreate directory: ${session.working_directory}`, error);
-        }
+      if (session.workspace_path && !fs.existsSync(session.workspace_path)) {
+        console.warn(`⚠️  Missing workspace for session ${session.id}: ${session.workspace_path}`);
       }
     }
 
@@ -618,26 +777,48 @@ class SessionDatabase {
           s.github_repo,
           s.parent_session_id,
           s.branch_point_message_id,
+          s.branch_history_mode,
+          s.inherited_message_count,
+          s.handoff_pending,
+          s.context_fidelity,
           s.model,
-          COUNT(m.id) as message_count
+          s.workspace_id,
+          s.metadata_directory,
+          w.path as workspace_path,
+          w.origin as workspace_origin,
+          w.status as workspace_status,
+          w.error as workspace_error,
+          w.managed_root,
+          COALESCE(s.inherited_message_count, 0) + COUNT(m.id) as message_count
         FROM sessions s
         LEFT JOIN messages m ON s.id = m.session_id
-        WHERE s.id = ?
+        LEFT JOIN workspaces w ON s.workspace_id = w.id
+        WHERE s.id = ? AND s.deleted_at IS NULL
         GROUP BY s.id`
       )
       .get(sessionId);
 
-    // Phase 0.1: Auto-migrate session to new structure if needed
-    if (session) {
-      try {
-        migrateSessionIfNeeded(sessionId);
-      } catch (error) {
-        // Don't fail session loading if migration fails
-        console.error(`⚠️  Failed to auto-migrate session ${sessionId}:`, error);
-      }
-    }
-
     return session || null;
+  }
+
+  private getSessionRecord(sessionId: string): Session | null {
+    return this.db.query<Session, [string]>(`SELECT
+      s.*,
+      w.path as workspace_path,
+      w.origin as workspace_origin,
+      w.status as workspace_status,
+      w.error as workspace_error,
+      w.managed_root,
+      COALESCE(s.inherited_message_count, 0)
+        + (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as message_count
+      FROM sessions s
+      LEFT JOIN workspaces w ON s.workspace_id = w.id
+      WHERE s.id = ?`).get(sessionId) || null;
+  }
+
+  getRuntimePaths(sessionId: string) {
+    const session = this.getSession(sessionId);
+    return session ? getRuntimeSessionPaths(session) : null;
   }
 
   updateWorkingDirectory(sessionId: string, directory: string): boolean {
@@ -656,10 +837,25 @@ class SessionDatabase {
         directory: expandedPath
       });
 
+      const workspaceId = randomUUID();
+      const now = new Date().toISOString();
+      this.insertWorkspace({
+        id: workspaceId,
+        path: expandedPath,
+        origin: 'external',
+        deletion_policy: 'never',
+        status: 'ready',
+      }, now);
+
       const result = this.db.run(
-        "UPDATE sessions SET working_directory = ?, updated_at = ? WHERE id = ?",
-        [expandedPath, new Date().toISOString(), sessionId]
+        `UPDATE sessions SET working_directory = ?, workspace_id = ?, updated_at = ?
+          WHERE id = ? AND deleted_at IS NULL`,
+        [expandedPath, workspaceId, now, sessionId]
       );
+
+      if (result.changes === 0) {
+        this.db.run('DELETE FROM workspaces WHERE id = ?', [workspaceId]);
+      }
 
       const success = result.changes > 0;
       if (success) {
@@ -697,8 +893,10 @@ class SessionDatabase {
   updateSdkSessionId(sessionId: string, sdkSessionId: string | null): boolean {
     try {
       const result = this.db.run(
-        "UPDATE sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?",
-        [sdkSessionId, new Date().toISOString(), sessionId]
+        `UPDATE sessions SET sdk_session_id = ?,
+          handoff_pending = CASE WHEN ? IS NOT NULL THEN 0 ELSE handoff_pending END,
+          updated_at = ? WHERE id = ?`,
+        [sdkSessionId, sdkSessionId, new Date().toISOString(), sessionId]
       );
 
       const success = result.changes > 0;
@@ -755,17 +953,62 @@ class SessionDatabase {
   }
 
   deleteSession(sessionId: string): boolean {
-    // Get session to access working directory before deletion
-    const session = this.getSession(sessionId);
+    const session = this.getSessionRecord(sessionId);
+    if (!session || session.deleted_at) return false;
 
-    // Delete pictures and files folders if session exists
-    if (session && session.working_directory) {
-      deleteSessionPictures(session.working_directory);
-      deleteSessionFiles(session.working_directory);
+    const workspaceId = session.workspace_id;
+    const parentId = session.parent_session_id;
+    const childCount = this.db.query<{ count: number }, [string]>(
+      'SELECT COUNT(*) as count FROM sessions WHERE parent_session_id = ?'
+    ).get(sessionId)?.count || 0;
+
+    deleteSessionMetadata(sessionId, this.appDataDirectory);
+    this.db.transaction(() => {
+      if (childCount > 0) {
+        this.db.run(
+          'UPDATE sessions SET deleted_at = ?, workspace_id = NULL WHERE id = ?',
+          [new Date().toISOString(), sessionId]
+        );
+      } else {
+        this.db.run('DELETE FROM messages WHERE session_id = ?', [sessionId]);
+        this.db.run('DELETE FROM sessions WHERE id = ?', [sessionId]);
+      }
+    })();
+
+    this.cleanupWorkspaceIfUnreferenced(workspaceId);
+    this.pruneDeletedAncestors(parentId);
+    return true;
+  }
+
+  private cleanupWorkspaceIfUnreferenced(workspaceId: string | undefined): void {
+    if (!workspaceId) return;
+    const references = this.db.query<{ count: number }, [string]>(
+      'SELECT COUNT(*) as count FROM sessions WHERE workspace_id = ?'
+    ).get(workspaceId)?.count || 0;
+    if (references > 0 || this.activeCopyWorkspaceIds.has(workspaceId)) return;
+
+    const workspace = this.getWorkspace(workspaceId);
+    if (!workspace) return;
+    if (workspace.origin === 'managed'
+      && !deleteManagedWorkspace(workspace, this.managedBaseDirectory)) return;
+    this.db.run('DELETE FROM workspaces WHERE id = ?', [workspaceId]);
+  }
+
+  private pruneDeletedAncestors(startId: string | undefined): void {
+    let sessionId = startId;
+    while (sessionId) {
+      const session = this.getSessionRecord(sessionId);
+      if (!session || !session.deleted_at) return;
+      const childCount = this.db.query<{ count: number }, [string]>(
+        'SELECT COUNT(*) as count FROM sessions WHERE parent_session_id = ?'
+      ).get(sessionId)?.count || 0;
+      if (childCount > 0) return;
+
+      const parentId = session.parent_session_id;
+      this.db.run('DELETE FROM messages WHERE session_id = ?', [sessionId]);
+      this.db.run('DELETE FROM sessions WHERE id = ?', [sessionId]);
+      sessionId = parentId;
     }
-
-    const result = this.db.run("DELETE FROM sessions WHERE id = ?", [sessionId]);
-    return result.changes > 0;
   }
 
   renameSession(sessionId: string, newTitle: string): boolean {
@@ -785,10 +1028,13 @@ class SessionDatabase {
   ): SessionMessage {
     const id = randomUUID();
     const timestamp = new Date().toISOString();
+    const ordinal = (this.db.query<{ next: number }, [string]>(
+      'SELECT COALESCE(MAX(ordinal), -1) + 1 as next FROM messages WHERE session_id = ?'
+    ).get(sessionId)?.next) ?? 0;
 
     this.db.run(
-      "INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-      [id, sessionId, type, content, timestamp]
+      "INSERT INTO messages (id, session_id, type, content, timestamp, ordinal) VALUES (?, ?, ?, ?, ?, ?)",
+      [id, sessionId, type, content, timestamp, ordinal]
     );
 
     // Update session's updated_at
@@ -803,6 +1049,7 @@ class SessionDatabase {
       type,
       content,
       timestamp,
+      ordinal,
     };
   }
 
@@ -815,13 +1062,63 @@ class SessionDatabase {
   }
 
   getSessionMessages(sessionId: string): SessionMessage[] {
-    const messages = this.db
-      .query<SessionMessage, [string]>(
-        "SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC"
-      )
-      .all(sessionId);
+    return this.resolveSessionMessages(sessionId, new Set());
+  }
 
-    return messages;
+  private resolveSessionMessages(sessionId: string, visited: Set<string>): SessionMessage[] {
+    if (visited.has(sessionId)) {
+      console.error(`Branch history cycle detected at session ${sessionId}`);
+      return [];
+    }
+    visited.add(sessionId);
+
+    const session = this.getSessionRecord(sessionId);
+    if (!session) return [];
+    const ownMessages = this.db.query<SessionMessage, [string]>(
+      `SELECT id, session_id, type, content, timestamp, ordinal
+        FROM messages WHERE session_id = ? ORDER BY ordinal ASC, rowid ASC`
+    ).all(sessionId);
+
+    if (session.branch_history_mode !== 'shared' || !session.parent_session_id
+      || !session.branch_point_message_id) {
+      return ownMessages;
+    }
+
+    const parentMessages = this.resolveSessionMessages(session.parent_session_id, visited);
+    const branchIndex = parentMessages.findIndex(message => message.id === session.branch_point_message_id);
+    if (branchIndex < 0) {
+      console.error(`Missing branch point ${session.branch_point_message_id} for ${sessionId}`);
+      return ownMessages;
+    }
+    return [...parentMessages.slice(0, branchIndex + 1), ...ownMessages];
+  }
+
+  private resolveSessionMessageIds(sessionId: string, visited = new Set<string>()): string[] {
+    if (visited.has(sessionId)) return [];
+    visited.add(sessionId);
+    const session = this.getSessionRecord(sessionId);
+    if (!session) return [];
+    const ownIds = this.db.query<{ id: string }, [string]>(
+      'SELECT id FROM messages WHERE session_id = ? ORDER BY ordinal ASC, rowid ASC'
+    ).all(sessionId).map(message => message.id);
+
+    if (session.branch_history_mode !== 'shared' || !session.parent_session_id
+      || !session.branch_point_message_id) {
+      return ownIds;
+    }
+    const parentIds = this.resolveSessionMessageIds(session.parent_session_id, visited);
+    const branchIndex = parentIds.indexOf(session.branch_point_message_id);
+    return branchIndex < 0 ? ownIds : [...parentIds.slice(0, branchIndex + 1), ...ownIds];
+  }
+
+  private getLastEffectiveMessageId(session: Session): string | undefined {
+    const ownLast = this.db.query<{ id: string }, [string]>(
+      'SELECT id FROM messages WHERE session_id = ? ORDER BY ordinal DESC, rowid DESC LIMIT 1'
+    ).get(session.id)?.id;
+    if (ownLast) return ownLast;
+    return session.branch_history_mode === 'shared'
+      ? session.branch_point_message_id
+      : undefined;
   }
 
   clearSessionMessages(sessionId: string): boolean {
@@ -857,9 +1154,7 @@ class SessionDatabase {
     session: { title?: string; mode?: string; permission_mode?: string; model?: string; github_repo?: string | null };
     messages: Array<{ type: 'user' | 'assistant'; content: string; timestamp: string }>;
   }): Session | null {
-    const id = randomUUID();
     const now = new Date().toISOString();
-    const workingDir = this.createChatDirectory(id);
 
     const validModes = ['general', 'coder', 'intense-research', 'spark'];
     const mode = (validModes.includes(data.session.mode ?? '') ? data.session.mode : 'general') as Session['mode'];
@@ -868,20 +1163,32 @@ class SessionDatabase {
       ? data.session.permission_mode!
       : 'default';
 
+    const session = this.createSession(
+      data.session.title || 'Imported Chat',
+      undefined,
+      mode,
+      data.session.github_repo || undefined,
+      data.session.model,
+    );
+    const id = session.id;
     this.db.run(
-      "INSERT INTO sessions (id, title, created_at, updated_at, working_directory, permission_mode, mode, github_repo, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, data.session.title || 'Imported Chat', now, now, workingDir, permissionMode, mode, data.session.github_repo || null, data.session.model || null]
+      "UPDATE sessions SET permission_mode = ?, handoff_pending = 1, context_fidelity = 'portable' WHERE id = ?",
+      [permissionMode, id]
     );
 
-    for (const msg of data.messages) {
-      if (msg.type !== 'user' && msg.type !== 'assistant') continue;
-      this.db.run(
-        "INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-        [randomUUID(), id, msg.type, String(msg.content ?? ''), msg.timestamp || now]
-      );
-    }
-
-    setupSessionCommands(workingDir, mode);
+    let ordinal = 0;
+    const insertMessage = this.db.query(
+      `INSERT INTO messages (id, session_id, type, content, timestamp, ordinal)
+        VALUES (?, ?, ?, ?, ?, ?)`
+    );
+    this.db.transaction(() => {
+      for (const msg of data.messages) {
+        if (msg.type !== 'user' && msg.type !== 'assistant') continue;
+        insertMessage.run(
+          randomUUID(), id, msg.type, String(msg.content ?? ''), msg.timestamp || now, ordinal++
+        );
+      }
+    })();
 
     console.log(`📥 Imported session ${id.substring(0, 8)} with ${data.messages.length} messages`);
 
@@ -895,7 +1202,7 @@ class SessionDatabase {
    */
   createBranchedSession(
     parentSessionId: string,
-    branchPointMessageId: string,
+    requestedBranchPointMessageId?: string,
     model?: string,
     title?: string
   ): Session | null {
@@ -905,9 +1212,20 @@ class SessionDatabase {
       return null;
     }
 
-    // Verify branch point message exists in parent session
-    const messages = this.getSessionMessages(parentSessionId);
-    const branchPointIndex = messages.findIndex(m => m.id === branchPointMessageId);
+    // A whole-chat branch resolves its tip in O(1). Per-message branching only
+    // loads stable IDs, never large message bodies.
+    const messageIds = requestedBranchPointMessageId
+      ? this.resolveSessionMessageIds(parentSessionId)
+      : null;
+    const branchPointMessageId = requestedBranchPointMessageId
+      || this.getLastEffectiveMessageId(parentSession);
+    if (!branchPointMessageId) {
+      console.error('Cannot branch an empty session:', parentSessionId);
+      return null;
+    }
+    const branchPointIndex = messageIds
+      ? messageIds.indexOf(branchPointMessageId)
+      : parentSession.message_count - 1;
 
     if (branchPointIndex === -1) {
       console.error('Branch point message not found:', branchPointMessageId);
@@ -916,31 +1234,38 @@ class SessionDatabase {
 
     const id = randomUUID();
     const now = new Date().toISOString();
+    const parentWorkspace = this.getWorkspace(parentSession.workspace_id);
+    if (!parentWorkspace || parentWorkspace.status !== 'ready') {
+      console.error('Parent workspace is not ready:', parentSession.workspace_id);
+      return null;
+    }
+    const metadataDirectory = createSessionMetadata(id, this.appDataDirectory);
+    let branchWorkingDir = parentSession.working_directory;
+    let branchWorkspaceId = parentWorkspace.id;
+    let managedBranchWorkspace: WorkspaceRecord | null = null;
 
-    // Create new directory for branch
-    const branchWorkingDir = this.createChatDirectory(id);
-
-    // Copy workspace files from parent session
-    const parentPaths = getSessionPathsFromWorkingDir(parentSession.working_directory);
-    const branchPaths = getSessionPaths(id);
-
-    if (fs.existsSync(parentPaths.workspace)) {
+    // User-selected and conservatively migrated workspaces are shared by
+    // reference. Only explicitly Agentic-owned workspaces are isolated.
+    if (parentWorkspace.origin === 'managed') {
+      branchWorkspaceId = randomUUID();
+      let managed: ReturnType<typeof createManagedWorkspace>;
       try {
-        // Copy entire workspace directory from parent to branch
-        fs.cpSync(parentPaths.workspace, branchPaths.workspace, { recursive: true });
-        console.log(`📁 Copied workspace files from parent session`);
-
-        // Configure git credentials for the branch if it has a .git folder and GitHub is connected
-        const branchGitDir = path.join(branchPaths.workspace, '.git');
-        if (fs.existsSync(branchGitDir) && isGitHubConnected()) {
-          configureGitCredentials(branchPaths.workspace)
-            .then(() => console.log(`🔑 Configured git credentials for branch`))
-            .catch((err) => console.warn(`⚠️  Could not configure git credentials for branch:`, err));
-        }
+        managed = createManagedWorkspace(id, branchWorkspaceId, this.managedBaseDirectory);
       } catch (error) {
-        console.warn(`⚠️  Could not copy workspace files:`, error);
-        // Continue without workspace files - not a fatal error
+        deleteSessionMetadata(id, this.appDataDirectory);
+        console.error('Failed to create managed branch workspace:', error);
+        return null;
       }
+      branchWorkingDir = managed.root;
+      managedBranchWorkspace = {
+        id: branchWorkspaceId,
+        path: managed.workspacePath,
+        origin: 'managed',
+        deletion_policy: 'delete_when_unreferenced',
+        managed_root: managed.root,
+        ownership_token: managed.ownershipToken,
+        status: 'preparing',
+      };
     }
 
     // Use provided title or generate from parent with incrementing branch number
@@ -954,39 +1279,79 @@ class SessionDatabase {
     // Use provided model or inherit from parent
     const branchModel = model || parentSession.model || undefined;
 
-    this.db.run(
-      `INSERT INTO sessions (
-        id, title, created_at, updated_at, working_directory,
-        permission_mode, mode, github_repo, model,
-        parent_session_id, branch_point_message_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id, branchTitle, now, now, branchWorkingDir,
-        parentSession.permission_mode,
-        parentSession.mode,
-        parentSession.github_repo || null,
-        branchModel || null,
-        parentSessionId,
-        branchPointMessageId
-      ]
-    );
-
-    // Copy messages up to and including branch point
-    const messagesToCopy = messages.slice(0, branchPointIndex + 1);
-    for (const msg of messagesToCopy) {
-      const newMsgId = randomUUID();
-      this.db.run(
-        "INSERT INTO messages (id, session_id, type, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-        [newMsgId, id, msg.type, msg.content, msg.timestamp]
-      );
+    try {
+      setupSessionCommands(metadataDirectory, parentSession.mode);
+      this.db.transaction(() => {
+        if (managedBranchWorkspace) this.insertWorkspace(managedBranchWorkspace, now);
+        this.db.run(
+          `INSERT INTO sessions (
+            id, title, created_at, updated_at, working_directory,
+            permission_mode, mode, github_repo, model,
+            parent_session_id, branch_point_message_id, workspace_id,
+            metadata_directory, branch_history_mode, inherited_message_count,
+            handoff_pending, context_fidelity
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'shared', ?, 1, 'portable')`,
+          [
+            id, branchTitle, now, now, branchWorkingDir,
+            parentSession.permission_mode,
+            parentSession.mode,
+            parentSession.github_repo || null,
+            branchModel || null,
+            parentSessionId,
+            branchPointMessageId,
+            branchWorkspaceId,
+            metadataDirectory,
+            branchPointIndex + 1,
+          ]
+        );
+      })();
+    } catch (error) {
+      if (managedBranchWorkspace) {
+        deleteManagedWorkspace(managedBranchWorkspace, this.managedBaseDirectory);
+      }
+      deleteSessionMetadata(id, this.appDataDirectory);
+      console.error('Failed to persist branch:', error);
+      return null;
     }
 
-    // Setup slash commands for this session
-    setupSessionCommands(branchWorkingDir, parentSession.mode);
+    if (managedBranchWorkspace) {
+      this.prepareManagedBranchWorkspace(parentWorkspace, managedBranchWorkspace);
+    }
 
     console.log(`✅ Created branch session ${id.substring(0, 8)} from ${parentSessionId.substring(0, 8)} at message ${branchPointIndex + 1}`);
 
     return this.getSession(id);
+  }
+
+  private prepareManagedBranchWorkspace(
+    parent: WorkspaceRecord,
+    branch: WorkspaceRecord,
+  ): void {
+    this.activeCopyWorkspaceIds.add(parent.id);
+    this.activeCopyWorkspaceIds.add(branch.id);
+    void copyManagedWorkspace(parent.path, branch.path)
+      .then(async () => {
+        if (fs.existsSync(path.join(branch.path, '.git')) && isGitHubConnected()) {
+          try {
+            await configureGitCredentials(branch.path);
+          } catch (error) {
+            console.warn('⚠️ Could not configure git credentials for branch:', error);
+          }
+        }
+        this.db.run("UPDATE workspaces SET status = 'ready', error = NULL WHERE id = ?", [branch.id]);
+        console.log(`📁 Managed branch workspace ready: ${branch.path}`);
+      })
+      .catch(error => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.db.run("UPDATE workspaces SET status = 'failed', error = ? WHERE id = ?", [message, branch.id]);
+        console.warn(`⚠️  Managed branch workspace copy failed:`, error);
+      })
+      .finally(() => {
+        this.activeCopyWorkspaceIds.delete(parent.id);
+        this.activeCopyWorkspaceIds.delete(branch.id);
+        this.cleanupWorkspaceIfUnreferenced(parent.id);
+        this.cleanupWorkspaceIfUnreferenced(branch.id);
+      });
   }
 
   /**
@@ -1001,10 +1366,10 @@ class SessionDatabase {
           s.created_at,
           s.branch_point_message_id,
           s.model,
-          COUNT(m.id) as message_count
+          COALESCE(s.inherited_message_count, 0) + COUNT(m.id) as message_count
         FROM sessions s
         LEFT JOIN messages m ON s.id = m.session_id
-        WHERE s.parent_session_id = ?
+        WHERE s.parent_session_id = ? AND s.deleted_at IS NULL
         GROUP BY s.id
         ORDER BY s.created_at DESC`
       )
@@ -1072,7 +1437,7 @@ class SessionDatabase {
   isMessageBranchPoint(messageId: string): boolean {
     const result = this.db
       .query<{ count: number }, [string]>(
-        "SELECT COUNT(*) as count FROM sessions WHERE branch_point_message_id = ?"
+        "SELECT COUNT(*) as count FROM sessions WHERE branch_point_message_id = ? AND deleted_at IS NULL"
       )
       .get(messageId);
 
@@ -1091,11 +1456,12 @@ class SessionDatabase {
           s.created_at,
           s.branch_point_message_id,
           s.model,
-          COUNT(m.id) as message_count
+          COALESCE(s.inherited_message_count, 0) + COUNT(m.id) as message_count
         FROM sessions s
         LEFT JOIN messages m ON s.id = m.session_id
         WHERE s.parent_session_id = ?
         AND s.branch_point_message_id = ?
+        AND s.deleted_at IS NULL
         GROUP BY s.id
         ORDER BY s.created_at DESC`
       )

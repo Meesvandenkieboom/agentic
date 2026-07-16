@@ -114,8 +114,8 @@ export async function handleSessionRoutes(
       const session = sessionDb.getSession(sessionId);
 
       if (session) {
-        // Setup slash commands in the new directory
-        setupSessionCommands(session.working_directory, session.mode);
+        const paths = sessionDb.getRuntimePaths(sessionId);
+        if (paths) setupSessionCommands(paths.metadata, session.mode);
       }
 
       // Clear SDK session ID to prevent resume with old directory's transcript files
@@ -306,7 +306,7 @@ export async function handleSessionRoutes(
   if (url.pathname.match(/^\/api\/sessions\/[^/]+\/branch$/) && req.method === 'POST') {
     const sessionId = url.pathname.split('/')[3];
     const body = await req.json() as {
-      messageId: string;
+      messageId?: string;
       model?: string;
       title?: string;
     };

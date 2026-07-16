@@ -198,8 +198,23 @@ export function startResponseLoop(
           continue;
         }
 
-        // Skip user messages (tool results processed by SDK)
-        if (message.type === 'user') continue;
+        // Persist portable tool outcomes. The SDK represents them as user
+        // messages, but they belong with the assistant's tool call for our
+        // stored turn and cross-provider handoff.
+        if (message.type === 'user') {
+          const toolResults = extractPortableToolResults(message);
+          if (toolResults.length > 0) {
+            currentMessageContent.push(...toolResults);
+            if (!currentMessageId) {
+              currentMessageId = sessionDb.addMessage(
+                sessionId, 'assistant', JSON.stringify(currentMessageContent),
+              ).id;
+            } else {
+              sessionDb.updateMessage(currentMessageId, JSON.stringify(currentMessageContent));
+            }
+          }
+          continue;
+        }
 
         // Handle assistant messages (tool use blocks, content)
         if (message.type === 'assistant') {
@@ -241,6 +256,27 @@ export function startResponseLoop(
       clearInterval(heartbeatInterval);
     }
   })();
+}
+
+function extractPortableToolResults(message: Record<string, unknown>): Record<string, unknown>[] {
+  const sdkMessage = message.message as Record<string, unknown> | undefined;
+  if (!Array.isArray(sdkMessage?.content)) return [];
+
+  return (sdkMessage.content as Array<Record<string, unknown>>)
+    .filter(block => block.type === 'tool_result')
+    .map(block => {
+      const raw = block.content ?? '';
+      const rendered = typeof raw === 'string' ? raw : JSON.stringify(raw);
+      const maxChars = 20_000;
+      return {
+        type: 'tool_result',
+        tool_use_id: block.tool_use_id,
+        is_error: block.is_error === true,
+        content: rendered.length > maxChars
+          ? `${rendered.slice(0, maxChars)}\n... [tool result truncated for storage]`
+          : rendered,
+      };
+    });
 }
 
 function handleCompactBoundary(message: SDKCompactBoundaryMessage, sessionId: string): void {

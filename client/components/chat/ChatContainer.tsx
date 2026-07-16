@@ -137,6 +137,9 @@ export function ChatContainer() {
   const lastAssistantContentRef = useRef<string>('');
 
   const isLoading = isAnySessionLoading;
+  const currentSession = sessions.find(session => session.id === currentSessionId);
+  const isWorkspacePreparing = currentSession?.workspace_status === 'preparing';
+  const isWorkspaceFailed = currentSession?.workspace_status === 'failed';
   const { createBranch } = useBranching();
   const chatSearch = useChatSearch(messages);
   const allMatchesInfo = useMemo(() =>
@@ -203,6 +206,14 @@ export function ChatContainer() {
     };
     init();
   }, []);
+
+  // Managed branch copies happen off the request path. Poll only while one is
+  // preparing so the input unlocks as soon as the workspace is ready.
+  useEffect(() => {
+    if (!sessions.some(session => session.workspace_status === 'preparing')) return;
+    const timer = window.setInterval(() => { void loadSessions(); }, 1000);
+    return () => window.clearInterval(timer);
+  }, [sessions, loadSessions]);
 
   // Auto-switch to hive mode if HIVE model is already selected
   useEffect(() => {
@@ -437,6 +448,17 @@ export function ChatContainer() {
     const messageText = text;
     if (!messageText.trim() || !isConnected) return false;
 
+    if (isWorkspacePreparing) {
+      toast.info('This branch workspace is still being prepared.');
+      return false;
+    }
+    if (isWorkspaceFailed) {
+      toast.error('Branch workspace is unavailable', {
+        description: currentSession?.workspace_error || 'Workspace preparation failed.',
+      });
+      return false;
+    }
+
     if (isSubmittingRef.current) return false;
     if (currentSessionId && isSessionLoading(currentSessionId)) {
       toast.info('This chat is already generating. Wait for it to complete or stop it first.');
@@ -588,25 +610,25 @@ export function ChatContainer() {
 
   const handleBranchConfirm = async (config: { model?: string; title?: string }) => {
     if (!branchingSessionId) return;
-    const sessionMessages = await sessionAPI.fetchSessionMessages(branchingSessionId);
-    if (sessionMessages.length === 0) {
-      toast.error('Cannot branch empty chat', { description: 'Add some messages first before branching.' });
-      return;
-    }
-    // Default (sidebar branch): branch from the last message.
-    // Per-message branch: resolve the clicked message to its DB row, since
-    // messages sent live in this tab have local IDs that don't exist in the DB.
-    let branchPointId = sessionMessages[sessionMessages.length - 1].id;
+    let messageId: string | undefined;
     if (branchFromMessage) {
-      const resolved = resolveBranchPointId(messages, sessionMessages, branchFromMessage.id);
-      if (!resolved) {
-        toast.error('Could not locate message', { description: 'Try branching from a different message.' });
-        return;
+      // Restored messages already carry stable database UUIDs. Only live
+      // messages use temporary `msg-*` IDs and require a server-row lookup.
+      if (!branchFromMessage.id.startsWith('msg-')) {
+        messageId = branchFromMessage.id;
+      } else {
+        const sessionMessages = await sessionAPI.fetchSessionMessages(branchingSessionId);
+        const resolved = resolveBranchPointId(messages, sessionMessages, branchFromMessage.id);
+        if (!resolved) {
+          toast.error('Could not locate message', { description: 'Try branching from a different message.' });
+          return;
+        }
+        messageId = resolved;
       }
-      branchPointId = resolved;
     }
+
     const branchedSession = await createBranch(branchingSessionId, {
-      messageId: branchPointId,
+      messageId,
       model: config.model,
       title: config.title,
     });
@@ -710,9 +732,9 @@ export function ChatContainer() {
             key={currentSessionId || `new-${newChatNonce}`}
             onSubmit={handleSubmit}
             onStop={handleStop}
-            disabled={!isConnected || isCloning}
+            disabled={!isConnected || isCloning || isWorkspacePreparing || isWorkspaceFailed}
             isGenerating={isCurrentSessionLoading}
-            isCloning={isCloning}
+            isCloning={isCloning || isWorkspacePreparing}
             isPlanMode={isPlanMode}
             onTogglePlanMode={handleTogglePlanMode}
             availableCommands={availableCommands}
@@ -758,9 +780,9 @@ export function ChatContainer() {
                 key={currentSessionId || `new-${newChatNonce}`}
                 onSubmit={handleSubmit}
                 onStop={handleStop}
-                disabled={!isConnected || isCurrentSessionLoading || isCloning}
+                disabled={!isConnected || isCurrentSessionLoading || isCloning || isWorkspacePreparing || isWorkspaceFailed}
                 isGenerating={isCurrentSessionLoading}
-                isCloning={isCloning}
+                isCloning={isCloning || isWorkspacePreparing}
                 isPlanMode={isPlanMode}
                 onTogglePlanMode={handleTogglePlanMode}
                 backgroundProcesses={backgroundProcesses.get(currentSessionId || '') || []}
@@ -823,6 +845,7 @@ export function ChatContainer() {
           messagePreview={branchFromMessage?.preview || undefined}
           messageIndex={branchFromMessage?.index}
           currentModel={normalizeModelId(sessions.find(s => s.id === branchingSessionId)?.model)}
+          workspaceOrigin={sessions.find(s => s.id === branchingSessionId)?.workspace_origin}
         />
       )}
 

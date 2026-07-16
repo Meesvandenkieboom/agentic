@@ -67,7 +67,8 @@ Agentic is a **desktop-first chat interface** that brings the power of Anthropic
 
 ### 🗂️ Session Management
 - **SQLite Persistence** - All conversations saved locally
-- **Session Isolation** - Each chat has its own working directory
+- **Explicit Workspace Ownership** - Managed chats are isolated; selected directories stay shared and user-owned
+- **Conversation Branching** - Structural history sharing with portable Claude/Codex handoffs
 - **Auto-Titles** - Sessions named from first message
 - **Full History** - Never lose a conversation
 
@@ -211,13 +212,21 @@ agentic --update
 **Create a Session:**
 - Click **"New Chat"** in sidebar
 - Choose working directory for file operations
-- Sessions are isolated - files stay organized
+- Default chats receive an Agentic-managed workspace
+- Browse Directory chats work directly in the selected directory
 
 **Rename Session:**
 - Click pencil icon → Enter new name → Press Enter
 
 **Delete Session:**
-- Click trash icon → Confirm deletion (permanent)
+- Click trash icon → Confirm deletion
+- User-selected directories are never deleted or cleaned by Agentic
+
+**Branch Session:**
+- Branches structurally share conversation history instead of copying message bodies
+- Branches of selected directories reuse the same live directory without copying files
+- Branches of Agentic-managed workspaces prepare an isolated copy in the background
+- Provider switches use a labelled portable handoff; private reasoning and native provider state are not transferred
 
 ### Model Selection
 
@@ -247,10 +256,11 @@ Sub-agent activity displays nested under parent tasks for clarity.
 
 ### Working Directories
 
-Each session has an isolated working directory:
+Each session has an explicit workspace type:
 
-- **Default:** `~/Documents/agentic-app/{session-id}/`
-- **Custom:** Choose any directory when creating
+- **Managed:** `~/projects/agentic/chat-{id}/workspace/` and eligible for verified cleanup
+- **Selected:** Choose any existing directory; it remains shared and is never deleted by Agentic
+- **Metadata:** Attachments and Agentic commands live under the app-data directory, outside selected repositories
 - **Safety:** File operations scoped to this directory only
 
 ---

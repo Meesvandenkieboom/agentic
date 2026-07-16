@@ -12,6 +12,7 @@
  */
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import * as path from 'path';
 import { sessionDb } from "../database";
 import { getSystemPrompt, injectWorkingDirIntoAgents } from "../systemPrompt";
 import { configureProvider } from "../providers";
@@ -20,7 +21,8 @@ import { getPortOwnerPid } from "../mcpCleanup";
 import { getOrCreateMcpBridge, isMcpBridgeRegistered } from "../mcpSingletonBridge";
 import { mcpClientManager } from "../mcpClientManager";
 import { AGENT_REGISTRY } from "../agents";
-import { validateDirectory, getSessionPathsFromWorkingDir } from "../directoryUtils";
+import { validateDirectory } from "../directoryUtils";
+import { getRuntimeSessionPaths } from '../sessionWorkspace';
 import { saveImageToSessionPictures, saveFileToSessionFiles } from "../imageUtils";
 import { loadUserConfig } from "../userConfig";
 import { parseApiError, getUserFriendlyMessage } from "../utils/apiErrors";
@@ -154,10 +156,26 @@ async function handleChatMessage(
     session.model = effectiveModelId;
   }
 
-  const workingDir = session.working_directory;
+  if (session.workspace_status === 'preparing') {
+    ws.send(JSON.stringify({ type: 'error', message: 'Branch workspace is still being prepared.', sessionId }));
+    return;
+  }
+  if (session.workspace_status === 'failed') {
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: `Branch workspace preparation failed: ${session.workspace_error || 'unknown error'}`,
+      sessionId,
+    }));
+    return;
+  }
+
+  const runtimePaths = getRuntimeSessionPaths(session);
+  const workingDir = runtimePaths.workspace;
 
   // Process attachments
-  const { imageBlocks, filePaths } = processAttachments(content, sessionId as string, workingDir);
+  const { imageBlocks, filePaths } = processAttachments(
+    content, sessionId as string, runtimePaths.metadata,
+  );
 
   // Extract text content for prompt
   let promptText = typeof content === 'string' ? content : '';
@@ -178,7 +196,7 @@ async function handleChatMessage(
 
   // Expand slash commands
   if (trimmedPrompt.startsWith('/')) {
-    const expandedPrompt = expandSlashCommand(trimmedPrompt, workingDir);
+    const expandedPrompt = expandSlashCommand(trimmedPrompt, workingDir, runtimePaths.metadata);
     if (expandedPrompt) {
       promptText = expandedPrompt;
     } else {
@@ -263,6 +281,23 @@ async function handleChatMessage(
     }
   }
 
+  // Resolve branch/import history before provider dispatch so every adapter
+  // receives the same portable handoff instead of only the Claude path.
+  if (session.handoff_pending && !session.sdk_session_id) {
+    const sessionMessages = sessionDb.getSessionMessages(sessionId as string);
+    const priorMessages = sessionMessages.slice(0, -1);
+    if (priorMessages.length > 0) {
+      const historyContext = formatBranchHistory(priorMessages);
+      promptText = `${historyContext}\n\n${promptText}`;
+      if (typeof messageContent === 'string') {
+        messageContent = promptText;
+      } else {
+        messageContent = [{ type: 'text' as const, text: historyContext }, ...messageContent];
+      }
+      console.log(`🌿 Portable handoff: injected ${priorMessages.length} prior messages`);
+    }
+  }
+
   // Codex provider (separate SDK)
   if (providerType === 'codex') {
     await handleCodexProvider(
@@ -309,7 +344,7 @@ function effortToThinkingTokens(effort: string | undefined): number {
 function processAttachments(
   content: unknown,
   sessionId: string,
-  workingDir: string,
+  metadataDir: string,
 ): { imageBlocks: ContentBlock[]; filePaths: string[] } {
   const imageBlocks: ContentBlock[] = [];
   const filePaths: string[] = [];
@@ -323,7 +358,7 @@ function processAttachments(
       const source = block.source as Record<string, unknown>;
       if (source.type === 'base64' && typeof source.data === 'string') {
         const base64Data = `data:${source.media_type || 'image/png'};base64,${source.data}`;
-        saveImageToSessionPictures(base64Data, sessionId, workingDir);
+        saveImageToSessionPictures(base64Data, sessionId, metadataDir);
         imageBlocks.push({
           type: 'image',
           source: {
@@ -336,8 +371,8 @@ function processAttachments(
     }
 
     if (block.type === 'document' && typeof block.data === 'string' && typeof block.name === 'string') {
-      const filePath = saveFileToSessionFiles(block.data as string, block.name as string, sessionId, workingDir);
-      filePaths.push(filePath);
+      const filePath = saveFileToSessionFiles(block.data as string, block.name as string, sessionId, metadataDir);
+      filePaths.push(path.resolve(metadataDir, filePath));
     }
   }
 
@@ -447,8 +482,6 @@ async function handleCodexProvider(
       return;
     }
 
-    const paths = getSessionPathsFromWorkingDir(workingDir);
-
     // Merge UI-connected MCP servers, then bridge port-bound stdio MCPs (eg
     // rbxstudio-mcp on :3002) through the shared singleton — exactly like the
     // Claude path (see spawnClaudeStream). This makes Codex connect to the same
@@ -461,7 +494,7 @@ async function handleCodexProvider(
 
     await runCodexStream(
       promptText,
-      paths.workspace,
+      workingDir,
       (event) => {
         // Accumulate structured blocks for the single end-of-turn DB save.
         if (event.type === 'assistant_message' && event.content) {
@@ -659,7 +692,7 @@ async function spawnClaudeStream(
     // Startup cleanup (server.ts) is sufficient; the SDK reaps its own
     // MCP children when it exits.
 
-    const paths = getSessionPathsFromWorkingDir(workingDir);
+    const paths = getRuntimeSessionPaths(session);
     const workspaceDir = paths.workspace;
     const userConfig = loadUserConfig();
 
@@ -707,21 +740,6 @@ IMPORTANT: Do not modify files outside the workspace directory.
 
     if (!isFirstMessage && session.sdk_session_id) {
       console.log(`📋 Using resume with SDK session ID: ${session.sdk_session_id}`);
-    }
-
-    // Branch context injection
-    const isBranchStart = !isFirstMessage && !session.sdk_session_id;
-    if (isBranchStart) {
-      const priorMessages = sessionMessages.slice(0, -1);
-      if (priorMessages.length > 0) {
-        const historyContext = formatBranchHistory(priorMessages);
-        if (typeof messageContent === 'string') {
-          messageContent = historyContext + '\n\n' + messageContent;
-        } else if (Array.isArray(messageContent)) {
-          messageContent = [{ type: 'text' as const, text: historyContext }, ...messageContent];
-        }
-        console.log(`🌿 Branch start: injected ${priorMessages.length} prior messages as context`);
-      }
     }
 
     // Build query options
