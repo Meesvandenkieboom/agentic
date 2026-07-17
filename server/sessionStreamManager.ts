@@ -20,6 +20,14 @@ export type ImageBlock = {
 export type ContentBlock = TextBlock | ImageBlock;
 export type MessageContent = string | ContentBlock[];
 
+export function shouldCleanupIdleStream(
+  isGenerating: boolean,
+  idleTimeMs: number,
+  timeoutMs: number,
+): boolean {
+  return !isGenerating && idleTimeMs > timeoutMs;
+}
+
 interface SessionStream {
   messageQueue: AsyncQueue<MessageContent>;
   sdkQuery: Query | null;
@@ -170,7 +178,7 @@ export class SessionStreamManager {
   /**
    * Abort/stop generation for session (user-triggered stop)
    */
-  abortSession(sessionId: string): boolean {
+  abortSession(sessionId: string, reason: string = 'user'): boolean {
     const stream = this.streams.get(sessionId);
     if (!stream) {
       console.warn(`⚠️ Abort requested for non-existent session: ${sessionId.substring(0, 8)}`);
@@ -184,7 +192,7 @@ export class SessionStreamManager {
     }
 
     console.log(`🛑 Generation stopped: ${sessionId.substring(0, 8)}`);
-    stream.abortController.abort();
+    stream.abortController.abort(reason);
 
     // Send abort signal to client
     this.safeSend(sessionId, JSON.stringify({
@@ -254,7 +262,7 @@ export class SessionStreamManager {
   /**
    * Clean up session stream
    */
-  cleanupSession(sessionId: string, _reason: string = 'manual'): void {
+  cleanupSession(sessionId: string, reason: string = 'manual'): void {
     const stream = this.streams.get(sessionId);
     if (!stream) return;
 
@@ -265,7 +273,7 @@ export class SessionStreamManager {
 
     // Abort SDK subprocess (safe to call even if already aborted)
     if (!stream.abortController.signal.aborted) {
-      stream.abortController.abort();
+      stream.abortController.abort(reason);
     }
 
     // Complete message queue (stops iteration)
@@ -358,7 +366,10 @@ export class SessionStreamManager {
       const now = Date.now();
       for (const [sessionId, stream] of Array.from(this.streams.entries())) {
         const idleTime = now - stream.lastActivityAt;
-        if (idleTime > this.SESSION_TIMEOUT_MS) {
+        // A long turn can legitimately be silent for hours while Codex runs a
+        // tool or compacts context. Never turn an active child into an orphan
+        // merely because the in-memory session timeout elapsed.
+        if (shouldCleanupIdleStream(stream.isGenerating, idleTime, this.SESSION_TIMEOUT_MS)) {
           console.log(`⏱️ Session timeout: ${sessionId.substring(0, 8)} (idle: ${Math.floor(idleTime / 1000)}s)`);
           this.cleanupSession(sessionId, 'timeout');
         }

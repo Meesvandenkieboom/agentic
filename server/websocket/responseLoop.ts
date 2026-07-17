@@ -112,18 +112,6 @@ export function startResponseLoop(
     // multi-turn (tool-use loop) is evaluated independently.
     let receivedStreamEvent = false;
 
-    const sessionStartTime = Date.now();
-
-    // Heartbeat every 30 seconds to prevent WebSocket idle timeout
-    const heartbeatInterval = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
-      sessionStreamManager.safeSend(sessionId, JSON.stringify({
-        type: 'keepalive',
-        elapsedSeconds: elapsed,
-        sessionId,
-      }));
-    }, 30000);
-
     try {
       for await (const message of result as AsyncIterable<Record<string, unknown>>) {
         // Capture SDK's internal session ID from init message
@@ -193,7 +181,7 @@ export function startResponseLoop(
           const MAX_OUTPUT_CHARS = 50_000_000;
           if (totalCharCount > MAX_OUTPUT_CHARS) {
             console.warn(`⚠️ Session ${sessionId.substring(0, 8)} exceeded ${MAX_OUTPUT_CHARS / 1_000_000}MB output limit, aborting`);
-            sessionStreamManager.abortSession(sessionId);
+            sessionStreamManager.abortSession(sessionId, 'output_limit');
           }
           continue;
         }
@@ -252,8 +240,6 @@ export function startResponseLoop(
       }
     } catch (error) {
       handleLoopError(error, sessionId, activeQueries, currentMessageContent, currentTextResponse, currentMessageId, onLoopError);
-    } finally {
-      clearInterval(heartbeatInterval);
     }
   })();
 }

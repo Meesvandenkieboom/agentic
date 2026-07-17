@@ -355,7 +355,10 @@ export async function runCodexStream(
   } catch (error) {
     // Graceful stop: the Stop button aborted the turn — not a real error.
     if (opts.signal?.aborted) {
-      console.log("🤖 Codex stream aborted by user");
+      const reason = typeof opts.signal.reason === 'string' ? opts.signal.reason : 'unknown';
+      console.log(reason === 'user'
+        ? "🤖 Codex stream aborted by user"
+        : `🤖 Codex stream aborted (${reason})`);
       return;
     }
     console.error("🤖 Codex stream error:", error);

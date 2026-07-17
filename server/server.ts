@@ -60,6 +60,7 @@ import { handleGitHubRoutes } from "./routes/github";
 import { handleAgentRoutes } from "./routes/agents";
 import { handleMCPServerRoutes } from "./routes/mcpServers";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
+import { getDisconnectAction } from "./websocket/disconnectPolicy";
 import type { ChatWebSocketData } from "./websocket/types";
 import { sessionStreamManager } from "./sessionStreamManager";
 import { runStartupMigrations } from "./utils/configMigration";
@@ -128,6 +129,26 @@ interface HotReloadClient {
 const activeQueries = new Map<string, unknown>();
 
 const hotReloadClients = new Set<HotReloadClient>();
+const chatClients = new Set<ServerWebSocket<ChatWebSocketData>>();
+
+// Keep the transport alive even when an agent spends several minutes in a
+// silent tool call or compaction. Provider-level activity is not a reliable
+// WebSocket heartbeat, especially for very long Codex turns.
+const transportKeepalive = setInterval(() => {
+  const payload = JSON.stringify({ type: 'keepalive', elapsedSeconds: 0 });
+  for (const client of Array.from(chatClients)) {
+    try {
+      if (client.readyState === 1) {
+        client.send(payload);
+      } else {
+        chatClients.delete(client);
+      }
+    } catch {
+      chatClients.delete(client);
+    }
+  }
+}, 30_000);
+transportKeepalive.unref();
 
 // Watch for file changes (hot reload) - only in dev mode
 if (!IS_STANDALONE) {
@@ -153,6 +174,8 @@ const server = Bun.serve({
     open(ws: ServerWebSocket<ChatWebSocketData>) {
       if (ws.data?.type === 'hot-reload') {
         hotReloadClients.add(ws);
+      } else if (ws.data?.type === 'chat') {
+        chatClients.add(ws);
       }
       // Session ID is assigned in first message, not on connection
     },
@@ -165,9 +188,9 @@ const server = Bun.serve({
       if (ws.data?.type === 'hot-reload') {
         hotReloadClients.delete(ws);
       } else if (ws.data?.type === 'chat') {
+        chatClients.delete(ws);
         // Find ALL sessions that were using this WebSocket (not just ws.data.sessionId)
-        // This fixes a bug where only the last-reconnected session got a grace period,
-        // leaving other sessions as orphaned zombies consuming API tokens.
+        // so each turn can either continue headlessly or clean up its idle SDK stream.
         const affectedSessions = sessionStreamManager.getSessionsByWebSocket(ws);
 
         if (affectedSessions.length > 0) {
@@ -175,10 +198,17 @@ const server = Bun.serve({
 
           for (const sid of affectedSessions) {
             const remainingSockets = sessionStreamManager.detachWebSocket(sid, ws);
-            if (remainingSockets === 0 && sessionStreamManager.hasStream(sid)) {
+            const action = getDisconnectAction({
+              remainingSockets,
+              hasStream: sessionStreamManager.hasStream(sid),
+              isGenerating: sessionStreamManager.isGenerating(sid),
+            });
+
+            if (action === 'keep-generating') {
+              console.log(`🔄 Session ${sid.substring(0, 8)} continues in the background and can be reattached`);
+            } else if (action === 'cleanup-after-grace') {
               sessionStreamManager.startDisconnectGracePeriod(sid, () => {
-                console.log(`⏱️ Grace period expired for session ${sid.substring(0, 8)} — aborting generation`);
-                sessionStreamManager.abortSession(sid);
+                console.log(`⏱️ Grace period expired for idle session ${sid.substring(0, 8)} — cleaning up SDK stream`);
                 sessionStreamManager.cleanupSession(sid, 'websocket_disconnected');
                 activeQueries.delete(sid);
               }, 60000);
@@ -192,10 +222,17 @@ const server = Bun.serve({
           if (sid) {
             console.log(`🔌 WebSocket disconnected: session ${sid.substring(0, 8)} (fallback)`);
             const remainingSockets = sessionStreamManager.detachWebSocket(sid, ws);
-            if (remainingSockets === 0 && sessionStreamManager.hasStream(sid)) {
+            const action = getDisconnectAction({
+              remainingSockets,
+              hasStream: sessionStreamManager.hasStream(sid),
+              isGenerating: sessionStreamManager.isGenerating(sid),
+            });
+
+            if (action === 'keep-generating') {
+              console.log(`🔄 Session ${sid.substring(0, 8)} continues in the background and can be reattached`);
+            } else if (action === 'cleanup-after-grace') {
               sessionStreamManager.startDisconnectGracePeriod(sid, () => {
-                console.log(`⏱️ Grace period expired for session ${sid.substring(0, 8)} — aborting generation`);
-                sessionStreamManager.abortSession(sid);
+                console.log(`⏱️ Grace period expired for idle session ${sid.substring(0, 8)} — cleaning up SDK stream`);
                 sessionStreamManager.cleanupSession(sid, 'websocket_disconnected');
                 activeQueries.delete(sid);
               }, 60000);

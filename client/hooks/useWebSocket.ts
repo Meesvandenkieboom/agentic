@@ -21,6 +21,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { showError } from '../utils/errorMessages';
 
+const HEALTH_CHECK_INTERVAL_MS = 30_000;
+const STALE_CONNECTION_MS = 90_000;
+
 interface BaseWebSocketMessage {
   type: string;
   sessionId?: string;
@@ -261,6 +264,8 @@ export function useWebSocket({
   const reconnectAttemptsRef = useRef(0);
   const isMountedRef = useRef(false);
   const connectionIdRef = useRef(0);
+  const lastMessageAtRef = useRef(Date.now());
+  const healthCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Use refs for callbacks to prevent reconnections when they change
   const onMessageRef = useRef(onMessage);
@@ -286,12 +291,18 @@ export function useWebSocket({
 
     try {
       const ws = new WebSocket(url);
+      const connectionId = connectionIdRef.current + 1;
+      connectionIdRef.current = connectionId;
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (connectionId !== connectionIdRef.current) {
+          ws.close();
+          return;
+        }
         setIsConnected(true);
         reconnectAttemptsRef.current = 0;
-        connectionIdRef.current += 1;
+        lastMessageAtRef.current = Date.now();
         onConnectRef.current?.();
 
         // Send any queued messages
@@ -302,6 +313,8 @@ export function useWebSocket({
       };
 
       ws.onmessage = (event) => {
+        if (connectionId !== connectionIdRef.current) return;
+        lastMessageAtRef.current = Date.now();
         try {
           const message = JSON.parse(event.data);
           onMessageRef.current?.(message);
@@ -316,6 +329,7 @@ export function useWebSocket({
       };
 
       ws.onclose = () => {
+        if (connectionId !== connectionIdRef.current) return;
         setIsConnected(false);
         onDisconnectRef.current?.();
         wsRef.current = null;
@@ -364,6 +378,7 @@ export function useWebSocket({
       clearTimeout(reconnectTimeoutRef.current);
     }
     if (wsRef.current) {
+      connectionIdRef.current += 1;
       wsRef.current.close();
       wsRef.current = null;
     }
@@ -387,6 +402,20 @@ export function useWebSocket({
     isMountedRef.current = true;
     connect();
 
+    // A browser can leave a dead connection looking OPEN indefinitely. The
+    // server sends transport keepalives every 30s; if none arrive for 90s,
+    // force a close so the normal reconnect + active-session sync can run.
+    healthCheckIntervalRef.current = setInterval(() => {
+      const ws = wsRef.current;
+      if (
+        ws?.readyState === WebSocket.OPEN &&
+        Date.now() - lastMessageAtRef.current > STALE_CONNECTION_MS
+      ) {
+        console.warn('[WebSocket] No server heartbeat received; reconnecting');
+        ws.close(4000, 'Heartbeat timeout');
+      }
+    }, HEALTH_CHECK_INTERVAL_MS);
+
     // When tab becomes visible again (e.g. after sleep/lock), immediately reconnect
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED)) {
@@ -409,6 +438,10 @@ export function useWebSocket({
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
+      }
+      if (healthCheckIntervalRef.current) {
+        clearInterval(healthCheckIntervalRef.current);
+        healthCheckIntervalRef.current = null;
       }
       disconnect();
     };
