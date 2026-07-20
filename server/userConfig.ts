@@ -8,11 +8,13 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { getBinaryDir } from './startup';
+import type { SkillPolicy } from './skills';
 
 export interface UserConfig {
   name?: string;
   firstName?: string;
   lastName?: string;
+  skills?: SkillPolicy;
 }
 
 /**

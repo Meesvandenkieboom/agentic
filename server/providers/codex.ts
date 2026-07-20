@@ -21,6 +21,7 @@ import type {
   ThreadEvent,
   ThreadItem,
 } from "@openai/codex-sdk";
+import type { CodexSkillConfigEntry } from '../skills';
 
 /**
  * Events emitted to the caller. These map 1:1 onto Agentic's client WebSocket
@@ -69,8 +70,30 @@ export interface RunCodexOptions {
    * Empty/undefined = no MCP servers.
    */
   mcpServers?: Record<string, unknown>;
+  /** Agentic-specific guidance injected before AGENTS.md on every Codex turn. */
+  developerInstructions?: string;
+  /** Explicit per-session user-skill overrides. Undefined preserves native config. */
+  skillsConfig?: CodexSkillConfigEntry[];
   /** Fired with the thread id as soon as the thread starts (persist for resume). */
   onThreadId?: (id: string) => void;
+}
+
+export function buildCodexConfig(
+  options: Pick<RunCodexOptions, 'mcpServers' | 'developerInstructions' | 'skillsConfig'>,
+): NonNullable<CodexOptions['config']> {
+  const config: Record<string, unknown> = {};
+
+  if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
+    config.mcp_servers = options.mcpServers;
+  }
+  if (options.developerInstructions) {
+    config.developer_instructions = options.developerInstructions;
+  }
+  if (options.skillsConfig !== undefined) {
+    config.skills = { config: options.skillsConfig };
+  }
+
+  return config as NonNullable<CodexOptions['config']>;
 }
 
 // Lazy-loaded Codex SDK constructor (prevents import errors if not installed).
@@ -268,14 +291,13 @@ export async function runCodexStream(
 ): Promise<void> {
   const Codex = await loadCodexSDK();
 
-  // Inject MCP servers via the SDK's config overrides. ThreadOptions has no
-  // MCP field, but CodexOptions.config flattens `mcp_servers.*` into the
-  // CLI's `--config` flags — the same mechanism as ~/.codex/config.toml.
+  // Inject Agentic's session-specific configuration through the SDK. The SDK
+  // flattens this object into CLI `--config` flags, with the same shape as
+  // ~/.codex/config.toml.
   const hasMcp = !!opts.mcpServers && Object.keys(opts.mcpServers).length > 0;
-  // CodexOptions.config is a recursively-typed TOML value tree; our server map
-  // is structurally compatible but typed loosely, so cast through `unknown`.
-  const codexOptions = { config: { mcp_servers: opts.mcpServers } } as unknown as CodexOptions;
-  const codex = hasMcp ? new Codex(codexOptions) : new Codex();
+  const config = buildCodexConfig(opts);
+  const codexOptions: CodexOptions = { config };
+  const codex = Object.keys(config).length > 0 ? new Codex(codexOptions) : new Codex();
 
   if (hasMcp) {
     console.log(`🔌 Codex MCP: ${Object.keys(opts.mcpServers ?? {}).join(', ')}`);

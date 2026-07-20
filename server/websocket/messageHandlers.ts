@@ -14,7 +14,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import * as path from 'path';
 import { sessionDb } from "../database";
-import { getSystemPrompt, injectWorkingDirIntoAgents } from "../systemPrompt";
+import { buildGithubContext, getSystemPrompt, injectWorkingDirIntoAgents } from "../systemPrompt";
 import { configureProvider } from "../providers";
 import { getMcpServers, toCodexMcpServers } from "../mcpServers";
 import { getPortOwnerPid } from "../mcpCleanup";
@@ -29,6 +29,7 @@ import { parseApiError, getUserFriendlyMessage } from "../utils/apiErrors";
 import { sessionStreamManager, type ContentBlock, type MessageContent } from "../sessionStreamManager";
 import { expandSlashCommand } from "../slashCommandExpander";
 import { generateChatTitle } from "../utils/chatTitles";
+import { buildCodexSkillConfig, discoverUserSkills, normalizeSkillPolicy } from '../skills';
 
 import type { ChatWebSocket } from "./types";
 import { MODEL_MAP, pendingQuestions } from "./types";
@@ -491,6 +492,12 @@ async function handleCodexProvider(
     const allMcpServers: Record<string, unknown> = { ...mcpServers, ...connectedMcpServers };
     await bridgeOrExcludePortBoundMcps(allMcpServers);
     const codexMcpServers = toCodexMcpServers(allMcpServers);
+    const userConfig = loadUserConfig();
+    const skillPolicy = normalizeSkillPolicy(userConfig.skills);
+    const skillsConfig = buildCodexSkillConfig(await discoverUserSkills(), skillPolicy);
+    const developerInstructions = session.github_repo
+      ? buildGithubContext(session.github_repo, workingDir)
+      : undefined;
 
     await runCodexStream(
       promptText,
@@ -526,6 +533,8 @@ async function handleCodexProvider(
         effort,
         model,
         mcpServers: codexMcpServers,
+        developerInstructions,
+        skillsConfig,
         onThreadId: (id) => sessionDb.updateSdkSessionId(sessionId, id),
       },
     );

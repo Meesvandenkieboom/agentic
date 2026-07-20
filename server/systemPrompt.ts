@@ -157,7 +157,7 @@ export function injectWorkingDirIntoAgents(
  * Build GitHub repository context with git workflow instructions
  * Phase 0.1: workingDir parameter now receives workspace path (not session root)
  */
-function buildGithubContext(githubRepo: string, workingDir: string): string {
+export function buildGithubContext(githubRepo: string, workingDir: string): string {
   return `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🐙 GITHUB REPOSITORY CONNECTED

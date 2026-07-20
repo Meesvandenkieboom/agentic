@@ -58,6 +58,7 @@ import { handleCommandRoutes } from "./routes/commands";
 import { handleImportRoutes } from "./routes/import";
 import { handleGitHubRoutes } from "./routes/github";
 import { handleAgentRoutes } from "./routes/agents";
+import { handleSkillRoutes } from "./routes/skills";
 import { handleMCPServerRoutes } from "./routes/mcpServers";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
 import type { ChatWebSocketData } from "./websocket/types";
@@ -266,6 +267,12 @@ const server = Bun.serve({
     const agentResponse = await handleAgentRoutes(req, url);
     if (agentResponse) {
       return agentResponse;
+    }
+
+    // Try skill routes
+    const skillResponse = await handleSkillRoutes(req, url);
+    if (skillResponse) {
+      return skillResponse;
     }
 
     // Try MCP server routes

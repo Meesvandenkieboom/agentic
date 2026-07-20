@@ -6,11 +6,12 @@
  */
 
 import React, { useState } from 'react';
-import { X, Settings as SettingsIcon, Bot, Plug2 } from 'lucide-react';
+import { X, Settings as SettingsIcon, Bot, Plug2, Sparkles } from 'lucide-react';
 import { AgentSettingsTab } from './AgentSettingsTab';
 import { MCPServersTab } from './MCPServersTab';
+import { SkillsSettingsTab } from './SkillsSettingsTab';
 
-type SettingsTab = 'agents' | 'mcp-servers';
+type SettingsTab = 'agents' | 'skills' | 'mcp-servers';
 
 interface Tab {
   id: SettingsTab;
@@ -20,6 +21,7 @@ interface Tab {
 
 const TABS: Tab[] = [
   { id: 'agents', label: 'Agents', icon: Bot },
+  { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'mcp-servers', label: 'Integrations', icon: Plug2 },
 ];
 
@@ -75,6 +77,7 @@ export function Settings({ onClose, initialTab = 'agents' }: SettingsProps) {
           {/* Tab Content */}
           <div className="flex-1 overflow-y-auto">
             {activeTab === 'agents' && <AgentSettingsTab />}
+            {activeTab === 'skills' && <SkillsSettingsTab />}
             {activeTab === 'mcp-servers' && <MCPServersTab />}
           </div>
         </div>
