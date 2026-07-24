@@ -47,6 +47,7 @@ describe('normalizeModelId', () => {
 
   it('maps a legacy alias to its current id', () => {
     expect(normalizeModelId('opus-4-7')).toBe(DEFAULT_MODEL_ID);
+    expect(normalizeModelId('opus-4-8')).toBe(DEFAULT_MODEL_ID);
   });
 
   it('passes through a known id unchanged', () => {

@@ -27,10 +27,11 @@
 
 export type ProviderType = 'anthropic' | 'codex';
 
-export const DEFAULT_MODEL_ID = 'opus-4-8';
+export const DEFAULT_MODEL_ID = 'opus-5';
 
 const LEGACY_MODEL_ALIASES: Record<string, string> = {
   'opus-4-7': DEFAULT_MODEL_ID,
+  'opus-4-8': DEFAULT_MODEL_ID,
 };
 
 export interface ModelConfig {
@@ -55,10 +56,10 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     provider: 'anthropic',
   },
   {
-    id: 'opus-4-8',
-    name: 'Claude Opus 4.8',
+    id: 'opus-5',
+    name: 'Claude Opus 5',
     description: 'Latest and most capable Opus model for advanced reasoning and coding',
-    apiModelId: 'claude-opus-4-8',
+    apiModelId: 'claude-opus-5',
     provider: 'anthropic',
   },
   {
@@ -79,7 +80,7 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     id: 'hive',
     name: 'Claude HIVE',
     description: 'Opus orchestrator with a parallel agent swarm for complex tasks',
-    apiModelId: 'claude-opus-4-8',
+    apiModelId: 'claude-opus-5',
     provider: 'anthropic',
   },
   {
