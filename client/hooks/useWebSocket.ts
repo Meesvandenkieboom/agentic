@@ -117,8 +117,8 @@ interface RetryAttemptEvent extends BaseWebSocketMessage {
   type: 'retry_attempt';
   attempt: number;
   maxAttempts: number;
-  delayMs: number;
-  errorType: string;
+  delayMs?: number;
+  errorType?: string;
   message: string;
 }
 

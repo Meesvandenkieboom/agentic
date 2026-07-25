@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { buildCodexConfig } from './codex';
+import { buildCodexConfig, parseCodexRetryNotice } from './codex';
 
 describe('buildCodexConfig', () => {
   it('preserves native configuration when Agentic has no overrides', () => {
@@ -30,5 +30,38 @@ describe('buildCodexConfig', () => {
         ],
       },
     });
+  });
+});
+
+describe('parseCodexRetryNotice', () => {
+  it('recognizes a transient reconnect notice', () => {
+    expect(parseCodexRetryNotice(
+      'Reconnecting... 1/5 (stream disconnected before completion: Internal server error)',
+    )).toEqual({
+      type: 'retry_attempt',
+      attempt: 1,
+      maxAttempts: 5,
+      message: 'stream disconnected before completion: Internal server error',
+    });
+  });
+
+  it('handles nested parentheses in the detail', () => {
+    expect(parseCodexRetryNotice(
+      'Reconnecting... 2/5 (stream disconnected before completion: Connection reset by peer (os error 54))',
+    )?.message).toBe('stream disconnected before completion: Connection reset by peer (os error 54)');
+  });
+
+  it('handles a notice with no detail', () => {
+    expect(parseCodexRetryNotice('Reconnecting... 3/5')).toEqual({
+      type: 'retry_attempt',
+      attempt: 3,
+      maxAttempts: 5,
+      message: 'Connection interrupted',
+    });
+  });
+
+  it('leaves real errors alone', () => {
+    expect(parseCodexRetryNotice('backend failed (request id abc)')).toBeNull();
+    expect(parseCodexRetryNotice(undefined)).toBeNull();
   });
 });

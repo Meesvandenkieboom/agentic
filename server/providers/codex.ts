@@ -38,6 +38,7 @@ export interface CodexEvent {
     | 'tool_use'
     | 'token_update'
     | 'result'
+    | 'retry_attempt'
     | 'error';
   content?: string;
   toolId?: string;
@@ -46,6 +47,8 @@ export interface CodexEvent {
   outputTokens?: number;
   success?: boolean;
   message?: string;
+  attempt?: number;
+  maxAttempts?: number;
 }
 
 export type CodexEventCallback = (event: CodexEvent) => void;
@@ -164,6 +167,24 @@ function toReasoningEffort(effort?: string): ModelReasoningEffort | undefined {
     case 'ultra':   return effort as ModelReasoningEffort;
     default:        return undefined;
   }
+}
+
+/**
+ * Codex reports its OWN transient retries as `error` stream events — e.g.
+ * "Reconnecting... 1/5 (stream disconnected before completion: Internal server
+ * error)" (see `notify_stream_error` in codex-rs). The turn keeps running and
+ * usually completes, so surfacing these as errors spams the chat with bubbles
+ * that disappear on reload. Map them to `retry_attempt` (a toast) instead.
+ */
+export function parseCodexRetryNotice(message: string | undefined): CodexEvent | null {
+  const match = message?.match(/^Reconnecting\.\.\.\s*(\d+)\s*\/\s*(\d+)\s*(?:\(([\s\S]*)\))?$/);
+  if (!match) return null;
+  return {
+    type: 'retry_attempt',
+    attempt: Number(match[1]),
+    maxAttempts: Number(match[2]),
+    message: match[3] || 'Connection interrupted',
+  };
 }
 
 /**
@@ -366,10 +387,17 @@ export async function runCodexStream(
           break;
         }
 
-        case 'error':
+        case 'error': {
+          const retry = parseCodexRetryNotice(event.message);
+          if (retry) {
+            console.warn(`🤖 Codex retrying ${retry.attempt}/${retry.maxAttempts}: ${retry.message}`);
+            onEvent(retry);
+            break;
+          }
           console.error(`🤖 Codex error [${opts.model ?? 'cli-default'}]:`, event.message);
           onEvent({ type: 'error', message: event.message || 'Unknown Codex error' });
           break;
+        }
       }
     }
 
