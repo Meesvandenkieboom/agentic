@@ -446,7 +446,7 @@ export function ChatContainer() {
   // Returns true when the message was accepted for sending, so the caller can clear its draft.
   const handleSubmit = async (text: string, files?: FileAttachment[], mode?: 'general' | 'coder' | 'intense-research' | 'spark' | 'hive'): Promise<boolean> => {
     const messageText = text;
-    if (!messageText.trim() || !isConnected) return false;
+    if ((!messageText.trim() && !files?.length) || !isConnected) return false;
 
     if (isWorkspacePreparing) {
       toast.info('This branch workspace is still being prepared.');

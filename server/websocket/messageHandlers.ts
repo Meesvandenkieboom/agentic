@@ -174,7 +174,7 @@ async function handleChatMessage(
   const workingDir = runtimePaths.workspace;
 
   // Process attachments
-  const { imageBlocks, filePaths } = processAttachments(
+  const { imageBlocks, imagePaths, filePaths } = processAttachments(
     content, sessionId as string, runtimePaths.metadata,
   );
 
@@ -188,6 +188,12 @@ async function handleChatMessage(
   }
 
   // Handle special commands
+  if (!promptText.trim() && imageBlocks.length > 0) {
+    promptText = 'Please inspect the attached image.';
+  } else if (!promptText.trim() && filePaths.length > 0) {
+    promptText = 'Please inspect the attached file.';
+  }
+
   const trimmedPrompt = promptText.trim();
   if (handleSpecialCommands(ws, trimmedPrompt, sessionId as string)) return;
 
@@ -306,6 +312,7 @@ async function handleChatMessage(
       effort as string | undefined,
       apiModelId,
       mcpServers,
+      imagePaths,
     );
     return;
   }
@@ -346,11 +353,12 @@ function processAttachments(
   content: unknown,
   sessionId: string,
   metadataDir: string,
-): { imageBlocks: ContentBlock[]; filePaths: string[] } {
+): { imageBlocks: ContentBlock[]; imagePaths: string[]; filePaths: string[] } {
   const imageBlocks: ContentBlock[] = [];
+  const imagePaths: string[] = [];
   const filePaths: string[] = [];
 
-  if (!Array.isArray(content)) return { imageBlocks, filePaths };
+  if (!Array.isArray(content)) return { imageBlocks, imagePaths, filePaths };
 
   const contentBlocks = content as Array<Record<string, unknown>>;
 
@@ -359,7 +367,8 @@ function processAttachments(
       const source = block.source as Record<string, unknown>;
       if (source.type === 'base64' && typeof source.data === 'string') {
         const base64Data = `data:${source.media_type || 'image/png'};base64,${source.data}`;
-        saveImageToSessionPictures(base64Data, sessionId, metadataDir);
+        const imagePath = saveImageToSessionPictures(base64Data, sessionId, metadataDir);
+        imagePaths.push(path.resolve(metadataDir, imagePath));
         imageBlocks.push({
           type: 'image',
           source: {
@@ -381,7 +390,7 @@ function processAttachments(
     console.log(`📎 Attachments: ${imageBlocks.length} image(s), ${filePaths.length} file(s)`);
   }
 
-  return { imageBlocks, filePaths };
+  return { imageBlocks, imagePaths, filePaths };
 }
 
 /** Handle /compact and /clear commands. Returns true if the command was handled. */
@@ -446,6 +455,7 @@ async function handleCodexProvider(
   effort: string | undefined,
   model: string | undefined,
   mcpServers: Record<string, unknown>,
+  imagePaths: string[],
 ): Promise<void> {
   // Register a stream so Stop/reconnect work and an AbortController exists.
   // We never consume the message queue — only the AbortController matters here.
@@ -534,6 +544,7 @@ async function handleCodexProvider(
         model,
         mcpServers: codexMcpServers,
         developerInstructions,
+        imagePaths,
         skillsConfig,
         onThreadId: (id) => sessionDb.updateSdkSessionId(sessionId, id),
       },

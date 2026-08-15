@@ -570,9 +570,9 @@ export function NewChatWelcome({ onSubmit, onStop, disabled, isGenerating, isClo
                     <button
                       type="button"
                       onClick={handleSubmit}
-                      disabled={disabled || !inputValue.trim()}
+                      disabled={disabled || (!inputValue.trim() && attachedFiles.length === 0)}
                       className={`transition rounded-lg p-2 self-center ${
-                        !disabled && inputValue.trim()
+                        !disabled && (inputValue.trim() || attachedFiles.length > 0)
                           ? 'send-button-active'
                           : 'bg-gray-500 text-white/40 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600'
                       }`}

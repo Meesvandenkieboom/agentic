@@ -189,7 +189,7 @@ export function ChatInput({ onSubmit, onStop, disabled, isGenerating, isCloning,
     // Normal submit handling
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (value.trim() && !disabled) {
+      if ((value.trim() || attachedFiles.length > 0) && !disabled) {
         void handleSubmit();
       }
     }
@@ -520,8 +520,8 @@ export function ChatInput({ onSubmit, onStop, disabled, isGenerating, isCloning,
               ) : (
                 <button
                   onClick={handleSubmit}
-                  disabled={disabled || !value.trim()}
-                  className={`send-button ${!disabled && value.trim() ? 'send-button-active' : ''}`}
+                  disabled={disabled || (!value.trim() && attachedFiles.length === 0)}
+                  className={`send-button ${!disabled && (value.trim() || attachedFiles.length > 0) ? 'send-button-active' : ''}`}
                   title="Send message"
                   type="submit"
                 >

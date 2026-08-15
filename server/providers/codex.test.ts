@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { buildCodexConfig, parseCodexRetryNotice } from './codex';
+import { buildCodexConfig, buildCodexInput, parseCodexRetryNotice } from './codex';
 
 describe('buildCodexConfig', () => {
   it('preserves native configuration when Agentic has no overrides', () => {
@@ -63,5 +63,25 @@ describe('parseCodexRetryNotice', () => {
   it('leaves real errors alone', () => {
     expect(parseCodexRetryNotice('backend failed (request id abc)')).toBeNull();
     expect(parseCodexRetryNotice(undefined)).toBeNull();
+  });
+});
+
+describe('buildCodexInput', () => {
+  it('keeps text-only turns as a string', () => {
+    expect(buildCodexInput('Inspect the component')).toBe('Inspect the component');
+  });
+
+  it('adds attached images as local_image entries', () => {
+    expect(buildCodexInput('Compare these', ['/tmp/before.png', '/tmp/after.jpg'])).toEqual([
+      { type: 'text', text: 'Compare these' },
+      { type: 'local_image', path: '/tmp/before.png' },
+      { type: 'local_image', path: '/tmp/after.jpg' },
+    ]);
+  });
+
+  it('supports an image-only turn without adding a blank text entry', () => {
+    expect(buildCodexInput('', ['/tmp/screenshot.png'])).toEqual([
+      { type: 'local_image', path: '/tmp/screenshot.png' },
+    ]);
   });
 });

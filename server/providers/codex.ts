@@ -17,6 +17,7 @@ import { join } from "path";
 import type {
   Codex as CodexClass,
   CodexOptions,
+  Input,
   ModelReasoningEffort,
   ThreadEvent,
   ThreadItem,
@@ -75,6 +76,8 @@ export interface RunCodexOptions {
   mcpServers?: Record<string, unknown>;
   /** Agentic-specific guidance injected before AGENTS.md on every Codex turn. */
   developerInstructions?: string;
+  /** Absolute paths to images attached to this turn. */
+  imagePaths?: string[];
   /** Explicit per-session user-skill overrides. Undefined preserves native config. */
   skillsConfig?: CodexSkillConfigEntry[];
   /** Fired with the thread id as soon as the thread starts (persist for resume). */
@@ -185,6 +188,16 @@ export function parseCodexRetryNotice(message: string | undefined): CodexEvent |
     maxAttempts: Number(match[2]),
     message: match[3] || 'Connection interrupted',
   };
+}
+
+/** Build the structured SDK input required for Codex image attachments. */
+export function buildCodexInput(prompt: string, imagePaths: string[] = []): Input {
+  if (imagePaths.length === 0) return prompt;
+
+  return [
+    ...(prompt.trim() ? [{ type: 'text' as const, text: prompt }] : []),
+    ...imagePaths.map((imagePath) => ({ type: 'local_image' as const, path: imagePath })),
+  ];
 }
 
 /**
@@ -354,9 +367,10 @@ export async function runCodexStream(
   // Per-item cumulative-length tracking for delta diffing.
   const sentLen = new Map<string, number>();
   const thinkingStarted = new Set<string>();
+  const input = buildCodexInput(prompt, opts.imagePaths);
 
   try {
-    const { events } = await thread.runStreamed(prompt, { signal: opts.signal });
+    const { events } = await thread.runStreamed(input, { signal: opts.signal });
 
     for await (const event of events as AsyncIterable<ThreadEvent>) {
       switch (event.type) {
