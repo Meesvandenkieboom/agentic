@@ -32,6 +32,25 @@ describe('getModelConfig', () => {
   });
 });
 
+describe('GPT-6 Astra', () => {
+  it('uses the official Codex model slug', () => {
+    expect(getModelConfig('codex-6-astra')).toMatchObject({
+      name: 'Codex (GPT-6 Astra)',
+      description: 'OpenAI Codex via ChatGPT — GPT-6 Astra for complex reasoning, coding, and computer use',
+      apiModelId: 'gpt-6-astra',
+      provider: 'codex',
+    });
+  });
+
+  it('appears directly below GPT-5.6 Sol in the model dropdown', () => {
+    const solIndex = AVAILABLE_MODELS.findIndex(model => model.id === 'codex-5-6-sol');
+    const astraIndex = AVAILABLE_MODELS.findIndex(model => model.id === 'codex-6-astra');
+
+    expect(solIndex).toBeGreaterThanOrEqual(0);
+    expect(astraIndex).toBe(solIndex + 1);
+  });
+});
+
 describe('getDefaultModel', () => {
   it('returns the model matching DEFAULT_MODEL_ID', () => {
     expect(getDefaultModel().id).toBe(DEFAULT_MODEL_ID);

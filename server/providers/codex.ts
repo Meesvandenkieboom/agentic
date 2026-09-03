@@ -62,7 +62,7 @@ export interface RunCodexOptions {
   /** Raw effort string from the UI; mapped to Codex reasoning effort. */
   effort?: string;
   /**
-   * Codex model slug to run (e.g. 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.5').
+   * Codex model slug to run (e.g. 'gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra').
    * Omitted/undefined falls back to the CLI default — which may not be
    * entitled on every account, so the caller should always pass one.
    */
@@ -163,11 +163,8 @@ function toReasoningEffort(effort?: string): ModelReasoningEffort | undefined {
     case 'medium':  return 'medium';
     case 'high':    return 'high';
     case 'xhigh':   return 'xhigh';
-    // GPT-5.6 efforts the CLI accepts but the SDK type (≤0.144) hasn't caught
-    // up with: max = deeper single-agent reasoning, ultra = parallel subagents.
-    // On models without GPT-5.6 access Codex silently falls back to its default.
-    case 'max':
-    case 'ultra':   return effort as ModelReasoningEffort;
+    case 'max':     return 'max';
+    case 'ultra':   return 'ultra';
     default:        return undefined;
   }
 }

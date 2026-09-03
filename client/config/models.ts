@@ -98,6 +98,13 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     provider: 'codex',
   },
   {
+    id: 'codex-6-astra',
+    name: 'Codex (GPT-6 Astra)',
+    description: 'OpenAI Codex via ChatGPT — GPT-6 Astra for complex reasoning, coding, and computer use',
+    apiModelId: 'gpt-6-astra',
+    provider: 'codex',
+  },
+  {
     id: 'codex-5-6-terra',
     name: 'Codex (GPT-5.6 Terra)',
     description: 'OpenAI Codex via ChatGPT — GPT-5.6 Terra, the everyday production tier',
