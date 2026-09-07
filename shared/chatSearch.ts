@@ -13,4 +13,5 @@ export type ChatSearchFilter = 'all' | 'chats' | 'files' | 'images';
 export interface ChatSearchResponse {
   results: ChatSearchResult[];
   hasMore: boolean;
+  hasOlder?: boolean;
 }

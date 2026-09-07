@@ -59,10 +59,11 @@ export async function handleSessionRoutes(
     const query = url.searchParams.get('q') || '';
     const offset = Number(url.searchParams.get('offset') || 0);
     const filter = url.searchParams.get('filter') || 'chats';
-    if (query.length > 500 || !Number.isSafeInteger(offset) || offset < 0 || !['all', 'chats', 'files', 'images'].includes(filter)) {
+    const scope = url.searchParams.get('scope') || 'recent';
+    if (!['recent', 'all'].includes(scope) || query.length > 500 || !Number.isSafeInteger(offset) || offset < 0 || !['all', 'chats', 'files', 'images'].includes(filter)) {
       return Response.json({ error: 'Invalid search query or offset' }, { status: 400 });
     }
-    return Response.json(sessionDb.searchSessions(query, offset, filter as ChatSearchFilter));
+    return Response.json(await sessionDb.searchSessions(query, offset, filter as ChatSearchFilter, scope as 'recent' | 'all', req.signal));
   }
 
   // GET /api/sessions/:id - Get session by ID

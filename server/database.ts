@@ -20,8 +20,9 @@
 
 import { Database } from "bun:sqlite";
 import { randomUUID } from "crypto";
+import { SearchProjection } from './utils/searchProjection';
 import { searchSessions } from './utils/sessionSearch';
-import type { ChatSearchFilter } from '../shared/chatSearch';
+import type { ChatSearchFilter, ChatSearchResponse } from '../shared/chatSearch';
 import * as path from "path";
 import * as fs from "fs";
 import { getDefaultWorkingDirectory, expandPath, validateDirectory, getAppDataDirectory } from "./directoryUtils";
@@ -93,6 +94,7 @@ export interface SessionMessage {
 
 export class SessionDatabase {
   private db: Database;
+  private searchProjection!: SearchProjection;
   private readonly activeCopyWorkspaceIds = new Set<string>();
   private readonly appDataDirectory: string;
   private readonly managedBaseDirectory: string;
@@ -214,6 +216,7 @@ export class SessionDatabase {
     // Explicit workspace provenance, structural history, and stable ordering.
     this.migrateWorkspaceOwnership();
     this.migrateStructuralHistory();
+    this.searchProjection = new SearchProjection(this.db);
   }
 
   private migrateWorkingDirectory() {
@@ -706,11 +709,36 @@ export class SessionDatabase {
     ).get(workspaceId) || null;
   }
 
-  searchSessions(query: string, offset = 0, filter: ChatSearchFilter = 'chats') {
-    const sessions = this.db.query<{ id: string; title: string; updated_at: string }, []>(
-      'SELECT id, title, updated_at FROM sessions WHERE deleted_at IS NULL ORDER BY updated_at DESC, id ASC'
-    ).all();
-    return searchSessions(sessions, id => this.getSessionMessages(id), query, offset, 50, filter);
+  async searchSessions(query: string, offset = 0, filter: ChatSearchFilter = 'chats',
+    scope: 'recent' | 'all' = 'recent', signal?: AbortSignal): Promise<ChatSearchResponse> {
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const sessions = this.db.query<{ id: string; title: string; updated_at: string }, [string]>(
+      `SELECT id, title, updated_at FROM sessions WHERE deleted_at IS NULL AND updated_at >= ?
+       ORDER BY updated_at DESC, id ASC`
+    ).all(scope === 'recent' ? since : '');
+    const hasOlder = scope === 'recent' && !!this.db.query<{ id: string }, [string]>(
+      'SELECT id FROM sessions WHERE deleted_at IS NULL AND updated_at < ? LIMIT 1'
+    ).get(since);
+    const normalized = query.trim().replace(/\s+/g, ' ').toLowerCase();
+    const results: ChatSearchResponse['results'] = [];
+    let remainingOffset = offset;
+    let nextYield = performance.now() + 8;
+    for (const session of sessions) {
+      signal?.throwIfAborted();
+      if (!normalized && filter === 'chats' && remainingOffset > 0) { remainingOffset--; continue; }
+      const messages = await this.searchProjection.messages(this.resolveSessionMessageIds(session.id), normalized, signal);
+      // Count only the matches needed to fill this page (plus one lookahead).
+      const page = searchSessions([session], () => messages, normalized, 0, remainingOffset + 51 - results.length, filter);
+      const skipped = Math.min(remainingOffset, page.results.length);
+      remainingOffset -= skipped;
+      results.push(...page.results.slice(skipped));
+      if (results.length > 50) return { results: results.slice(0, 50), hasMore: true, hasOlder };
+      if (performance.now() >= nextYield) {
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        nextYield = performance.now() + 8;
+      }
+    }
+    return { results, hasMore: false, hasOlder };
   }
 
   getSessions(): { sessions: Session[]; recreatedDirectories: string[] } {

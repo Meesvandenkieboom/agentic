@@ -1,4 +1,5 @@
 import type { ChatSearchFilter, ChatSearchResponse, ChatSearchResult } from '../../shared/chatSearch';
+import type { SearchMessage } from './searchProjection';
 import { decodeStoredMessage } from '../../shared/storedMessage';
 
 interface SearchSession {
@@ -23,7 +24,7 @@ function previewFor(text: string, query: string): string {
 /** Read effective history so shared branches retain searchable attachments too. */
 export function searchSessions(
   sessions: SearchSession[],
-  getMessages: (id: string) => { id?: string; content: string }[],
+  getMessages: (id: string) => ({ id?: string; content: string } | SearchMessage)[],
   rawQuery: string,
   offset = 0,
   limit = 50,
@@ -43,7 +44,7 @@ export function searchSessions(
     const files: ChatSearchResult[] = [];
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i];
-      const decoded = decodeStoredMessage(message.content, false);
+      const decoded = 'content' in message ? decodeStoredMessage(message.content, false) : message;
       const text = decoded.text.replace(/\s+/g, ' ').trim();
       if (!latestText && text) latestText = text;
       if (!matchedText && text && (!query || text.toLowerCase().includes(query))) {

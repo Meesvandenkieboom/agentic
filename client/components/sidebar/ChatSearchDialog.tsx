@@ -40,6 +40,8 @@ function SearchContent({ onSelect }: { onSelect: (result: ChatSearchResult) => v
   const [filter, setFilter] = useState<ChatSearchFilter>('all');
   const [results, setResults] = useState<ChatSearchResult[]>([]);
   const [hasMore, setHasMore] = useState(false);
+  const [hasOlder, setHasOlder] = useState(false);
+  const [scope, setScope] = useState<'recent' | 'all'>('recent');
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -52,13 +54,14 @@ function SearchContent({ onSelect }: { onSelect: (result: ChatSearchResult) => v
     const controller = new AbortController();
     const timeout = window.setTimeout(async () => {
       try {
-        const params = new URLSearchParams({ q: query, offset: String(offset), filter });
+        const params = new URLSearchParams({ q: query, offset: String(offset), filter, scope });
         const response = await fetch(`/api/sessions/search?${params}`, { signal: controller.signal });
         if (!response.ok) throw new Error('Search failed');
         const data: ChatSearchResponse = await response.json();
         if (controller.signal.aborted) return;
         setResults(previous => offset ? [...previous, ...data.results] : data.results);
         setHasMore(data.hasMore);
+        setHasOlder(!!data.hasOlder);
       } catch {
         if (!controller.signal.aborted) setError('Couldn’t search your chats. Please try again.');
       } finally {
@@ -66,13 +69,15 @@ function SearchContent({ onSelect }: { onSelect: (result: ChatSearchResult) => v
       }
     }, query ? 200 : 0);
     return () => { window.clearTimeout(timeout); controller.abort(); };
-  }, [query, offset, retry, filter]);
+  }, [query, offset, retry, filter, scope]);
 
-  const changeQuery = (value: string) => {
+  const changeQuery = (value: string, nextScope: 'recent' | 'all' = scope) => {
+    setScope(nextScope);
     setQuery(value);
     setOffset(0);
     setResults([]);
     setHasMore(false);
+    setHasOlder(false);
     setError('');
     setLoading(true);
     setActiveIndex(0);
@@ -137,6 +142,10 @@ function SearchContent({ onSelect }: { onSelect: (result: ChatSearchResult) => v
           }}
         >{item.label}</button>)}
       </div>
+      <div className="global-chat-search-range" role="status">
+        {scope === 'recent' ? 'Chats active in the last 90 days' : 'Searching all dates'}
+        {scope === 'all' && <button type="button" onClick={() => changeQuery(query, 'recent')}>Recent only</button>}
+      </div>
       <div ref={listRef} className="global-chat-search-scroll">
         <div id="chat-search-results" role="listbox" aria-label="Search results" aria-busy={loading}>
           {results.map((result, index) => (
@@ -172,12 +181,14 @@ function SearchContent({ onSelect }: { onSelect: (result: ChatSearchResult) => v
         </div>}
         {!loading && !error && !results.length && <div className="global-chat-search-state">
           <Search size={24} strokeWidth={1.5} />
-          <p>{query.trim() ? 'No results found' : filter === 'files' || filter === 'images' ? 'No attachments yet' : 'No chats yet'}</p>
+          <p>{query.trim() ? scope === 'recent' ? 'No recent results found' : 'No results found' : filter === 'files' || filter === 'images' ? 'No attachments yet' : 'No chats yet'}</p>
           <span>{query.trim() ? 'Try a different word or filename.' : 'Your conversations and attachments will appear here.'}</span>
         </div>}
         {hasMore && !loading && !error && <button type="button" className="global-chat-search-more" onClick={() => {
           setLoading(true); setOffset(results.length);
         }}>Show more results</button>}
+        {hasOlder && !loading && !error && <button type="button" className="global-chat-search-more"
+          onClick={() => changeQuery(query, 'all')}>Search older chats</button>}
       </div>
     </Dialog.Content>
   );

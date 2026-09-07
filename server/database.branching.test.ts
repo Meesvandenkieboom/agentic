@@ -51,16 +51,16 @@ describe('database branching integration', () => {
       assert(directBefore.count === 0, 'branch duplicated message rows');
       sessionDb.addMessage(branch.id, 'user', 'branch-only');
       assert(sessionDb.getSessionMessages(branch.id).length === 3, 'branch suffix was not appended');
-      assert(sessionDb.searchSessions('two').results.length === 2, 'inherited text was not searchable');
-      assert(sessionDb.searchSessions('three').results.every(r => r.id === external.id), 'search included history after branch point');
-      assert(sessionDb.searchSessions('branch-only').results[0]?.id === branch.id, 'branch suffix was not searchable');
+      assert((await sessionDb.searchSessions('two')).results.length === 2, 'inherited text was not searchable');
+      assert((await sessionDb.searchSessions('three')).results.every(r => r.id === external.id), 'search included history after branch point');
+      assert((await sessionDb.searchSessions('branch-only')).results[0]?.id === branch.id, 'branch suffix was not searchable');
 
       assert(sessionDb.deleteSession(external.id), 'parent delete failed');
       assert(sessionDb.getSession(external.id) === null, 'deleted parent remained visible');
       assert(sessionDb.getSessionMessages(branch.id).length === 3, 'soft-deleted lineage was lost');
-      const inheritedSearch = sessionDb.searchSessions('two').results;
+      const inheritedSearch = (await sessionDb.searchSessions('two')).results;
       assert(inheritedSearch.length === 1 && inheritedSearch[0].id === branch.id, 'search lost inherited text or exposed deleted parent');
-      const inheritedFiles = sessionDb.searchSessions('branch-notes', 0, 'files').results;
+      const inheritedFiles = (await sessionDb.searchSessions('branch-notes', 0, 'files')).results;
       assert(inheritedFiles.length === 1 && inheritedFiles[0].sessionId === branch.id && inheritedFiles[0].messageId === first.id,
         'attachment search lost inherited file or navigated to deleted parent');
       assert(fs.readFileSync(path.join(repo, 'pictures', 'keep.txt'), 'utf8') === 'pictures', 'pictures deleted');
@@ -89,6 +89,23 @@ describe('database branching integration', () => {
       assert(!fs.existsSync(branchRoot), 'managed branch root was not deleted');
 
       assert(fs.existsSync(repo), 'external repo root was deleted');
+      const now = new Date().toISOString();
+      const oldDate = new Date(Date.now() - 300 * 86400000).toISOString();
+      raw.run('INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)', ['old-search', 'Archived needle', oldDate, oldDate]);
+      raw.run('INSERT INTO messages (id, session_id, type, content, timestamp, ordinal) VALUES (?, ?, ?, ?, ?, ?)',
+        ['old-message', 'old-search', 'user', 'archive-only', oldDate, 0]);
+      const recentSearch = await sessionDb.searchSessions('archive-only');
+      assert(recentSearch.results.length === 0 && recentSearch.hasOlder, 'recent search did not exclude old chats');
+      assert(!raw.query('SELECT 1 FROM message_search WHERE message_id = ?').get('old-message'), 'recent search prepared excluded history');
+      assert((await sessionDb.searchSessions('archive-only', 0, 'chats', 'all')).results[0]?.id === 'old-search', 'all dates lost archived chat');
+      raw.run('INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)', ['many-files', 'Many files', now, now]);
+      const attachments = Array.from({ length: 60 }, (_, i) => ({ type: 'document', name: 'report-' + i + '.txt', data: 'data:text/plain;base64,YQ==' }));
+      sessionDb.addMessage('many-files', 'user', JSON.stringify(attachments));
+      const filePage = await sessionDb.searchSessions('report-', 0, 'all');
+      const fileNext = await sessionDb.searchSessions('report-', 50, 'all');
+      assert(filePage.results.length === 50 && filePage.hasMore, 'first mixed page was not bounded');
+      assert(fileNext.results.length === 11 && !fileNext.hasMore, 'next mixed page lost files');
+      assert(new Set([...filePage.results, ...fileNext.results].map(r => r.id)).size === 61, 'mixed pagination duplicated results');
       raw.close();
       sessionDb.close();
       console.log(JSON.stringify({ ok: true }));
