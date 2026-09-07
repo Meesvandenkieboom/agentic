@@ -1469,8 +1469,7 @@ function EditToolComponent({ toolUse }: { toolUse: ToolUseBlock }) {
   );
 }
 
-// Codex edit tool: the Codex SDK reports edits as a list of { path, kind }
-// with no line-level diff, so show the changed files instead of a fake +0 -0.
+// Show native App Server patches, preserving file-only cards from older turns.
 function CodexFileChangeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const changes = (toolUse.input.changes as CodexFileChange[]) || [];
@@ -1519,9 +1518,12 @@ function CodexFileChangeComponent({ toolUse }: { toolUse: ToolUseBlock }) {
           {changes.map((change, idx) => {
             const kind = kindStyles[change.kind] || kindStyles.update;
             return (
-              <div key={`${change.path}-${idx}`} className="flex gap-2 items-center px-4 py-1 text-xs font-mono border-b border-white/5 last:border-b-0">
-                <span className={`w-3 shrink-0 font-semibold ${kind.className}`}>{kind.label}</span>
-                <span className="truncate text-white/80">{change.path}</span>
+              <div key={`${change.path}-${idx}`} className="border-b border-white/5 last:border-b-0">
+                <div className="flex gap-2 items-center px-4 py-1 text-xs font-mono">
+                  <span className={`w-3 shrink-0 font-semibold ${kind.className}`}>{kind.label}</span>
+                  <span className="truncate text-white/80">{change.path}</span>
+                </div>
+                {change.diff && <pre className="px-4 py-2 text-xs text-white/70 overflow-x-auto"><code>{change.diff}</code></pre>}
               </div>
             );
           })}

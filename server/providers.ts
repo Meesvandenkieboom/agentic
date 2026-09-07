@@ -72,6 +72,9 @@ export async function getProviders(): Promise<Record<ProviderType, ProviderConfi
  * If OAuth tokens exist, they will be used instead of the API key
  */
 export async function configureProvider(provider: ProviderType): Promise<void> {
+  // App Server owns Codex authentication. Starting a Codex chat must not alter
+  // the environment used by concurrently starting Claude chats.
+  if (provider === 'codex') return;
   const providers = await getProviders();
   const config = providers[provider];
 
@@ -108,12 +111,6 @@ export async function configureProvider(provider: ProviderType): Promise<void> {
 
       return;
     }
-  }
-
-  // Codex uses its own CLI authentication
-  if (provider === 'codex') {
-    console.log('ℹ️  Codex uses its own CLI authentication (no API key needed)');
-    return;
   }
 
   // Fall back to API key authentication for other providers

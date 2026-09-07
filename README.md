@@ -81,7 +81,7 @@ Agentic is a **desktop-first chat interface** that brings the power of Anthropic
 
 ### 🌐 Multi-Provider Support
 - **Anthropic** - Direct Claude API access
-- **OpenAI Codex** - ChatGPT subscription via Codex SDK
+- **OpenAI Codex** - ChatGPT subscription via Codex App Server
 - **Easy Switching** - Change providers via dropdown
 
 ### 🐙 GitHub Integration
@@ -235,6 +235,11 @@ agentic --update
 - Direct API access to latest Claude models
 
 **OpenAI Codex:**
+
+Codex runs through a private stdio App Server connection using the runtime installed with Agentic. Existing Codex conversations resume using their saved thread IDs, and authentication continues to use `bun run login` → Codex.
+
+During a turn, you can send follow-ups and answer nonblocking questions while Codex continues working. Stop interrupts the active turn. Output is saved as it streams; reconnecting restores saved messages and pending questions. Browser disconnects and idle-session cleanup do not stop active Codex turns. If the runtime fails, Agentic preserves received output and reports the failure. Sending a new message restarts the connection and resumes the conversation; failed turns are never automatically replayed.
+
 - **Codex** - OpenAI models via ChatGPT subscription
 - No API key needed - uses CLI auth
 

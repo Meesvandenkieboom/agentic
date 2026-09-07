@@ -13,6 +13,8 @@ interface QuestionOption {
 }
 
 export interface Question {
+  id?: string;
+  isSecret?: boolean;
   question: string;
   header?: string;
   options: QuestionOption[];
@@ -21,6 +23,8 @@ export interface Question {
 
 export interface PendingQuestionData {
   toolId: string;
+  sessionId?: string;
+  isBlocking?: boolean;
   questions: Question[];
 }
 
@@ -28,9 +32,10 @@ interface QuestionInputProps {
   question: PendingQuestionData;
   onAnswer: (answers: Record<string, string>) => void;
   onSkip: () => void;
+  disabled?: boolean;
 }
 
-export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps) {
+export function QuestionInput({ question, onAnswer, onSkip, disabled }: QuestionInputProps) {
   const [currentQIdx, setCurrentQIdx] = useState(0);
   const [selections, setSelections] = useState<Record<number, string[]>>({});
   const [customInputs, setCustomInputs] = useState<Record<number, string>>({});
@@ -47,8 +52,8 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
 
   // Focus container for keyboard nav
   useEffect(() => {
-    containerRef.current?.focus();
-  }, [currentQIdx]);
+    if (question.isBlocking !== false) containerRef.current?.focus();
+  }, [currentQIdx, question.isBlocking]);
 
   // Focus custom input when shown
   useEffect(() => {
@@ -87,7 +92,7 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
   const buildAnswers = useCallback((): Record<string, string> => {
     const answers: Record<string, string> = {};
     question.questions.forEach((qq, idx) => {
-      const key = qq.header || `question_${idx}`;
+      const key = qq.id || qq.header || `question_${idx}`;
       if (showCustom[idx] && customInputs[idx]) {
         answers[key] = customInputs[idx];
       } else {
@@ -104,16 +109,17 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
   })();
 
   const handleSubmit = useCallback(() => {
-    if (!canSubmitCurrent) return;
+    if (disabled || !canSubmitCurrent) return;
     if (currentQIdx < totalQuestions - 1) {
       setCurrentQIdx(prev => prev + 1);
       setFocusedIdx(0);
     } else {
       onAnswer(buildAnswers());
     }
-  }, [canSubmitCurrent, currentQIdx, totalQuestions, buildAnswers, onAnswer]);
+  }, [disabled, canSubmitCurrent, currentQIdx, totalQuestions, buildAnswers, onAnswer]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (disabled) return;
     // If custom input is focused, only handle Enter/Escape
     if (showCustom[currentQIdx]) {
       if (e.key === 'Enter' && canSubmitCurrent) {
@@ -149,7 +155,7 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
               } else {
                 const answers: Record<string, string> = {};
                 question.questions.forEach((qq, idx) => {
-                  const key = qq.header || `question_${idx}`;
+                  const key = qq.id || qq.header || `question_${idx}`;
                   if (idx === currentQIdx) {
                     answers[key] = q.options[focusedIdx].label;
                   } else if (showCustom[idx] && customInputs[idx]) {
@@ -171,7 +177,7 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
         onSkip();
         break;
     }
-  }, [showCustom, currentQIdx, canSubmitCurrent, handleSubmit, onSkip, focusedIdx, totalOptions, q, handleSelect, handleCustomToggle, totalQuestions, question.questions, customInputs, selections, onAnswer]);
+  }, [disabled, showCustom, currentQIdx, canSubmitCurrent, handleSubmit, onSkip, focusedIdx, totalOptions, q, handleSelect, handleCustomToggle, totalQuestions, question.questions, customInputs, selections, onAnswer]);
 
   return (
     <div className="input-container" ref={containerRef} tabIndex={0} onKeyDown={handleKeyDown} style={{ outline: 'none' }}>
@@ -181,7 +187,7 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
           <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <HelpCircle size={16} className="text-blue-400 shrink-0" />
-              <p className="text-sm font-medium truncate" style={{ color: 'rgb(var(--text-primary))' }}>
+              <p className="text-sm font-medium whitespace-normal" style={{ color: 'rgb(var(--text-primary))' }}>
                 {q.question}
               </p>
             </div>
@@ -193,6 +199,7 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
               )}
               <button
                 onClick={onSkip}
+                disabled={disabled}
                 className="p-1 rounded-md text-white/30 hover:text-white/60 hover:bg-white/5 transition-colors"
                 title="Skip (Esc)"
               >
@@ -210,6 +217,7 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
                 <button
                   key={optIdx}
                   onClick={() => handleSelect(opt.label)}
+                  disabled={disabled}
                   onMouseEnter={() => setFocusedIdx(optIdx)}
                   className="w-full text-left transition-all duration-100"
                 >
@@ -278,7 +286,8 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
               <div className="px-3 pb-1">
                 <input
                   ref={customInputRef}
-                  type="text"
+                  type={q.isSecret ? "password" : "text"}
+                  disabled={disabled}
                   placeholder="Type your answer..."
                   value={customInputs[currentQIdx] || ''}
                   onChange={(e) => setCustomInputs(prev => ({ ...prev, [currentQIdx]: e.target.value }))}
@@ -309,13 +318,14 @@ export function QuestionInput({ question, onAnswer, onSkip }: QuestionInputProps
             <div className="input-controls-right">
               <button
                 onClick={onSkip}
+                disabled={disabled}
                 className="px-3 py-1.5 text-xs font-medium text-white/40 hover:text-white/60 transition-colors rounded-md hover:bg-white/5"
               >
                 Skip
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={!canSubmitCurrent}
+                disabled={disabled || !canSubmitCurrent}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
                   canSubmitCurrent
                     ? 'bg-blue-500 text-white hover:bg-blue-400 cursor-pointer'

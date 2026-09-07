@@ -44,11 +44,11 @@ export interface ToolEdit {
   replace_all?: boolean;
 }
 
-// Codex `file_change` entry: the Codex SDK reports only path + kind per
-// edited file (no line-level diff content).
+// Native Codex file-change snapshot; older saved turns may lack a diff.
 export interface CodexFileChange {
   path: string;
   kind: 'add' | 'delete' | 'update';
+  diff?: string;
 }
 
 export interface TodoItem {

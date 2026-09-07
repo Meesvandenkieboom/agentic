@@ -28,6 +28,7 @@ interface SessionStream {
   createdAt: number;
   lastActivityAt: number;
   activeWebSockets: Set<ServerWebSocket<unknown>>;
+  keepAliveOnDisconnect: boolean;
   isGenerating: boolean; // true when actively processing a response, false when idle between turns
 }
 
@@ -50,8 +51,9 @@ export class SessionStreamManager {
     if (!this.streams.has(sessionId)) {
       // Check session limit
       if (this.streams.size >= this.MAX_CONCURRENT_SESSIONS) {
-        console.warn(`⚠️ Max sessions (${this.MAX_CONCURRENT_SESSIONS}) reached, cleaning up oldest`);
+        console.warn(`⚠️ Max sessions (${this.MAX_CONCURRENT_SESSIONS}) reached, checking for an idle session`);
         this.cleanupOldestSession();
+        if (this.streams.size >= this.MAX_CONCURRENT_SESSIONS) throw new Error('All available sessions are busy. Stop or finish a turn before starting another.');
       }
 
       const messageQueue = new AsyncQueue<MessageContent>();
@@ -66,6 +68,7 @@ export class SessionStreamManager {
         lastActivityAt: Date.now(),
         activeWebSockets: new Set(),
         isGenerating: false,
+        keepAliveOnDisconnect: false,
       });
 
     }
@@ -88,8 +91,15 @@ export class SessionStreamManager {
   }
 
   /**
-   * Mark session as idle (turn completed, waiting for next user message)
+   * Keep native turns independent of browser lifetime and await their Stop completion.
    */
+  keepAliveOnDisconnect(sessionId: string): void {
+    const stream = this.streams.get(sessionId);
+    if (stream) stream.keepAliveOnDisconnect = true;
+  }
+
+  waitsForStopCompletion(sessionId: string): boolean { return this.streams.get(sessionId)?.keepAliveOnDisconnect ?? false; }
+
   setIdle(sessionId: string): void {
     this.setGenerating(sessionId, false);
   }
@@ -187,7 +197,7 @@ export class SessionStreamManager {
     stream.abortController.abort();
 
     // Send abort signal to client
-    this.safeSend(sessionId, JSON.stringify({
+    if (!stream.keepAliveOnDisconnect) this.safeSend(sessionId, JSON.stringify({
       type: 'generation_stopped',
       sessionId: sessionId,
     }));
@@ -227,6 +237,7 @@ export class SessionStreamManager {
    * If any client reconnects (via updateWebSocket), the timer is cancelled.
    */
   startDisconnectGracePeriod(sessionId: string, onExpire: () => void, delayMs: number = 10000): void {
+    if (this.streams.get(sessionId)?.keepAliveOnDisconnect) return;
     // Cancel any existing timer first
     this.cancelDisconnectGracePeriod(sessionId);
 
@@ -354,16 +365,16 @@ export class SessionStreamManager {
    * Start cleanup interval for idle sessions
    */
   private startCleanupInterval(): void {
-    this.cleanupInterval = setInterval(() => {
-      const now = Date.now();
-      for (const [sessionId, stream] of Array.from(this.streams.entries())) {
-        const idleTime = now - stream.lastActivityAt;
-        if (idleTime > this.SESSION_TIMEOUT_MS) {
-          console.log(`⏱️ Session timeout: ${sessionId.substring(0, 8)} (idle: ${Math.floor(idleTime / 1000)}s)`);
-          this.cleanupSession(sessionId, 'timeout');
-        }
+    this.cleanupInterval = setInterval(() => this.cleanupIdleSessions(), 60_000);
+    this.cleanupInterval.unref();
+  }
+
+  cleanupIdleSessions(now = Date.now()): void {
+    for (const [sessionId, stream] of this.streams) {
+      if (!stream.isGenerating && now - stream.lastActivityAt > this.SESSION_TIMEOUT_MS) {
+        this.cleanupSession(sessionId, 'timeout');
       }
-    }, 60000); // Check every minute
+    }
   }
 
   /**
@@ -374,8 +385,8 @@ export class SessionStreamManager {
     let oldestTime = Infinity;
 
     for (const [sessionId, stream] of Array.from(this.streams.entries())) {
-      if (stream.createdAt < oldestTime) {
-        oldestTime = stream.createdAt;
+      if (!stream.isGenerating && stream.lastActivityAt < oldestTime) {
+        oldestTime = stream.lastActivityAt;
         oldestSessionId = sessionId;
       }
     }

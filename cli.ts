@@ -2,7 +2,7 @@
 import { startOAuthFlow, exchangeCodeForTokens } from './server/oauth';
 import { saveTokens, clearTokens, isLoggedIn, getAnthropicTokens, saveCodexLoginMarker, isCodexLoggedIn, clearCodexTokens } from './server/tokenStorage';
 import * as readline from 'readline';
-import { execSync } from 'child_process';
+import { getCodexCommand } from './server/codex/runtime';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -115,8 +115,7 @@ async function handleCodexLogin() {
   // Check if Codex CLI is installed
   let codexInstalled = false;
   try {
-    execSync('codex --version', { encoding: 'utf8', stdio: 'pipe' });
-    codexInstalled = true;
+    codexInstalled = Bun.spawnSync([...getCodexCommand(), '--version'], { stdout: 'pipe', stderr: 'pipe' }).exitCode === 0;
   } catch {
     codexInstalled = false;
   }
@@ -133,7 +132,7 @@ async function handleCodexLogin() {
     console.log('🔄 Starting Codex login flow...\n');
 
     // Run codex login with inherited stdio
-    const proc = Bun.spawn(['codex', 'login'], {
+    const proc = Bun.spawn([...getCodexCommand(), 'login'], {
       stdout: 'inherit',
       stderr: 'inherit',
       stdin: 'inherit',
@@ -209,7 +208,7 @@ async function handleLogout() {
     if (choice === '2' || choice === '3') {
       if (codexLoggedIn) {
         // Run codex logout
-        const proc = Bun.spawn(['codex', 'logout'], {
+        const proc = Bun.spawn([...getCodexCommand(), 'logout'], {
           stdout: 'inherit',
           stderr: 'inherit',
           stdin: 'inherit',

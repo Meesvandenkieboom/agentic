@@ -38,12 +38,12 @@ import type { Message, FileAttachment } from '../message/types';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
 import { handleWebSocketMessage } from './websocketHandler';
-import { QUESTION_ANSWER_EVENT, type QuestionAnswerDetail } from '../../utils/questionEvents';
-import { decodeStoredMessage, encodeUserMessage } from '../../../shared/storedMessage';
+import { dispatchQuestionAnswer, QUESTION_ANSWER_EVENT, type QuestionAnswerDetail } from '../../utils/questionEvents';
+import { encodeUserMessage } from '../../../shared/storedMessage';
 import { BRANCH_MESSAGE_EVENT, type BranchMessageDetail } from '../../utils/branchEvents';
 import { resolveBranchPointId } from '../../utils/branchPoint';
 import { QuestionInput, type PendingQuestionData } from '../question/QuestionInput';
-import { dispatchQuestionAnswer } from '../../utils/questionEvents';
+import { restoreMessage } from '../../utils/storedMessages';
 import type { ReasoningEffort } from './ReasoningEffortSelector';
 import { DEFAULT_EFFORT, ALL_EFFORTS, normalizeEffort } from './ReasoningEffortSelector';
 import { ArtifactPanel } from '../artifact/ArtifactPanel';
@@ -116,6 +116,9 @@ export function ChatContainer() {
   const [branchFromMessage, setBranchFromMessage] = useState<{ id: string; index: number; preview: string } | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchFocusKey, setSearchFocusKey] = useState(0);
+  const [activeCodexTurns, setActiveCodexTurns] = useState<Record<string, string>>({});
+  const [answeringQuestion, setAnsweringQuestion] = useState(false);
+  const answeringQuestionRef = useRef(false);
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestionData | null>(null);
 
   // --- Artifact panel state (zustand selectors) ---
@@ -140,6 +143,9 @@ export function ChatContainer() {
 
   const isLoading = isAnySessionLoading;
   const currentSession = sessions.find(session => session.id === currentSessionId);
+  const activeCodexTurn = currentSessionId ? activeCodexTurns[currentSessionId] : undefined;
+  const allowSteering = modelProvider === 'codex' && !!activeCodexTurn;
+  const visibleQuestion = pendingQuestion?.sessionId === currentSessionId ? pendingQuestion : null;
   const isWorkspacePreparing = currentSession?.workspace_status === 'preparing';
   const isWorkspaceFailed = currentSession?.workspace_status === 'failed';
   const { createBranch } = useBranching();
@@ -268,20 +274,7 @@ export function ChatContainer() {
     if (cachedMessages) return;
 
     const sessionMessages = await sessionAPI.fetchSessionMessages(sessionId);
-    const convertedMessages: Message[] = sessionMessages.map(msg => {
-      if (msg.type === 'user') {
-        const decoded = decodeStoredMessage(msg.content);
-        return { id: msg.id, type: 'user' as const, content: decoded.text, attachments: decoded.attachments, timestamp: msg.timestamp };
-      }
-      let content;
-      try {
-        const parsed = JSON.parse(msg.content);
-        content = Array.isArray(parsed) ? parsed : [{ type: 'text' as const, text: msg.content }];
-      } catch {
-        content = [{ type: 'text' as const, text: msg.content }];
-      }
-      return { id: msg.id, type: 'assistant' as const, content, timestamp: msg.timestamp };
-    });
+    const convertedMessages = sessionMessages.map(restoreMessage);
 
     // Rehydrate any artifact blocks found in restored messages into the artifact store.
     // This makes previously-generated artifacts available in the panel tabs when the
@@ -418,6 +411,11 @@ export function ChatContainer() {
         setIsPlanMode,
         setPendingPlan,
         setPendingQuestion,
+        setActiveCodexTurn: (id, turnId) => setActiveCodexTurns(prev => {
+          const next = { ...prev };
+          if (turnId) next[id] = turnId; else delete next[id];
+          return next;
+        }),
         setBackgroundProcesses,
         clearCache,
         lastAssistantContentRef,
@@ -425,6 +423,36 @@ export function ChatContainer() {
       });
     },
   });
+
+  useEffect(() => {
+    setPendingQuestion(prev => prev?.sessionId === currentSessionId ? prev : null);
+  }, [currentSessionId]);
+
+  // Restore question state and missed snapshots whenever the visible chat changes.
+  useEffect(() => {
+    if (currentSessionId && isConnected) sendMessage({ type: 'reconnect', sessionId: currentSessionId });
+  }, [currentSessionId, isConnected, sendMessage]);
+
+  const answerQuestion = async (question: PendingQuestionData, answers: Record<string, string>) => {
+    if (answeringQuestionRef.current || !question.sessionId) return;
+    answeringQuestionRef.current = true;
+    setAnsweringQuestion(true);
+    try {
+      if (modelProvider === 'codex') {
+        const response = await fetch(`/api/sessions/${question.sessionId}/question`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ toolId: question.toolId, answers }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not send your answer.');
+      } else {
+        dispatchQuestionAnswer(question.toolId, answers);
+      }
+      setPendingQuestion(prev => prev?.toolId === question.toolId && prev.sessionId === question.sessionId ? null : prev);
+    } catch (error) {
+      toast.error('Answer was not confirmed', { description: error instanceof Error ? error.message : 'Try again when connected.' });
+    } finally { answeringQuestionRef.current = false; setAnsweringQuestion(false); }
+  };
 
   // --- Listen for AskUserQuestion answers from inline components ---
   useEffect(() => {
@@ -469,8 +497,20 @@ export function ChatContainer() {
 
     if (isSubmittingRef.current) return false;
     if (currentSessionId && isSessionLoading(currentSessionId)) {
-      toast.info('This chat is already generating. Wait for it to complete or stop it first.');
-      return false;
+      if (!allowSteering) return false;
+      isSubmittingRef.current = true;
+      try {
+        const response = await fetch(`/api/sessions/${currentSessionId}/steer`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: encodeUserMessage(messageText, files), turnId: activeCodexTurn }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not send your follow-up.');
+        return true;
+      } catch (error) {
+        toast.error('Follow-up was not confirmed', { description: error instanceof Error ? error.message : 'Your draft has been kept. Check the conversation before retrying.' });
+        return false;
+      } finally { isSubmittingRef.current = false; }
     }
 
     isSubmittingRef.current = true;
@@ -537,6 +577,7 @@ export function ChatContainer() {
 
       sendMessage({
         type: 'chat',
+        clientMessageId: userMessage.id,
         content: messageContent,
         sessionId,
         model: selectedModel,
@@ -558,7 +599,7 @@ export function ChatContainer() {
   const handleStop = () => {
     if (currentSessionId && isSessionLoading(currentSessionId)) {
       stopGeneration(currentSessionId);
-      setSessionLoading(currentSessionId, false);
+      if (modelProvider !== 'codex') setSessionLoading(currentSessionId, false);
     }
   };
 
@@ -753,29 +794,26 @@ export function ChatContainer() {
                 sessionId={currentSessionId}
               />
             </SearchContext.Provider>
-            {pendingQuestion ? (
+            {visibleQuestion && (
               <QuestionInput
-                question={pendingQuestion}
-                onAnswer={(answers) => {
-                  dispatchQuestionAnswer(pendingQuestion.toolId, answers);
-                  setPendingQuestion(null);
-                }}
-                onSkip={() => {
-                  const skipped: Record<string, string> = {};
-                  pendingQuestion.questions.forEach((qq, idx) => {
-                    skipped[qq.header || `question_${idx}`] = 'Skipped';
-                  });
-                  dispatchQuestionAnswer(pendingQuestion.toolId, skipped);
-                  setPendingQuestion(null);
-                }}
+                key={visibleQuestion.toolId}
+                question={visibleQuestion}
+                disabled={answeringQuestion || !isConnected}
+                onAnswer={(answers) => void answerQuestion(visibleQuestion, answers)}
+                onSkip={() => void answerQuestion(visibleQuestion, Object.fromEntries(
+                  visibleQuestion.questions.map((q, i) => [q.id || q.header || `question_${i}`, 'Skipped']),
+                ))}
               />
-            ) : (
+            )}
+            {(!visibleQuestion || modelProvider === 'codex') && (
               <ChatInput
                 key={currentSessionId || `new-${newChatNonce}`}
                 onSubmit={handleSubmit}
                 onStop={handleStop}
-                disabled={!isConnected || isCurrentSessionLoading || isCloning || isWorkspacePreparing || isWorkspaceFailed}
+                disabled={!isConnected || (isCurrentSessionLoading && !allowSteering) || !!visibleQuestion?.isBlocking || isCloning || isWorkspacePreparing || isWorkspaceFailed}
                 isGenerating={isCurrentSessionLoading}
+                allowSteering={allowSteering}
+                placeholder={allowSteering ? "Send a follow-up while Codex works…" : undefined}
                 isCloning={isCloning || isWorkspacePreparing}
                 isPlanMode={isPlanMode}
                 onTogglePlanMode={handleTogglePlanMode}

@@ -14,6 +14,7 @@ import type { ContextUsageData } from '../../hooks/useChatSessions';
 import type { Session } from '../../hooks/useSessionAPI';
 import type { PendingQuestionData } from '../question/QuestionInput';
 import { useArtifactPanel } from '../../hooks/useArtifactPanel';
+import { restoreMessage, upsertSavedMessage } from '../../utils/storedMessages';
 import { isArtifactType } from '../artifact/types';
 
 export interface WebSocketHandlerDeps {
@@ -22,6 +23,7 @@ export interface WebSocketHandlerDeps {
     updateMsgs: (msgSessionId: string | null, isBackground: boolean, updater: (prev: Message[]) => Message[]) => void;
     updateMsgsSync: (msgSessionId: string | null, isBackground: boolean, updater: (prev: Message[]) => Message[]) => void;
   };
+  setActiveCodexTurn?: (sessionId: string, turnId: string | null) => void;
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
   setSessionLoading: (sessionId: string, loading: boolean) => void;
@@ -70,6 +72,19 @@ export function handleWebSocketMessage(message: Record<string, any>, deps: WebSo
     updateMsgsSync(msgSessionId, isBackgroundSession, updater);
   };
 
+  if (msgSessionId && ['generation_started', 'turn_started'].includes(message.type)) {
+    setSessionLoading(msgSessionId, true);
+  }
+
+  // Turn identity belongs to its session, including tabs running in the background.
+  if (msgSessionId && (message.type === 'turn_started' || message.type === 'reconnect_ack')) {
+    deps.setActiveCodexTurn?.(msgSessionId, message.turnId || null);
+    if (message.type === 'reconnect_ack') setSessionLoading(msgSessionId, !!message.isGenerating);
+  }
+  if (msgSessionId && ['result', 'error', 'generation_stopped'].includes(message.type)) {
+    deps.setActiveCodexTurn?.(msgSessionId, null);
+  }
+
   // --- Background session filtering ---
   if (isBackgroundSession) {
     if (message.type === 'context_usage') {
@@ -84,12 +99,28 @@ export function handleWebSocketMessage(message: Record<string, any>, deps: WebSo
     if (message.type === 'error' && msgSessionId) {
       setSessionLoading(msgSessionId, false);
     }
-    const bgContentTypes = ['assistant_message', 'thinking_start', 'thinking_delta', 'tool_use', 'error'];
+    const bgContentTypes = ['assistant_message', 'thinking_start', 'thinking_delta', 'tool_use', 'error', 'session_message', 'session_history'];
     if (!bgContentTypes.includes(message.type as string)) return;
   }
 
   // --- Message type handlers ---
   switch (message.type) {
+    case 'session_message':
+      applyUpdate(prev => upsertSavedMessage(prev, message.message, message.clientMessageId));
+      break;
+    case 'session_history':
+      applyUpdate(() => message.messages.map(restoreMessage));
+      break;
+    case 'question_state':
+      setPendingQuestion(message.question ? { ...message.question, sessionId: msgSessionId } : null);
+      break;
+    case 'question_resolved':
+      setPendingQuestion(prev => prev && prev.toolId === message.toolId && prev.sessionId === msgSessionId ? null : prev);
+      break;
+    case 'input_rejected':
+      toast.error('Message was not sent', { description: message.message });
+      break;
+
     case 'assistant_message':
       handleAssistantMessage(message, isBackgroundSession, lastAssistantContentRef, applyUpdate);
       break;
@@ -202,6 +233,8 @@ export function handleWebSocketMessage(message: Record<string, any>, deps: WebSo
       if ('toolId' in message && 'questions' in message) {
         setPendingQuestion({
           toolId: message.toolId as string,
+          sessionId: msgSessionId || undefined,
+          isBlocking: message.isBlocking !== false,
           questions: message.questions as PendingQuestionData['questions'],
         });
       }
@@ -383,6 +416,8 @@ function handleError(message: Record<string, any>, msgSid: string | null, active
       toast.error('Error', { description: errorMsg });
     }
   }
+
+  if (message.persisted) return;
 
   const icon = errorType === 'timeout_error' ? '⏱️' : errorType === 'rate_limit_error' ? '🚦' :
     errorType === 'authentication_error' ? '🔑' : errorType === 'network_error' ? '🌐' : '❌';

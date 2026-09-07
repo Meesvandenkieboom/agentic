@@ -1,426 +1,269 @@
-/**
- * Codex Provider
- *
- * Modular wrapper for @openai/codex-sdk that maps Codex events to Agentic's
- * WebSocket protocol. Fully isolated - if Codex breaks, Claude keeps working.
- *
- * The SDK is lazy-loaded at runtime so a missing/broken install can never crash
- * the Claude path. Types are imported with `import type` (erased at compile time,
- * no runtime dependency).
- *
- * @module server/providers/codex
- */
-
-import { existsSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
-import type {
-  Codex as CodexClass,
-  CodexOptions,
-  Input,
-  ModelReasoningEffort,
-  ThreadEvent,
-  ThreadItem,
-} from "@openai/codex-sdk";
+import { randomUUID } from 'node:crypto';
+import { CodexAppServer, codexAppServer, type RpcId, type RpcNotification, type RpcRequest } from '../codex/appServer';
 import type { CodexSkillConfigEntry } from '../skills';
 
-/**
- * Events emitted to the caller. These map 1:1 onto Agentic's client WebSocket
- * contract (the caller spreads `sessionId` on top before sending).
- *
- * - assistant_message / thinking_delta carry **deltas** (the client appends them)
- * - tool_use always carries a stable `toolId` (the client dedupes/keys on it)
- */
-export interface CodexEvent {
-  type:
-    | 'assistant_message'
-    | 'thinking_start'
-    | 'thinking_delta'
-    | 'tool_use'
-    | 'token_update'
-    | 'result'
-    | 'retry_attempt'
-    | 'error';
-  content?: string;
-  toolId?: string;
-  toolName?: string;
-  toolInput?: Record<string, unknown>;
-  outputTokens?: number;
-  success?: boolean;
-  message?: string;
-  attempt?: number;
-  maxAttempts?: number;
+export type CodexBlock =
+  | { type: 'text'; id: string; text: string }
+  | { type: 'thinking'; id: string; thinking: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> };
+export interface CodexQuestion {
+  toolId: string;
+  isBlocking: boolean;
+  questions: { id: string; header: string; question: string; options: { label: string; description?: string }[]; isSecret?: boolean }[];
 }
-
+export type CodexEvent =
+  | { type: 'block'; block: CodexBlock }
+  | { type: 'input_boundary' }
+  | { type: 'turn_started'; turnId: string }
+  | { type: 'result'; success: boolean }
+  | { type: 'token_update'; outputTokens: number }
+  | { type: 'retry_attempt'; attempt: number; maxAttempts: number; message: string }
+  | { type: 'ask_user_question'; question: CodexQuestion }
+  | { type: 'question_resolved'; toolId: string };
 export type CodexEventCallback = (event: CodexEvent) => void;
-
 export interface RunCodexOptions {
-  /** Codex thread id to resume (multi-turn continuity). Null/undefined = new thread. */
+  sessionId: string;
   resumeThreadId?: string | null;
-  /** Abort signal wired to the Stop button. */
   signal?: AbortSignal;
-  /** Raw effort string from the UI; mapped to Codex reasoning effort. */
   effort?: string;
-  /**
-   * Codex model slug to run (e.g. 'gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra').
-   * Omitted/undefined falls back to the CLI default — which may not be
-   * entitled on every account, so the caller should always pass one.
-   */
   model?: string;
-  /**
-   * MCP servers to expose to Codex, already in the CLI's `mcp_servers.*` shape
-   * (see `toCodexMcpServers` in ../mcpServers). Injected via the SDK's
-   * `CodexOptions.config`, which flattens this into `--config` overrides.
-   * Empty/undefined = no MCP servers.
-   */
   mcpServers?: Record<string, unknown>;
-  /** Agentic-specific guidance injected before AGENTS.md on every Codex turn. */
   developerInstructions?: string;
-  /** Absolute paths to images attached to this turn. */
   imagePaths?: string[];
-  /** Explicit per-session user-skill overrides. Undefined preserves native config. */
   skillsConfig?: CodexSkillConfigEntry[];
-  /** Fired with the thread id as soon as the thread starts (persist for resume). */
   onThreadId?: (id: string) => void;
 }
-
-export function buildCodexConfig(
-  options: Pick<RunCodexOptions, 'mcpServers' | 'developerInstructions' | 'skillsConfig'>,
-): NonNullable<CodexOptions['config']> {
-  const config: Record<string, unknown> = {};
-
-  if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
-    config.mcp_servers = options.mcpServers;
-  }
-  if (options.developerInstructions) {
-    config.developer_instructions = options.developerInstructions;
-  }
-  if (options.skillsConfig !== undefined) {
-    config.skills = { config: options.skillsConfig };
-  }
-
-  return config as NonNullable<CodexOptions['config']>;
-}
-
-// Lazy-loaded Codex SDK constructor (prevents import errors if not installed).
-let CodexCtor: typeof CodexClass | null = null;
-let sdkLoadError: Error | null = null;
-
-/** Attempts to load the Codex SDK dynamically. */
-async function loadCodexSDK(): Promise<typeof CodexClass> {
-  if (CodexCtor) return CodexCtor;
-  if (sdkLoadError) throw sdkLoadError;
-
-  try {
-    const mod = await import("@openai/codex-sdk");
-    CodexCtor = mod.Codex;
-    console.log("🤖 Codex SDK loaded successfully");
-    return CodexCtor;
-  } catch (error) {
-    sdkLoadError = error as Error;
-    console.warn("🤖 Codex SDK not available:", (error as Error).message);
-    throw new Error("Codex SDK not installed. Run: bun install");
-  }
-}
-
-/**
- * Checks if Codex is installed and authenticated.
- *
- * @returns Promise<boolean> - true if Codex is available
- */
-export async function isCodexAvailable(): Promise<boolean> {
-  try {
-    await loadCodexSDK();
-
-    // Auth file indicates the CLI is logged in (ChatGPT or API key).
-    const authPath = join(homedir(), ".codex", "auth.json");
-    if (existsSync(authPath)) {
-      console.log("🤖 Codex authentication found");
-      return true;
-    }
-
-    // Fallback: probe the CLI binary.
-    const proc = Bun.spawn(["codex", "--version"], { stdout: "pipe", stderr: "pipe" });
-    const exitCode = await proc.exited;
-    if (exitCode === 0) {
-      console.log("🤖 Codex CLI is available");
-      return true;
-    }
-
-    console.warn("🤖 Codex CLI not authenticated or not found");
-    return false;
-  } catch (error) {
-    console.warn("🤖 Codex availability check failed:", (error as Error).message);
-    return false;
-  }
-}
-
-/** Map the UI effort string to the SDK's reasoning-effort enum (undefined = CLI default). */
-function toReasoningEffort(effort?: string): ModelReasoningEffort | undefined {
-  switch (effort) {
-    case 'minimal': return 'minimal';
-    case 'low':     return 'low';
-    case 'medium':  return 'medium';
-    case 'high':    return 'high';
-    case 'xhigh':   return 'xhigh';
-    case 'max':     return 'max';
-    case 'ultra':   return 'ultra';
-    default:        return undefined;
-  }
-}
-
-/**
- * Codex reports its OWN transient retries as `error` stream events — e.g.
- * "Reconnecting... 1/5 (stream disconnected before completion: Internal server
- * error)" (see `notify_stream_error` in codex-rs). The turn keeps running and
- * usually completes, so surfacing these as errors spams the chat with bubbles
- * that disappear on reload. Map them to `retry_attempt` (a toast) instead.
- */
-export function parseCodexRetryNotice(message: string | undefined): CodexEvent | null {
-  const match = message?.match(/^Reconnecting\.\.\.\s*(\d+)\s*\/\s*(\d+)\s*(?:\(([\s\S]*)\))?$/);
-  if (!match) return null;
+export function buildCodexConfig(options: Pick<RunCodexOptions, 'mcpServers' | 'developerInstructions' | 'skillsConfig'>): Record<string, unknown> {
   return {
-    type: 'retry_attempt',
-    attempt: Number(match[1]),
-    maxAttempts: Number(match[2]),
-    message: match[3] || 'Connection interrupted',
+    ...(options.mcpServers && Object.keys(options.mcpServers).length ? { mcp_servers: options.mcpServers } : {}),
+    ...(options.developerInstructions ? { developer_instructions: options.developerInstructions } : {}),
+    ...(options.skillsConfig !== undefined ? { skills: { config: options.skillsConfig } } : {}),
   };
 }
-
-/** Build the structured SDK input required for Codex image attachments. */
-export function buildCodexInput(prompt: string, imagePaths: string[] = []): Input {
-  if (imagePaths.length === 0) return prompt;
-
+export function buildCodexInput(prompt: string, imagePaths: string[] = []) {
   return [
-    ...(prompt.trim() ? [{ type: 'text' as const, text: prompt }] : []),
-    ...imagePaths.map((imagePath) => ({ type: 'local_image' as const, path: imagePath })),
+    ...(prompt.trim() ? [{ type: 'text', text: prompt, text_elements: [] }] : []),
+    ...imagePaths.map(path => ({ type: 'localImage', path })),
   ];
 }
-
-/**
- * Emit only the newly-appended slice of a cumulative text field.
- * Codex sends the *full* text on every item.updated/completed, but the client
- * appends deltas — so we diff against what we've already forwarded.
- */
-function emitTextDelta(
-  id: string,
-  fullText: string,
-  sentLen: Map<string, number>,
-  emit: (delta: string) => void,
-): void {
-  const prev = sentLen.get(id) ?? 0;
-  if (fullText.length > prev) {
-    emit(fullText.slice(prev));
-    sentLen.set(id, fullText.length);
-  }
+export function parseCodexRetryNotice(message: string | undefined): Extract<CodexEvent, { type: 'retry_attempt' }> | null {
+  const match = message?.match(/^Reconnecting\.\.\.\s*(\d+)\s*\/\s*(\d+)\s*(?:\(([\s\S]*)\))?$/);
+  return match ? { type: 'retry_attempt', attempt: Number(match[1]), maxAttempts: Number(match[2]), message: match[3] || 'Connection interrupted' } : null;
 }
 
-/** Map a single Codex thread item to client events. */
-function handleItem(
-  item: ThreadItem,
-  phase: 'item.started' | 'item.updated' | 'item.completed',
-  onEvent: CodexEventCallback,
-  sentLen: Map<string, number>,
-  thinkingStarted: Set<string>,
-): void {
-  switch (item.type) {
-    case 'agent_message':
-      emitTextDelta(item.id, item.text, sentLen, (delta) =>
-        onEvent({ type: 'assistant_message', content: delta }));
-      break;
-
-    case 'reasoning':
-      if (!thinkingStarted.has(item.id)) {
-        thinkingStarted.add(item.id);
-        onEvent({ type: 'thinking_start' });
-      }
-      emitTextDelta(item.id, item.text, sentLen, (delta) =>
-        onEvent({ type: 'thinking_delta', content: delta }));
-      break;
-
-    // Tools: emit once, when terminal, always with a stable toolId.
-    case 'command_execution':
-      if (phase === 'item.completed') {
-        onEvent({
-          type: 'tool_use',
-          toolId: item.id,
-          toolName: 'Bash',
-          toolInput: {
-            command: item.command,
-            output: item.aggregated_output,
-            exit_code: item.exit_code,
-            status: item.status,
-          },
-        });
-      }
-      break;
-
-    case 'file_change':
-      if (phase === 'item.completed') {
-        onEvent({
-          type: 'tool_use',
-          toolId: item.id,
-          toolName: 'Edit',
-          toolInput: { changes: item.changes, status: item.status },
-        });
-      }
-      break;
-
-    case 'mcp_tool_call':
-      if (phase === 'item.completed') {
-        onEvent({
-          type: 'tool_use',
-          toolId: item.id,
-          toolName: `${item.server}.${item.tool}`,
-          toolInput: { arguments: item.arguments, status: item.status },
-        });
-      }
-      break;
-
-    case 'web_search':
-      if (phase === 'item.completed') {
-        onEvent({
-          type: 'tool_use',
-          toolId: item.id,
-          toolName: 'WebSearch',
-          toolInput: { query: item.query },
-        });
-      }
-      break;
-
-    case 'todo_list':
-      if (phase === 'item.completed') {
-        onEvent({
-          type: 'tool_use',
-          toolId: item.id,
-          toolName: 'TodoWrite',
-          toolInput: { items: item.items },
-        });
-      }
-      break;
-
-    case 'error':
-      onEvent({ type: 'error', message: item.message });
-      break;
-  }
+type Item = { id: string; type: string; [key: string]: unknown };
+interface PendingQuestion { question: CodexQuestion; requestId?: RpcId }
+interface ActiveRun {
+  sessionId: string;
+  threadId: string | null;
+  turnId: string | null;
+  emit: CodexEventCallback;
+  blocks: Map<string, CodexBlock>;
+  questions: Map<string, PendingQuestion>;
+  inputs: Map<string, () => void>;
+  resolvedQuestions: Set<string>;
+  settle: (error?: Error) => void;
+  interrupting: boolean;
+  settled: boolean;
+  result?: boolean;
 }
+const messageOf = (value: unknown, fallback: string) => value && typeof value === 'object' && 'message' in value && typeof value.message === 'string' ? value.message : fallback;
 
-/**
- * Runs a Codex streaming conversation and maps events to Agentic's protocol.
- *
- * @param prompt - User prompt to send to Codex
- * @param workingDir - Working directory for file operations
- * @param onEvent - Callback for streaming events
- * @param opts - Resume id, abort signal, effort, and thread-id callback
- * @throws Error if Codex SDK is not available or execution fails (non-abort)
- */
-export async function runCodexStream(
-  prompt: string,
-  workingDir: string,
-  onEvent: CodexEventCallback,
-  opts: RunCodexOptions = {},
-): Promise<void> {
-  const Codex = await loadCodexSDK();
-
-  // Inject Agentic's session-specific configuration through the SDK. The SDK
-  // flattens this object into CLI `--config` flags, with the same shape as
-  // ~/.codex/config.toml.
-  const hasMcp = !!opts.mcpServers && Object.keys(opts.mcpServers).length > 0;
-  const config = buildCodexConfig(opts);
-  const codexOptions: CodexOptions = { config };
-  const codex = Object.keys(config).length > 0 ? new Codex(codexOptions) : new Codex();
-
-  if (hasMcp) {
-    console.log(`🔌 Codex MCP: ${Object.keys(opts.mcpServers ?? {}).join(', ')}`);
+/** Owns native turn identities, question requests, cancellation, and error completion. */
+export class CodexSessions {
+  private runs = new Map<string, ActiveRun>();
+  constructor(private readonly app: CodexAppServer, private readonly stopTimeoutMs = 30_000) {
+    app.onNotification(event => this.notification(event));
+    app.onRequest(request => this.serverRequest(request));
+    app.onDisconnect(error => { for (const run of this.runs.values()) run.settle(error); });
   }
 
-  const reasoningEffort = toReasoningEffort(opts.effort);
-  const threadOptions = {
-    workingDirectory: workingDir,
-    skipGitRepoCheck: true,
-    // `danger-full-access` (not `workspace-write`) is required for MCP tool
-    // calls to execute. Under the managed `workspace-write`/`read-only`
-    // sandboxes, `codex exec` cancels every MCP tool call with "user cancelled
-    // MCP tool call" — even with `approvalPolicy: 'never'` — because exec mode
-    // has no interactive approval channel (a known Codex regression, see
-    // openai/codex#16685, #19430). Full access matches Agentic's local
-    // full-filesystem design and the Anthropic provider's allow-all posture.
-    sandboxMode: 'danger-full-access' as const,
-    approvalPolicy: 'never' as const,
-    networkAccessEnabled: true,
-    webSearchEnabled: true,
-    ...(opts.model ? { model: opts.model } : {}),
-    ...(reasoningEffort ? { modelReasoningEffort: reasoningEffort } : {}),
-  };
+  activeTurnId(sessionId: string): string | null { return this.runs.get(sessionId)?.turnId || null; }
+  isActive(sessionId: string) { return this.runs.has(sessionId); }
+  pendingQuestion(sessionId: string): CodexQuestion | null { return this.runs.get(sessionId)?.questions.values().next().value?.question || null; }
 
-  const thread = opts.resumeThreadId
-    ? codex.resumeThread(opts.resumeThreadId, threadOptions)
-    : codex.startThread(threadOptions);
+  async run(prompt: string, cwd: string, emit: CodexEventCallback, opts: RunCodexOptions): Promise<void> {
+    if (this.runs.has(opts.sessionId)) throw new Error('This chat already has an active Codex turn. Send a follow-up instead.');
+    let finished = false;
+    let stopTimer: ReturnType<typeof setTimeout> | undefined;
+    let resolveDone!: () => void;
+    let rejectDone!: (error: Error) => void;
+    const done = new Promise<void>((resolve, reject) => { resolveDone = resolve; rejectDone = reject; });
+    // A disconnect can arrive while initialization is still being awaited.
+    void done.catch(() => {});
+    const run: ActiveRun = {
+      sessionId: opts.sessionId, threadId: null, turnId: null, emit,
+      blocks: new Map(), questions: new Map(), inputs: new Map(), resolvedQuestions: new Set(), interrupting: false, settled: false,
+      settle: error => { if (finished) return; finished = true; run.settled = true; if (error) rejectDone(error); else resolveDone(); },
+    };
+    this.runs.set(opts.sessionId, run);
+    const interrupt = () => {
+      if (!run.turnId || !run.threadId || run.interrupting || finished) return;
+      run.interrupting = true;
+      stopTimer = setTimeout(() => run.settle(new Error('Codex did not finish stopping. Send a new message to resume the saved conversation.')), this.stopTimeoutMs);
+      void this.app.request('turn/interrupt', { threadId: run.threadId, turnId: run.turnId }).catch(error => run.settle(error));
+    };
+    opts.signal?.addEventListener('abort', interrupt);
+    try {
+      if (opts.signal?.aborted) { run.result = false; return; }
+      const params = {
+        cwd, model: opts.model, sandbox: 'danger-full-access', approvalPolicy: 'never',
+        developerInstructions: opts.developerInstructions,
+        config: { ...buildCodexConfig(opts), web_search: 'live', ...(opts.effort ? { model_reasoning_effort: opts.effort } : {}) },
+      };
+      const response = await this.app.request<{ thread: { id: string } }>(
+        opts.resumeThreadId ? 'thread/resume' : 'thread/start',
+        opts.resumeThreadId ? { ...params, threadId: opts.resumeThreadId, excludeTurns: true } : params,
+      );
+      if (finished) return await done;
+      run.threadId = response.thread.id;
+      opts.onThreadId?.(run.threadId);
+      if (opts.signal?.aborted) { run.result = false; return; }
+      const started = await this.app.request<{ turn: { id: string } }>('turn/start', {
+        threadId: run.threadId, input: buildCodexInput(prompt, opts.imagePaths), model: opts.model, effort: opts.effort,
+      });
+      if (run.turnId !== started.turn.id && !finished) emit({ type: 'turn_started', turnId: started.turn.id });
+      run.turnId = started.turn.id;
+      if (opts.signal?.aborted) interrupt();
+      await done;
+    } finally {
+      clearTimeout(stopTimer);
+      opts.signal?.removeEventListener('abort', interrupt);
+      for (const { question } of run.questions.values()) emit({ type: 'question_resolved', toolId: question.toolId });
+      // Finish unloading before allowing a subsequent turn to resume this thread.
+      try {
+        if (run.threadId && this.app.connected) await this.app.request('thread/unsubscribe', { threadId: run.threadId });
+      } catch { /* A failed connection already rejected the active turn. */ }
+      finally { this.runs.delete(opts.sessionId); }
+      if (run.result !== undefined) emit({ type: 'result', success: run.result });
 
-  console.log(
-    `🤖 Codex ${opts.resumeThreadId ? 'resume' : 'start'} [${opts.model ?? 'cli-default'}] in ${workingDir} — prompt: ${prompt.slice(0, 80)}...`,
-  );
-
-  // Per-item cumulative-length tracking for delta diffing.
-  const sentLen = new Map<string, number>();
-  const thinkingStarted = new Set<string>();
-  const input = buildCodexInput(prompt, opts.imagePaths);
-
-  try {
-    const { events } = await thread.runStreamed(input, { signal: opts.signal });
-
-    for await (const event of events as AsyncIterable<ThreadEvent>) {
-      switch (event.type) {
-        case 'thread.started':
-          if (event.thread_id) opts.onThreadId?.(event.thread_id);
-          break;
-
-        case 'item.started':
-        case 'item.updated':
-        case 'item.completed':
-          handleItem(event.item, event.type, onEvent, sentLen, thinkingStarted);
-          break;
-
-        case 'turn.completed':
-          if (event.usage) {
-            onEvent({ type: 'token_update', outputTokens: event.usage.output_tokens });
-          }
-          onEvent({ type: 'result', success: true });
-          break;
-
-        case 'turn.failed': {
-          // Codex delivers the real reason (e.g. "model not supported") here as
-          // a JSON event on stdout — the SDK separately throws a generic
-          // "exited with code 1", so log this explicitly or it gets buried.
-          const failMsg = event.error?.message || 'Codex turn failed';
-          console.error(`🤖 Codex turn failed [${opts.model ?? 'cli-default'}]:`, failMsg);
-          onEvent({ type: 'error', message: failMsg });
-          break;
-        }
-
-        case 'error': {
-          const retry = parseCodexRetryNotice(event.message);
-          if (retry) {
-            console.warn(`🤖 Codex retrying ${retry.attempt}/${retry.maxAttempts}: ${retry.message}`);
-            onEvent(retry);
-            break;
-          }
-          console.error(`🤖 Codex error [${opts.model ?? 'cli-default'}]:`, event.message);
-          onEvent({ type: 'error', message: event.message || 'Unknown Codex error' });
-          break;
-        }
-      }
     }
+  }
 
-    console.log("🤖 Codex stream completed");
-  } catch (error) {
-    // Graceful stop: the Stop button aborted the turn — not a real error.
-    if (opts.signal?.aborted) {
-      console.log("🤖 Codex stream aborted by user");
-      return;
+  async steer(sessionId: string, text: string, images: string[], onAccepted: () => void, clientId = randomUUID()): Promise<void> {
+    const run = this.runs.get(sessionId);
+    if (!run?.threadId || !run.turnId || run.interrupting || run.settled) throw new Error('This turn is no longer accepting input. Your draft has been kept.');
+    if (run.inputs.has(clientId)) throw new Error('This input is already being submitted.');
+    let accepted = false;
+    let acceptanceError: unknown;
+    const accept = () => {
+      if (accepted) return;
+      accepted = true;
+      try {
+        run.emit({ type: 'input_boundary' });
+        onAccepted();
+      } catch (error) { acceptanceError = error; run.settle(error instanceof Error ? error : new Error('Could not save the follow-up.')); }
+    };
+    run.inputs.set(clientId, accept);
+    try {
+      await this.app.request('turn/steer', { threadId: run.threadId, expectedTurnId: run.turnId, clientUserMessageId: clientId, input: buildCodexInput(text, images) });
+      accept();
+    } catch (error) {
+      if (!accepted) throw error;
+    } finally { run.inputs.delete(clientId); }
+    if (acceptanceError) throw acceptanceError;
+  }
+
+  async answer(sessionId: string, toolId: string, answers: Record<string, string>, onAccepted: () => void = () => {}): Promise<void> {
+    const run = this.runs.get(sessionId);
+    const pending = run?.questions.get(toolId);
+    if (!run || run.settled || !pending) throw new Error('This question is no longer active.');
+    if (pending.requestId !== undefined) {
+      this.app.respond(pending.requestId, { answers: Object.fromEntries(pending.question.questions.map(q => [q.id, { answers: [answers[q.id] || answers[q.header] || 'Skipped'] }])) });
+      run.emit({ type: 'input_boundary' });
+      onAccepted();
+    } else {
+      const text = pending.question.questions.map(q => `${q.question}\n${answers[q.id] || answers[q.header] || 'Skipped'}`).join('\n\n');
+      await this.steer(sessionId, text, [], onAccepted);
     }
-    console.error("🤖 Codex stream error:", error);
-    onEvent({ type: 'error', message: error instanceof Error ? error.message : 'Unknown Codex error' });
-    throw error;
+    this.resolveQuestion(run, toolId);
+  }
+
+  private addQuestion(run: ActiveRun, pending: PendingQuestion): void {
+    if (run.questions.has(pending.question.toolId) || run.resolvedQuestions.has(pending.question.toolId)) return;
+    run.questions.set(pending.question.toolId, pending);
+    if (run.questions.size === 1) run.emit({ type: 'ask_user_question', question: pending.question });
+  }
+  private resolveQuestion(run: ActiveRun, toolId: string): void {
+    if (!run.questions.delete(toolId)) return;
+    run.resolvedQuestions.add(toolId);
+    run.emit({ type: 'question_resolved', toolId });
+    const next = run.questions.values().next().value;
+    if (next) run.emit({ type: 'ask_user_question', question: next.question });
+  }
+  private serverRequest(request: RpcRequest): void {
+    const run = [...this.runs.values()].find(run => run.threadId === request.params.threadId);
+    if (!run || run.settled || request.params.turnId !== run.turnId || request.method !== 'item/tool/requestUserInput') {
+      this.app.respondError(request.id, 'This request is not supported by the active Agentic session.'); return;
+    }
+    const questions = request.params.questions as CodexQuestion['questions'];
+    if (!Array.isArray(questions) || !questions.length || questions.some(q => !q || typeof q.id !== 'string' || typeof q.question !== 'string')) { this.app.respondError(request.id, 'Invalid question request.'); return; }
+    this.addQuestion(run, { requestId: request.id, question: {
+      toolId: String(request.id), isBlocking: request.params.isBlocking !== false,
+      questions: questions.map(q => ({ ...q, options: q.options || [] })),
+    } });
+  }
+
+  private notification({ method, params: p }: RpcNotification): void {
+    const run = [...this.runs.values()].find(run => run.threadId === p.threadId);
+    if (!run || run.settled) return;
+    try {
+      if (method === 'turn/started') { run.turnId = (p.turn as { id: string }).id; run.emit({ type: 'turn_started', turnId: run.turnId }); return; }
+      if (typeof p.turnId === 'string' && run.turnId && p.turnId !== run.turnId) return;
+      if (method === 'serverRequest/resolved') {
+        for (const [id, q] of run.questions) if (q.requestId === p.requestId) this.resolveQuestion(run, id);
+      } else if (method === 'error') {
+        const message = messageOf(p.error, 'Codex reported an error.');
+        if (p.willRetry) run.emit(parseCodexRetryNotice(message) || { type: 'retry_attempt', attempt: 1, maxAttempts: 1, message });
+        else run.settle(new Error(message));
+      } else if (method === 'turn/completed') {
+        const turn = p.turn as { id: string; status: string; error?: unknown; items?: Item[] };
+        if (run.turnId && turn.id !== run.turnId) return;
+        for (const item of turn.items || []) this.item(run, item);
+        if (turn.status === 'failed') run.settle(new Error(messageOf(turn.error, 'Codex turn failed.')));
+        else if (turn.status === 'completed' || turn.status === 'interrupted') { run.result = turn.status === 'completed'; run.settle(); }
+      } else if (method === 'item/started' || method === 'item/completed') {
+        this.item(run, p.item as Item);
+      } else if (method === 'item/agentMessage/delta' || method === 'item/reasoning/summaryTextDelta') {
+        const id = String(p.itemId);
+        const block = run.blocks.get(id);
+        if (method === 'item/agentMessage/delta') this.block(run, { type: 'text', id, text: (block?.type === 'text' ? block.text : '') + String(p.delta || '') });
+        else this.block(run, { type: 'thinking', id, thinking: (block?.type === 'thinking' ? block.thinking : '') + String(p.delta || '') });
+      } else if (method === 'item/commandExecution/outputDelta') {
+        const block = run.blocks.get(String(p.itemId));
+        if (block?.type === 'tool_use') this.block(run, { ...block, input: { ...block.input, output: String(block.input.output || '') + String(p.delta || '') } });
+      } else if (method === 'thread/tokenUsage/updated') {
+        const usage = p.tokenUsage as { last?: { outputTokens?: number } };
+        if (typeof usage?.last?.outputTokens === 'number') run.emit({ type: 'token_update', outputTokens: usage.last.outputTokens });
+      } else if (method === 'turn/plan/updated') {
+        const plan = p.plan as { step: string; status: string }[];
+        this.block(run, { type: 'tool_use', id: `plan-${run.turnId}`, name: 'TodoWrite', input: { todos: plan.map(step => ({ content: step.step, activeForm: step.step, status: step.status === 'inProgress' ? 'in_progress' : step.status })) } });
+      }
+    } catch (error) { run.settle(error instanceof Error ? error : new Error('Could not process a Codex event.')); }
+  }
+  private block(run: ActiveRun, block: CodexBlock): void { run.blocks.set(block.id, block); run.emit({ type: 'block', block }); }
+  private item(run: ActiveRun, item: Item): void {
+    if (!item?.id) return;
+    switch (item.type) {
+      case 'userMessage':
+        if (typeof item.clientId === 'string') run.inputs.get(item.clientId)?.();
+        break;
+      case 'agentMessage':
+        this.block(run, { type: 'text', id: item.id, text: String(item.text || '') });
+        if (item.delivery === 'async' && Array.isArray(item.questions) && item.questions.length > 0) this.addQuestion(run, { question: {
+          toolId: item.id, isBlocking: false,
+          questions: item.questions.map((q, i) => ({ id: `question_${i}`, header: `question_${i}`, question: q.title, options: (q.options || []).map((label: string) => ({ label })) })),
+        } });
+        break;
+      case 'reasoning': this.block(run, { type: 'thinking', id: item.id, thinking: Array.isArray(item.summary) ? item.summary.join('\n') : '' }); break;
+      case 'commandExecution': this.block(run, { type: 'tool_use', id: item.id, name: 'Bash', input: { command: item.command, output: item.aggregatedOutput || '', exit_code: item.exitCode, status: item.status } }); break;
+      case 'fileChange': this.block(run, { type: 'tool_use', id: item.id, name: 'Edit', input: { changes: (item.changes as { path: string; kind: { type: string }; diff: string }[] || []).map(c => ({ path: c.path, kind: c.kind.type, diff: c.diff })), status: item.status } }); break;
+      case 'mcpToolCall': this.block(run, { type: 'tool_use', id: item.id, name: `${item.server}.${item.tool}`, input: { arguments: item.arguments, result: item.result, error: item.error, status: item.status } }); break;
+      case 'webSearch': this.block(run, { type: 'tool_use', id: item.id, name: 'WebSearch', input: { query: item.query, action: item.action } }); break;
+      case 'dynamicToolCall': this.block(run, { type: 'tool_use', id: item.id, name: String(item.tool), input: { arguments: item.arguments, status: item.status } }); break;
+    }
   }
 }
+
+export const codexSessions = new CodexSessions(codexAppServer);
+export const runCodexStream = (prompt: string, cwd: string, emit: CodexEventCallback, opts: RunCodexOptions) => codexSessions.run(prompt, cwd, emit, opts);

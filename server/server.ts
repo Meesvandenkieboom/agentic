@@ -62,6 +62,7 @@ import { handleSkillRoutes } from "./routes/skills";
 import { handleMCPServerRoutes } from "./routes/mcpServers";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
 import type { ChatWebSocketData } from "./websocket/types";
+import { codexAppServer } from './codex/appServer';
 import { sessionStreamManager } from "./sessionStreamManager";
 import { runStartupMigrations } from "./utils/configMigration";
 import { cleanupOrphanedMcpProcesses } from "./mcpCleanup";
@@ -106,6 +107,8 @@ const _mcpShutdownHandler = (signal: 'SIGINT' | 'SIGTERM') => {
   }, 2_000);
   forceExit.unref();
 
+  sessionStreamManager.shutdown();
+  codexAppServer.stop();
   shutdownAllMcpBridges()
     .catch((err) => console.error(`MCP bridge shutdown error on ${signal}:`, err))
     .finally(() => {

@@ -13,11 +13,11 @@ import { pendingQuestions } from "./types";
 
 /** Resolve a pending AskUserQuestion promise with the user's answer */
 export function handleAnswerQuestion(data: Record<string, unknown>): void {
-  const { sessionId, answers } = data;
+  const { sessionId, toolId, answers } = data;
   if (!sessionId || typeof sessionId !== 'string') return;
 
   const pending = pendingQuestions.get(sessionId);
-  if (pending) {
+  if (pending && pending.toolId === toolId) {
     console.log(`✅ User answered question for session ${sessionId.substring(0, 8)}`);
     pendingQuestions.delete(sessionId);
     pending.resolve(JSON.stringify(answers));
@@ -170,11 +170,12 @@ export async function handleStopGeneration(
   try {
     console.log(`🛑 Stop generation requested for session: ${sessionId.toString().substring(0, 8)}`);
 
+    const awaitCompletion = sessionStreamManager.waitsForStopCompletion(sessionId as string);
     const success = sessionStreamManager.abortSession(sessionId as string);
 
     if (success) {
       console.log(`✅ Generation stopped successfully: ${sessionId.toString().substring(0, 8)}`);
-      ws.send(JSON.stringify({
+      if (!awaitCompletion) ws.send(JSON.stringify({
         type: 'generation_stopped',
         sessionId
       }));

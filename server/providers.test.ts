@@ -42,19 +42,19 @@ describe('configureProvider (codex)', () => {
     }
   });
 
-  it('clears all Anthropic auth env vars for the codex provider', async () => {
+  it('leaves concurrent Claude authentication intact for the codex provider', async () => {
     for (const key of authEnvKeys) {
       saved[key] = process.env[key];
     }
-    // Seed some values that should be cleared.
-    process.env.ANTHROPIC_API_KEY = 'should-be-removed';
+    // Seed values that a concurrent Claude chat is using.
+    process.env.ANTHROPIC_API_KEY = 'concurrent-claude-key';
     process.env.ANTHROPIC_BASE_URL = 'https://example.com';
 
     await configureProvider('codex');
 
-    expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
-    expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
-    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
-    expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBe(saved.CLAUDE_CODE_OAUTH_TOKEN);
+    expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe(saved.ANTHROPIC_AUTH_TOKEN);
+    expect(process.env.ANTHROPIC_API_KEY).toBe('concurrent-claude-key');
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('https://example.com');
   });
 });

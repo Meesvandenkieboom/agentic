@@ -67,21 +67,21 @@ describe('parseCodexRetryNotice', () => {
 });
 
 describe('buildCodexInput', () => {
-  it('keeps text-only turns as a string', () => {
-    expect(buildCodexInput('Inspect the component')).toBe('Inspect the component');
+  it('encodes text-only turns for App Server', () => {
+    expect(buildCodexInput('Inspect the component')).toEqual([{ type: 'text', text: 'Inspect the component', text_elements: [] }]);
   });
 
-  it('adds attached images as local_image entries', () => {
+  it('adds attached images as localImage entries', () => {
     expect(buildCodexInput('Compare these', ['/tmp/before.png', '/tmp/after.jpg'])).toEqual([
-      { type: 'text', text: 'Compare these' },
-      { type: 'local_image', path: '/tmp/before.png' },
-      { type: 'local_image', path: '/tmp/after.jpg' },
+      { type: 'text', text: 'Compare these', text_elements: [] },
+      { type: 'localImage', path: '/tmp/before.png' },
+      { type: 'localImage', path: '/tmp/after.jpg' },
     ]);
   });
 
   it('supports an image-only turn without adding a blank text entry', () => {
     expect(buildCodexInput('', ['/tmp/screenshot.png'])).toEqual([
-      { type: 'local_image', path: '/tmp/screenshot.png' },
+      { type: 'localImage', path: '/tmp/screenshot.png' },
     ]);
   });
 });

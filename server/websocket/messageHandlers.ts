@@ -12,7 +12,6 @@
  */
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import * as path from 'path';
 import { sessionDb } from "../database";
 import { buildGithubContext, getSystemPrompt, injectWorkingDirIntoAgents } from "../systemPrompt";
 import { configureProvider } from "../providers";
@@ -23,7 +22,8 @@ import { mcpClientManager } from "../mcpClientManager";
 import { AGENT_REGISTRY } from "../agents";
 import { validateDirectory } from "../directoryUtils";
 import { getRuntimeSessionPaths } from '../sessionWorkspace';
-import { saveImageToSessionPictures, saveFileToSessionFiles } from "../imageUtils";
+import { processAttachments } from '../attachments';
+import { codexSessions } from '../providers/codex';
 import { loadUserConfig } from "../userConfig";
 import { parseApiError, getUserFriendlyMessage } from "../utils/apiErrors";
 import { sessionStreamManager, type ContentBlock, type MessageContent } from "../sessionStreamManager";
@@ -50,6 +50,8 @@ import { isAdaptiveThinkingModel } from "../../shared/adaptiveThinkingModels.mjs
 // Main message router
 // ───────────────────────────────────────────────
 
+const chatSubmissions = new Set<string>();
+
 export async function handleWebSocketMessage(
   ws: ChatWebSocket,
   message: string,
@@ -61,9 +63,25 @@ export async function handleWebSocketMessage(
     const data = JSON.parse(message);
 
     switch (data.type) {
-      case 'chat':
-        await handleChatMessage(ws, data, activeQueries);
+      case 'ping':
+        ws.send(JSON.stringify({ type: 'pong' }));
         break;
+      case 'chat': {
+        if (typeof data.sessionId !== 'string') throw new Error('Missing sessionId');
+        if (chatSubmissions.has(data.sessionId) || codexSessions.isActive(data.sessionId)) {
+          ws.send(JSON.stringify({ type: 'input_rejected', sessionId: data.sessionId, message: 'This chat already has an active turn. Send a follow-up instead.' }));
+          break;
+        }
+        chatSubmissions.add(data.sessionId);
+        try { await handleChatMessage(ws, data, activeQueries); }
+        finally {
+          chatSubmissions.delete(data.sessionId);
+          if (sessionStreamManager.waitsForStopCompletion(data.sessionId)) {
+            sessionStreamManager.cleanupSession(data.sessionId, 'codex_done');
+          }
+        }
+        break;
+      }
       case 'approve_plan':
         await handleApprovePlan(ws, data, activeQueries);
         break;
@@ -112,7 +130,12 @@ function handleReconnect(ws: ChatWebSocket, data: Record<string, unknown>): void
   sessionStreamManager.updateWebSocket(sessionId, ws);
   const generating = sessionStreamManager.isGenerating(sessionId);
   console.log(`🔄 Client reconnected for session ${sessionId.substring(0, 8)} (${generating ? '⚡ generating' : '💤 idle'})`);
-  ws.send(JSON.stringify({ type: 'reconnect_ack', sessionId, isGenerating: generating }));
+  if (MODEL_MAP[normalizeModelId(session.model)]?.provider === 'codex') {
+    ws.send(JSON.stringify({ type: 'session_history', sessionId, messages: sessionDb.getSessionMessages(sessionId) }));
+    const question = codexSessions.pendingQuestion(sessionId);
+    ws.send(JSON.stringify({ type: 'question_state', sessionId, question }));
+  }
+  ws.send(JSON.stringify({ type: 'reconnect_ack', sessionId, isGenerating: generating, turnId: codexSessions.activeTurnId(sessionId) }));
 }
 
 // ───────────────────────────────────────────────
@@ -199,7 +222,10 @@ async function handleChatMessage(
 
   // Save user message to database
   const contentForDb = typeof content === 'string' ? content : JSON.stringify(content);
-  sessionDb.addMessage(sessionId as string, 'user', contentForDb);
+  const savedUserMessage = sessionDb.addMessage(sessionId as string, 'user', contentForDb);
+  if (MODEL_MAP[effectiveModelId]?.provider === 'codex') {
+    ws.send(JSON.stringify({ type: 'session_message', sessionId, message: savedUserMessage, clientMessageId: data.clientMessageId }));
+  }
 
   // Expand slash commands
   if (trimmedPrompt.startsWith('/')) {
@@ -235,6 +261,14 @@ async function handleChatMessage(
   const modelConfig = MODEL_MAP[effectiveModelId] || MODEL_MAP[normalizeModelId()];
   const { apiModelId, provider } = modelConfig;
   const providerType = provider as 'anthropic' | 'codex';
+  if (providerType === 'codex') {
+    // Reserve cancellation and reconnect state before asynchronous setup begins.
+    sessionStreamManager.getOrCreateStream(sessionId as string);
+    sessionStreamManager.updateWebSocket(sessionId as string, ws);
+    sessionStreamManager.keepAliveOnDisconnect(sessionId as string);
+    sessionStreamManager.setGenerating(sessionId as string, true);
+    sessionStreamManager.safeSend(sessionId as string, JSON.stringify({ type: 'generation_started', sessionId }));
+  }
 
   try {
     await configureProvider(providerType);
@@ -274,7 +308,7 @@ async function handleChatMessage(
   }
 
   // For existing streams: update WebSocket, enqueue message, return
-  if (!isNewStream) {
+  if (!isNewStream && providerType !== 'codex') {
     const abortCtrl = sessionStreamManager.getAbortController(sessionId as string);
     if (abortCtrl?.signal.aborted) {
       console.log(`🔄 Session ${(sessionId as string).substring(0, 8)} was aborted, cleaning up`);
@@ -305,7 +339,7 @@ async function handleChatMessage(
     }
   }
 
-  // Codex provider (separate SDK)
+  // Codex App Server
   if (providerType === 'codex') {
     await handleCodexProvider(
       ws, session, sessionId as string, promptText, workingDir,
@@ -349,50 +383,6 @@ function effortToThinkingTokens(effort: string | undefined): number {
 // Helpers
 // ───────────────────────────────────────────────
 
-function processAttachments(
-  content: unknown,
-  sessionId: string,
-  metadataDir: string,
-): { imageBlocks: ContentBlock[]; imagePaths: string[]; filePaths: string[] } {
-  const imageBlocks: ContentBlock[] = [];
-  const imagePaths: string[] = [];
-  const filePaths: string[] = [];
-
-  if (!Array.isArray(content)) return { imageBlocks, imagePaths, filePaths };
-
-  const contentBlocks = content as Array<Record<string, unknown>>;
-
-  for (const block of contentBlocks) {
-    if (block.type === 'image' && typeof block.source === 'object') {
-      const source = block.source as Record<string, unknown>;
-      if (source.type === 'base64' && typeof source.data === 'string') {
-        const base64Data = `data:${source.media_type || 'image/png'};base64,${source.data}`;
-        const imagePath = saveImageToSessionPictures(base64Data, sessionId, metadataDir);
-        imagePaths.push(path.resolve(metadataDir, imagePath));
-        imageBlocks.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: (source.media_type as string) || 'image/png',
-            data: source.data as string,
-          },
-        });
-      }
-    }
-
-    if (block.type === 'document' && typeof block.data === 'string' && typeof block.name === 'string') {
-      const filePath = saveFileToSessionFiles(block.data as string, block.name as string, sessionId, metadataDir);
-      filePaths.push(path.resolve(metadataDir, filePath));
-    }
-  }
-
-  if (imageBlocks.length > 0 || filePaths.length > 0) {
-    console.log(`📎 Attachments: ${imageBlocks.length} image(s), ${filePaths.length} file(s)`);
-  }
-
-  return { imageBlocks, imagePaths, filePaths };
-}
-
 /** Handle /compact and /clear commands. Returns true if the command was handled. */
 function handleSpecialCommands(ws: ChatWebSocket, trimmedPrompt: string, sessionId: string): boolean {
   if (trimmedPrompt === '/compact') {
@@ -428,24 +418,6 @@ function handleSpecialCommands(ws: ChatWebSocket, trimmedPrompt: string, session
   return false;
 }
 
-/**
- * A single persisted content block for a Codex assistant message. Mirrors the
- * shape the Claude path stores (see responseLoop.ts) so the client renders
- * Codex and Claude history identically on reload.
- */
-type CodexBlock =
-  | { type: 'text'; text: string }
-  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> };
-
-/**
- * Runs one Codex turn and bridges its events onto Agentic's WebSocket + DB.
- *
- * Unlike the Claude path (which keeps a long-lived SDK subprocess per session),
- * each Codex turn is self-contained: we register a stream purely so the Stop
- * button has an AbortController to cancel, then tear it down in `finally`.
- * Multi-turn continuity comes from Codex's own `resumeThread` keyed on the
- * thread id we persist in `sdk_session_id` — NOT from the in-memory queue.
- */
 async function handleCodexProvider(
   ws: ChatWebSocket,
   session: ReturnType<typeof sessionDb.getSession> & object,
@@ -457,41 +429,20 @@ async function handleCodexProvider(
   mcpServers: Record<string, unknown>,
   imagePaths: string[],
 ): Promise<void> {
-  // Register a stream so Stop/reconnect work and an AbortController exists.
-  // We never consume the message queue — only the AbortController matters here.
-  sessionStreamManager.getOrCreateStream(sessionId);
-  sessionStreamManager.updateWebSocket(sessionId, ws);
-  sessionStreamManager.setGenerating(sessionId, true);
+  // The chat router owns stream lifetime, including cancellation during setup.
   const signal = sessionStreamManager.getAbortController(sessionId)?.signal;
 
-  // Ordered content blocks accumulated across the turn. Keep a single DB
-  // assistant row updated so reload/reconnect can restore in-progress Codex
-  // output instead of only the user prompt.
-  const blocks: CodexBlock[] = [];
-  let assistantMessageId: string | null = null;
-  const persist = (): void => {
-    if (blocks.length === 0) return;
-    const content = JSON.stringify(blocks);
-    if (assistantMessageId) {
-      sessionDb.updateMessage(assistantMessageId, content);
-    } else {
-      const msg = sessionDb.addMessage(sessionId, 'assistant', content);
-      assistantMessageId = msg.id;
-    }
-  };
+  const { CodexMessageStore } = await import('../codex/messageStore');
+  const store = new CodexMessageStore(sessionId, sessionDb, message => {
+    sessionStreamManager.safeSend(sessionId, JSON.stringify({ type: 'session_message', sessionId, message }));
+  }, error => {
+    console.error('Could not save Codex output:', error);
+    sessionStreamManager.safeSend(sessionId, JSON.stringify({ type: 'error', sessionId, message: 'Could not save Codex output. Generation was stopped.' }));
+    sessionStreamManager.abortSession(sessionId);
+  });
 
   try {
-    const { runCodexStream, isCodexAvailable } = await import('../providers/codex');
-
-    const codexAvailable = await isCodexAvailable();
-    if (!codexAvailable) {
-      sessionStreamManager.safeSend(sessionId, JSON.stringify({
-        type: 'error',
-        message: 'Codex is not available. Run "bun run login" and select Codex to authenticate.',
-        sessionId,
-      }));
-      return;
-    }
+    const { runCodexStream } = await import('../providers/codex');
 
     // Merge UI-connected MCP servers, then bridge port-bound stdio MCPs (eg
     // rbxstudio-mcp on :3002) through the shared singleton — exactly like the
@@ -513,31 +464,18 @@ async function handleCodexProvider(
       promptText,
       workingDir,
       (event) => {
-        // Accumulate structured blocks for the single end-of-turn DB save.
-        if (event.type === 'assistant_message' && event.content) {
-          const last = blocks[blocks.length - 1];
-          if (last && last.type === 'text') {
-            last.text += event.content;
-          } else {
-            blocks.push({ type: 'text', text: event.content });
-          }
-          persist();
-        } else if (event.type === 'tool_use' && event.toolId) {
-          blocks.push({
-            type: 'tool_use',
-            id: event.toolId,
-            name: event.toolName ?? 'tool',
-            input: event.toolInput ?? {},
-          });
-          persist();
-        } else if (event.type === 'result') {
-          persist();
+        // Persist before publishing stable snapshots, including partial output.
+        if (event.type === 'block') store.update(event.block);
+        else if (event.type === 'input_boundary') store.inputBoundary();
+        else if (event.type === 'ask_user_question') {
+          sessionStreamManager.safeSend(sessionId, JSON.stringify({ type: event.type, sessionId, ...event.question }));
+        } else {
+          if (event.type === 'result') store.flush();
+          sessionStreamManager.safeSend(sessionId, JSON.stringify({ ...event, sessionId }));
         }
-
-        // Relay the event to the client (caller spreads sessionId on top).
-        sessionStreamManager.safeSend(sessionId, JSON.stringify({ ...event, sessionId }));
       },
       {
+        sessionId,
         resumeThreadId: session.sdk_session_id ?? null,
         signal,
         effort,
@@ -550,21 +488,22 @@ async function handleCodexProvider(
       },
     );
 
-    // Save whatever we have if the SDK exits without an explicit result.
-    // On Stop, `generation_stopped` was already sent by abortSession.
-    persist();
+    // Flush the last batch even when the turn was interrupted.
+    store.flush();
   } catch (error) {
     console.error('❌ Codex provider error:', error);
-    persist(); // keep any partial work produced before the failure
+    let persisted = false;
+    try {
+      store.inputBoundary();
+      store.update({ type: 'text', id: `error-${Date.now()}`, text: `Codex stopped: ${error instanceof Error ? error.message : 'Unexpected provider error'}` });
+      store.flush();
+      persisted = true;
+    } catch (saveError) { console.error('Could not save partial Codex output:', saveError); }
     sessionStreamManager.safeSend(sessionId, JSON.stringify({
       type: 'error',
       message: error instanceof Error ? error.message : 'Codex provider error',
-      sessionId,
+      persisted, sessionId,
     }));
-  } finally {
-    // Tear down the in-memory stream; next turn resumes via resumeThread.
-    sessionStreamManager.setIdle(sessionId);
-    sessionStreamManager.cleanupSession(sessionId, 'codex_done');
   }
 }
 

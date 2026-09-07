@@ -287,6 +287,12 @@ export function useWebSocket({
     try {
       const ws = new WebSocket(url);
       wsRef.current = ws;
+      let lastReceivedAt = Date.now();
+      const heartbeat = setInterval(() => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        if (Date.now() - lastReceivedAt > 90_000) { ws.close(); return; }
+        ws.send(JSON.stringify({ type: 'ping' }));
+      }, 30_000);
 
       ws.onopen = () => {
         setIsConnected(true);
@@ -302,6 +308,7 @@ export function useWebSocket({
       };
 
       ws.onmessage = (event) => {
+        lastReceivedAt = Date.now();
         try {
           const message = JSON.parse(event.data);
           onMessageRef.current?.(message);
@@ -316,6 +323,7 @@ export function useWebSocket({
       };
 
       ws.onclose = () => {
+        clearInterval(heartbeat);
         setIsConnected(false);
         onDisconnectRef.current?.();
         wsRef.current = null;

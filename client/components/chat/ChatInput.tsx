@@ -39,6 +39,7 @@ interface ChatInputProps {
   onStop?: () => void;
   disabled?: boolean;
   isGenerating?: boolean;
+  allowSteering?: boolean;
   /** True while a GitHub repo is being cloned during chat creation. Shows spinner on send button. */
   isCloning?: boolean;
   placeholder?: string;
@@ -58,7 +59,7 @@ interface ChatInputProps {
   onReasoningEffortChange?: (effort: ReasoningEffort) => void;
 }
 
-export function ChatInput({ onSubmit, onStop, disabled, isGenerating, isCloning, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo, reasoningEffort, onReasoningEffortChange }: ChatInputProps) {
+export function ChatInput({ onSubmit, onStop, disabled, isGenerating, allowSteering, isCloning, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo, reasoningEffort, onReasoningEffortChange }: ChatInputProps) {
   const [value, setValue] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -198,8 +199,9 @@ export function ChatInput({ onSubmit, onStop, disabled, isGenerating, isCloning,
   const handleSubmit = async () => {
     const sent = await onSubmit(value, attachedFiles.length > 0 ? attachedFiles : undefined, mode);
     if (sent) {
-      setValue('');
-      setAttachedFiles([]);
+      setValue(current => current === value ? '' : current);
+      const submittedIds = new Set(attachedFiles.map(file => file.id));
+      setAttachedFiles(current => current.filter(file => !submittedIds.has(file.id)));
     }
     // Refocus input after submit
     setTimeout(() => textareaRef.current?.focus(), 0);
@@ -497,7 +499,7 @@ export function ChatInput({ onSubmit, onStop, disabled, isGenerating, isCloning,
 
             {/* Right side - Send/Stop button */}
             <div className="input-controls-right">
-              {isGenerating ? (
+              {isGenerating && (
                 <button
                   onClick={onStop}
                   className="send-button stop-button-active"
@@ -506,7 +508,8 @@ export function ChatInput({ onSubmit, onStop, disabled, isGenerating, isCloning,
                 >
                   <Square size={17} fill="currentColor" />
                 </button>
-              ) : isCloning ? (
+              )}
+              {isCloning ? (
                 <button
                   disabled
                   className="send-button"
@@ -517,7 +520,7 @@ export function ChatInput({ onSubmit, onStop, disabled, isGenerating, isCloning,
                 >
                   <Loader2 size={17} className="animate-spin" />
                 </button>
-              ) : (
+              ) : (!isGenerating || allowSteering) && (
                 <button
                   onClick={handleSubmit}
                   disabled={disabled || (!value.trim() && attachedFiles.length === 0)}

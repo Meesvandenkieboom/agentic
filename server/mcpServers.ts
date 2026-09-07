@@ -174,7 +174,7 @@ export async function getMcpServers(provider: ProviderType, _modelId?: string): 
  *
  * The Codex CLI reads MCP servers from `mcp_servers.<name>.*` config keys
  * (normally in ~/.codex/config.toml). We inject these at runtime via the
- * @openai/codex-sdk `CodexOptions.config` object, which the SDK flattens into
+ * Codex App Server `CodexOptions.config` object, which the SDK flattens into
  * `--config key=value` CLI overrides. stdio servers use command/args/env;
  * streamable-HTTP servers use `url` (+ optional static `http_headers`).
  */
