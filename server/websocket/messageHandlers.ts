@@ -11,6 +11,7 @@
  *   - contextUsageHandler.ts — token usage tracking
  */
 
+import { turnNotifications } from '../notifications';
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { sessionDb } from "../database";
 import { buildGithubContext, getSystemPrompt, injectWorkingDirIntoAgents } from "../systemPrompt";
@@ -74,6 +75,7 @@ export async function handleWebSocketMessage(
         }
         chatSubmissions.add(data.sessionId);
         try { await handleChatMessage(ws, data, activeQueries); }
+        catch (error) { turnNotifications.finish(data.sessionId, 'error'); throw error; }
         finally {
           chatSubmissions.delete(data.sessionId);
           if (sessionStreamManager.waitsForStopCompletion(data.sessionId)) {
@@ -161,6 +163,8 @@ async function handleChatMessage(
     return;
   }
 
+  turnNotifications.begin(session.id, session.title);
+
   const requestedModelId = typeof model === 'string' ? normalizeModelId(model) : undefined;
   const storedModelId = session.model ? normalizeModelId(session.model) : undefined;
   const hasPriorMessages = session.message_count > 0;
@@ -181,10 +185,12 @@ async function handleChatMessage(
   }
 
   if (session.workspace_status === 'preparing') {
+    turnNotifications.finish(session.id, 'error');
     ws.send(JSON.stringify({ type: 'error', message: 'Branch workspace is still being prepared.', sessionId }));
     return;
   }
   if (session.workspace_status === 'failed') {
+    turnNotifications.finish(session.id, 'error');
     ws.send(JSON.stringify({
       type: 'error',
       message: `Branch workspace preparation failed: ${session.workspace_error || 'unknown error'}`,
@@ -218,7 +224,7 @@ async function handleChatMessage(
   }
 
   const trimmedPrompt = promptText.trim();
-  if (handleSpecialCommands(ws, trimmedPrompt, sessionId as string)) return;
+  if (handleSpecialCommands(ws, trimmedPrompt, sessionId as string)) { turnNotifications.cancel(sessionId as string); return; }
 
   // Save user message to database
   const contentForDb = typeof content === 'string' ? content : JSON.stringify(content);
@@ -274,6 +280,7 @@ async function handleChatMessage(
     await configureProvider(providerType);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    turnNotifications.finish(session.id, 'error');
     console.error('❌ Provider configuration error:', errorMessage);
     ws.send(JSON.stringify({ type: 'error', message: errorMessage, sessionId }));
     return;
@@ -284,6 +291,7 @@ async function handleChatMessage(
     const userText = typeof content === 'string' ? content : promptText;
     generateChatTitle(userText).then(title => {
       sessionDb.renameSession(sessionId as string, title);
+      turnNotifications.rename(sessionId as string, title);
       sessionStreamManager.safeSend(sessionId as string, JSON.stringify({
         type: 'session_title_updated', sessionId, title,
       }));
@@ -298,6 +306,7 @@ async function handleChatMessage(
   // Validate working directory
   const validation = validateDirectory(workingDir);
   if (!validation.valid) {
+    turnNotifications.finish(session.id, 'error');
     console.error('❌ Working directory invalid:', validation.error);
     ws.send(JSON.stringify({ type: 'error', message: `Working directory error: ${validation.error}`, sessionId }));
     return;
@@ -437,6 +446,7 @@ async function handleCodexProvider(
     sessionStreamManager.safeSend(sessionId, JSON.stringify({ type: 'session_message', sessionId, message }));
   }, error => {
     console.error('Could not save Codex output:', error);
+    turnNotifications.finish(sessionId, 'error');
     sessionStreamManager.safeSend(sessionId, JSON.stringify({ type: 'error', sessionId, message: 'Could not save Codex output. Generation was stopped.' }));
     sessionStreamManager.abortSession(sessionId);
   });
@@ -468,9 +478,15 @@ async function handleCodexProvider(
         if (event.type === 'block') store.update(event.block);
         else if (event.type === 'input_boundary') store.inputBoundary();
         else if (event.type === 'ask_user_question') {
+          turnNotifications.question(sessionId, event.question.toolId, event.question.questions, event.question.isBlocking);
           sessionStreamManager.safeSend(sessionId, JSON.stringify({ type: event.type, sessionId, ...event.question }));
         } else {
-          if (event.type === 'result') store.flush();
+          if (event.type === 'question_resolved') turnNotifications.resolveQuestion(sessionId, event.toolId);
+          if (event.type === 'result') {
+            store.flush();
+            if (event.success && !signal?.aborted) turnNotifications.finish(sessionId, 'finished');
+            else turnNotifications.cancel(sessionId);
+          }
           sessionStreamManager.safeSend(sessionId, JSON.stringify({ ...event, sessionId }));
         }
       },
@@ -491,6 +507,7 @@ async function handleCodexProvider(
     // Flush the last batch even when the turn was interrupted.
     store.flush();
   } catch (error) {
+    turnNotifications.finish(sessionId, 'error');
     console.error('❌ Codex provider error:', error);
     let persisted = false;
     try {
@@ -717,8 +734,19 @@ IMPORTANT: Do not modify files outside the workspace directory.
             sessionId,
           }));
 
-          const answer = await new Promise<string>((resolve) => {
-            pendingQuestions.set(sessionId, { resolve, toolId });
+          turnNotifications.question(sessionId, toolId, Array.isArray(input.questions) ? input.questions : [], true);
+          const answer = await new Promise<string>((resolve, reject) => {
+            const abort = () => {
+              if (pendingQuestions.get(sessionId)?.toolId === toolId) pendingQuestions.delete(sessionId);
+              turnNotifications.resolveQuestion(sessionId, toolId);
+              reject(new DOMException('Question cancelled', 'AbortError'));
+            };
+            if (options.signal.aborted) { abort(); return; }
+            options.signal.addEventListener('abort', abort, { once: true });
+            pendingQuestions.set(sessionId, { toolId, resolve: value => {
+              options.signal.removeEventListener('abort', abort);
+              resolve(value);
+            } });
           });
 
           console.log(`✅ AskUserQuestion answered (toolId: ${toolId})`);
@@ -848,6 +876,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
         const messageStream = sessionStreamManager.getOrCreateStream(sessionId);
         const abortController = sessionStreamManager.getAbortController(sessionId);
         if (!abortController) {
+          turnNotifications.finish(sessionId, 'error');
           ws.send(JSON.stringify({ type: 'error', message: 'Session initialization error', sessionId }));
           return;
         }
@@ -859,6 +888,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
         const result = query({ prompt: messageStream, options: queryOptions });
         console.log(`✅ [SDK] Subprocess spawned in ${Date.now() - spawnStart}ms for session ${sessionId.substring(0, 8)}`);
 
+        sessionStreamManager.keepAliveOnDisconnect(sessionId, false);
         sessionStreamManager.registerQuery(sessionId, result);
         activeQueries.set(sessionId, result);
         sessionStreamManager.updateWebSocket(sessionId, ws);
@@ -886,6 +916,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
         const parsedError = parseApiError(error, stderrOutput);
 
         if (!parsedError.isRetryable || attemptNumber >= MAX_RETRIES) {
+          turnNotifications.finish(sessionId, 'error');
           ws.send(JSON.stringify({
             type: 'error',
             errorType: parsedError.type,
@@ -914,6 +945,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
       }
     }
   } catch (error) {
+    turnNotifications.finish(sessionId, 'error');
     console.error('WebSocket handler error:', error);
     const parsedError = parseApiError(error);
     ws.send(JSON.stringify({

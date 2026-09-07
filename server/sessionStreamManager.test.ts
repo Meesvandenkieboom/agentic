@@ -36,4 +36,16 @@ describe('session lifecycle', () => {
     expect(manager.isGenerating('codex')).toBe(true);
     manager.setIdle('codex'); expect(manager.isGenerating('codex')).toBe(false);
   });
+  it('keeps Claude alive without changing its immediate Stop behavior', async () => {
+    const manager = create();
+    manager.getOrCreateStream('claude'); manager.keepAliveOnDisconnect('claude', false); manager.setGenerating('claude', true);
+    let expired = false;
+    manager.startDisconnectGracePeriod('claude', () => { expired = true; }, 1);
+    await Bun.sleep(10);
+    expect(expired).toBe(false);
+    expect(manager.waitsForStopCompletion('claude')).toBe(false);
+    manager.abortSession('claude');
+    expect(manager.getAbortController('claude')?.signal.aborted).toBe(true);
+  });
+
 });

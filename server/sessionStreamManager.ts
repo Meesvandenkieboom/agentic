@@ -29,6 +29,7 @@ interface SessionStream {
   lastActivityAt: number;
   activeWebSockets: Set<ServerWebSocket<unknown>>;
   keepAliveOnDisconnect: boolean;
+  waitForStopCompletion: boolean;
   isGenerating: boolean; // true when actively processing a response, false when idle between turns
 }
 
@@ -69,6 +70,7 @@ export class SessionStreamManager {
         activeWebSockets: new Set(),
         isGenerating: false,
         keepAliveOnDisconnect: false,
+        waitForStopCompletion: false,
       });
 
     }
@@ -93,12 +95,12 @@ export class SessionStreamManager {
   /**
    * Keep native turns independent of browser lifetime and await their Stop completion.
    */
-  keepAliveOnDisconnect(sessionId: string): void {
+  keepAliveOnDisconnect(sessionId: string, waitForStopCompletion = true): void {
     const stream = this.streams.get(sessionId);
-    if (stream) stream.keepAliveOnDisconnect = true;
+    if (stream) { stream.keepAliveOnDisconnect = true; stream.waitForStopCompletion = waitForStopCompletion; }
   }
 
-  waitsForStopCompletion(sessionId: string): boolean { return this.streams.get(sessionId)?.keepAliveOnDisconnect ?? false; }
+  waitsForStopCompletion(sessionId: string): boolean { return this.streams.get(sessionId)?.waitForStopCompletion ?? false; }
 
   setIdle(sessionId: string): void {
     this.setGenerating(sessionId, false);
@@ -197,7 +199,7 @@ export class SessionStreamManager {
     stream.abortController.abort();
 
     // Send abort signal to client
-    if (!stream.keepAliveOnDisconnect) this.safeSend(sessionId, JSON.stringify({
+    if (!stream.waitForStopCompletion) this.safeSend(sessionId, JSON.stringify({
       type: 'generation_stopped',
       sessionId: sessionId,
     }));

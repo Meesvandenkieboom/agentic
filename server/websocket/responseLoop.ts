@@ -7,6 +7,7 @@
  */
 
 import type { SDKCompactBoundaryMessage } from "@anthropic-ai/claude-agent-sdk";
+import { turnNotifications } from '../notifications';
 import { sessionDb } from "../database";
 import { sessionStreamManager } from "../sessionStreamManager";
 import { processContextUsage } from "./contextUsageHandler";
@@ -88,6 +89,9 @@ export function startResponseLoop(
   onLoopError?: () => boolean,
 ): void {
   (async () => {
+    // Keep the source identity: after Stop a replacement stream may already
+    // exist under the same chat ID when the old iterator finishes unwinding.
+    const streamSignal = sessionStreamManager.getAbortController(sessionId)?.signal;
     // Per-turn state (resets after each completion)
     let currentMessageContent: unknown[] = [];
     let currentTextResponse = '';
@@ -126,6 +130,7 @@ export function startResponseLoop(
 
     try {
       for await (const message of result as AsyncIterable<Record<string, unknown>>) {
+        if (streamSignal?.aborted) throw new DOMException('Generation aborted by user', 'AbortError');
         // Capture SDK's internal session ID from init message
         if (message.type === 'system' && (message as { subtype?: string }).subtype === 'init') {
           const sdkSessionId = (message as { session_id?: string }).session_id;
@@ -192,6 +197,7 @@ export function startResponseLoop(
           // Memory safeguard: abort if output exceeds 50MB
           const MAX_OUTPUT_CHARS = 50_000_000;
           if (totalCharCount > MAX_OUTPUT_CHARS) {
+            turnNotifications.finish(sessionId, 'error');
             console.warn(`⚠️ Session ${sessionId.substring(0, 8)} exceeded ${MAX_OUTPUT_CHARS / 1_000_000}MB output limit, aborting`);
             sessionStreamManager.abortSession(sessionId);
           }
@@ -250,8 +256,11 @@ export function startResponseLoop(
           toolUseCount = assistantResult.toolUseCount;
         }
       }
+      if (sessionStreamManager.isGenerating(sessionId) && !streamSignal?.aborted) {
+        throw new Error('The agent stream ended before completing the turn.');
+      }
     } catch (error) {
-      handleLoopError(error, sessionId, activeQueries, currentMessageContent, currentTextResponse, currentMessageId, onLoopError);
+      await handleLoopError(error, sessionId, activeQueries, currentMessageContent, currentTextResponse, currentMessageId, onLoopError, streamSignal);
     } finally {
       clearInterval(heartbeatInterval);
     }
@@ -334,12 +343,16 @@ function handleTurnCompletion(
   // Process context usage
   processContextUsage(message, sessionId, apiModelId, baseOutputTokens, totalCharCount);
 
+  const success = message.is_error !== true && message.subtype === 'success';
+  if (sessionStreamManager.getAbortController(sessionId)?.signal.aborted) turnNotifications.cancel(sessionId);
+  else turnNotifications.finish(sessionId, success ? 'finished' : 'error');
+
   // Mark session as idle
   sessionStreamManager.setIdle(sessionId);
 
   // Send completion signal
   sessionStreamManager.safeSend(sessionId, JSON.stringify({
-    type: 'result', success: true, sessionId,
+    type: 'result', success, sessionId,
   }));
 }
 
@@ -631,15 +644,18 @@ async function handleLoopError(
   currentTextResponse: string,
   currentMessageId: string | null,
   onLoopError?: () => boolean,
+  streamSignal?: AbortSignal,
 ): Promise<void> {
+  const ownsStream = !streamSignal || sessionStreamManager.getAbortController(sessionId)?.signal === streamSignal;
   const errorMessage = error instanceof Error ? error.message : String(error);
 
   // User-triggered abort (expected)
-  if (errorMessage.includes('aborted by user') || errorMessage.includes('AbortError')) {
+  if (streamSignal?.aborted || errorMessage.includes('aborted by user') || errorMessage.includes('AbortError')) {
     console.log(`✅ Generation stopped by user: ${sessionId.substring(0, 8)}`);
 
-    // Save partial response
-    if (!currentMessageId) {
+    // Preserve this source's partial output even if a newer stream now owns the
+    // chat. Only lifecycle cleanup and notifications require current ownership.
+    if (!currentMessageId && sessionDb.getSession(sessionId)) {
       if (currentMessageContent.length > 0) {
         sessionDb.addMessage(sessionId, 'assistant', JSON.stringify(currentMessageContent));
         console.log(`💾 Saved ${currentMessageContent.length} content blocks from aborted response`);
@@ -649,6 +665,8 @@ async function handleLoopError(
       }
     }
 
+    if (!ownsStream) return;
+    turnNotifications.cancel(sessionId);
     sessionStreamManager.safeSend(sessionId, JSON.stringify({
       type: 'result', success: true, sessionId,
     }));
@@ -656,11 +674,13 @@ async function handleLoopError(
     // Wait for SDK to flush transcript
     await new Promise(resolve => setTimeout(resolve, 500));
 
+    if (streamSignal && sessionStreamManager.getAbortController(sessionId)?.signal !== streamSignal) return;
     sessionStreamManager.cleanupSession(sessionId, 'user_aborted');
     activeQueries.delete(sessionId);
     return;
   }
 
+  if (!ownsStream) return;
   // Actual error
   console.error(`❌ Background response loop error for session ${sessionId}:`, error);
 
@@ -670,6 +690,7 @@ async function handleLoopError(
     return;
   }
 
+  turnNotifications.finish(sessionId, 'error');
   sessionStreamManager.cleanupSession(sessionId, 'loop_error');
   activeQueries.delete(sessionId);
 

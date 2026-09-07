@@ -5,6 +5,7 @@
  * stop generation, kill background processes, and user question answers.
  */
 
+import { turnNotifications } from '../notifications';
 import { sessionDb } from "../database";
 import { backgroundProcessManager } from "../backgroundProcessManager";
 import { sessionStreamManager } from "../sessionStreamManager";
@@ -19,6 +20,7 @@ export function handleAnswerQuestion(data: Record<string, unknown>): void {
   const pending = pendingQuestions.get(sessionId);
   if (pending && pending.toolId === toolId) {
     console.log(`✅ User answered question for session ${sessionId.substring(0, 8)}`);
+    turnNotifications.resolveQuestion(sessionId, pending.toolId);
     pendingQuestions.delete(sessionId);
     pending.resolve(JSON.stringify(answers));
   } else {
@@ -166,6 +168,8 @@ export async function handleStopGeneration(
     ws.send(JSON.stringify({ type: 'error', error: 'Missing sessionId', sessionId }));
     return;
   }
+
+  turnNotifications.cancel(sessionId as string);
 
   try {
     console.log(`🛑 Stop generation requested for session: ${sessionId.toString().substring(0, 8)}`);

@@ -9,6 +9,7 @@ import { sessionStreamManager } from "../sessionStreamManager";
 import { setupSessionCommands } from "../commandSetup";
 import { normalizeModelId } from "../../client/config/models";
 import { handleCodexRoutes } from '../codex/routes';
+import { turnNotifications } from '../notifications';
 import type { ChatSearchFilter } from '../../shared/chatSearch';
 
 /**
@@ -87,6 +88,7 @@ export async function handleSessionRoutes(
   if (url.pathname.match(/^\/api\/sessions\/[^/]+$/) && req.method === 'DELETE') {
     const sessionId = url.pathname.split('/').pop()!;
 
+    turnNotifications.cancel(sessionId);
     // Clean up background processes for this session before deleting
     await backgroundProcessManager.cleanupSession(sessionId);
 

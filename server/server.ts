@@ -44,6 +44,8 @@ if (cliFlag) {
   process.exit(exitCode);
 }
 
+import { handleTelegramRoutes } from './notifications/routes';
+import { startTelegramNotifications, stopTelegramNotifications } from './notifications';
 import { watch } from "fs";
 import { spawn } from "child_process";
 import { homedir } from "os";
@@ -107,6 +109,7 @@ const _mcpShutdownHandler = (signal: 'SIGINT' | 'SIGTERM') => {
   }, 2_000);
   forceExit.unref();
 
+  stopTelegramNotifications();
   sessionStreamManager.shutdown();
   codexAppServer.stop();
   shutdownAllMcpBridges()
@@ -118,6 +121,8 @@ const _mcpShutdownHandler = (signal: 'SIGINT' | 'SIGTERM') => {
 };
 process.on('SIGINT', () => _mcpShutdownHandler('SIGINT'));
 process.on('SIGTERM', () => _mcpShutdownHandler('SIGTERM'));
+
+startTelegramNotifications();
 
 // Initialize default working directory
 const DEFAULT_WORKING_DIR = getDefaultWorkingDirectory();
@@ -231,6 +236,9 @@ const server = Bun.serve({
     }
 
     // Try session routes
+    const telegramResponse = await handleTelegramRoutes(req, url);
+    if (telegramResponse) return telegramResponse;
+
     const sessionResponse = await handleSessionRoutes(req, url, activeQueries);
     if (sessionResponse) {
       return sessionResponse;

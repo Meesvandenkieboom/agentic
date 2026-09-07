@@ -6,12 +6,13 @@
  */
 
 import React, { useState } from 'react';
-import { X, Settings as SettingsIcon, Bot, Plug2, Sparkles } from 'lucide-react';
+import { X, Settings as SettingsIcon, Bot, Plug2, Sparkles, Bell } from 'lucide-react';
+import { NotificationsSettingsTab } from './NotificationsSettingsTab';
 import { AgentSettingsTab } from './AgentSettingsTab';
 import { MCPServersTab } from './MCPServersTab';
 import { SkillsSettingsTab } from './SkillsSettingsTab';
 
-type SettingsTab = 'agents' | 'skills' | 'mcp-servers';
+type SettingsTab = 'agents' | 'skills' | 'mcp-servers' | 'notifications';
 
 interface Tab {
   id: SettingsTab;
@@ -22,6 +23,7 @@ interface Tab {
 const TABS: Tab[] = [
   { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'skills', label: 'Skills', icon: Sparkles },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'mcp-servers', label: 'Integrations', icon: Plug2 },
 ];
 
@@ -43,6 +45,7 @@ export function Settings({ onClose, initialTab = 'agents' }: SettingsProps) {
             <h2 className="text-lg font-semibold text-gray-100">Settings</h2>
           </div>
           <button
+            aria-label="Close settings"
             onClick={onClose}
             className="p-2 hover:bg-white/5 rounded-lg transition-colors"
           >
@@ -53,29 +56,32 @@ export function Settings({ onClose, initialTab = 'agents' }: SettingsProps) {
         {/* Content with Sidebar */}
         <div className="flex flex-1 overflow-hidden">
           {/* Tab Sidebar */}
-          <div className="w-56 border-r border-white/10 p-3 flex flex-col gap-1">
+          <div className="w-14 sm:w-56 shrink-0 border-r border-white/10 p-2 sm:p-3 flex flex-col gap-1">
             {TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
+                  aria-label={tab.label}
+                  title={tab.label}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all ${
+                  className={`flex items-center justify-center sm:justify-start gap-3 px-2 sm:px-3 py-2.5 rounded-lg text-left transition-all ${
                     isActive
                       ? 'bg-white/10 text-white'
                       : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
                   }`}
                 >
-                  <Icon size={18} className={isActive ? 'text-blue-400' : ''} />
-                  <span className="font-medium">{tab.label}</span>
+                  <Icon size={18} className={isActive ? 'shrink-0 text-blue-400' : 'shrink-0'} />
+                  <span className="hidden sm:inline font-medium">{tab.label}</span>
                 </button>
               );
             })}
           </div>
 
           {/* Tab Content */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 min-w-0 overflow-y-auto">
+            {activeTab === 'notifications' && <NotificationsSettingsTab />}
             {activeTab === 'agents' && <AgentSettingsTab />}
             {activeTab === 'skills' && <SkillsSettingsTab />}
             {activeTab === 'mcp-servers' && <MCPServersTab />}
