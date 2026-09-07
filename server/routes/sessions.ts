@@ -209,6 +209,19 @@ export async function handleSessionRoutes(
     }
   }
 
+  // Set explicit state so retries cannot accidentally toggle a pin twice.
+  if (url.pathname.match(/^\/api\/sessions\/[^/]+\/pin$/) && req.method === 'PATCH') {
+    const body = await req.json().catch(() => null) as { pinned?: unknown } | null;
+    if (typeof body?.pinned !== 'boolean') {
+      return Response.json({ error: 'pinned must be a boolean' }, { status: 400 });
+    }
+    const sessionId = url.pathname.split('/')[3];
+    if (!sessionDb.setSessionPinned(sessionId, body.pinned)) {
+      return Response.json({ error: 'Session not found' }, { status: 404 });
+    }
+    return Response.json({ pinnedAt: sessionDb.getSession(sessionId)?.pinned_at ?? null });
+  }
+
   // PATCH /api/sessions/:id/title - Rename session title only (no folder change)
   if (url.pathname.match(/^\/api\/sessions\/[^/]+\/title$/) && req.method === 'PATCH') {
     const sessionId = url.pathname.split('/')[3];

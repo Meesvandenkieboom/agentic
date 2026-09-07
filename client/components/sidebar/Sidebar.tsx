@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Edit3, Trash2, Check, Edit, FolderOpen, Github, Loader2, LogOut, Settings as SettingsIcon, GitBranch, Download, Upload, MoreHorizontal } from 'lucide-react';
+import { Menu, Edit3, Trash2, Check, Edit, FolderOpen, Github, Loader2, LogOut, Settings as SettingsIcon, GitBranch, Download, Upload, MoreHorizontal, Pin, PinOff } from 'lucide-react';
 import { ChatSearchDialog } from './ChatSearchDialog';
 import { toast } from '../../utils/toast';
 import { GitHubOAuthSetupModal } from '../setup/GitHubOAuthSetupModal';
@@ -33,6 +33,7 @@ interface Chat {
   isLoading?: boolean;
   parentSessionId?: string;
   branchCount?: number;
+  pinnedAt?: string | null;
 }
 
 interface GitHubStatus {
@@ -53,14 +54,16 @@ interface SidebarProps {
   onNewChat?: () => void;
   onChatSelect?: (chatId: string, messageId?: string) => void;
   onChatDelete?: (chatId: string) => void;
+  onChatPin?: (chatId: string, pinned: boolean) => Promise<void>;
   onChatRename?: (chatId: string, newTitle: string) => void;
   onChatBranch?: (chatId: string) => void;
   onChatImport?: (file: File) => void;
   currentSessionId?: string | null;
 }
 
-export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect, onChatDelete, onChatRename, onChatBranch, onChatImport, currentSessionId: _currentSessionId }: SidebarProps) {
+export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect, onChatDelete, onChatRename, onChatPin, onChatBranch, onChatImport, currentSessionId: _currentSessionId }: SidebarProps) {
   const [isAllChatsExpanded, setIsAllChatsExpanded] = useState(true);
+  const [pinningIds, setPinningIds] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [githubStatus, setGithubStatus] = useState<GitHubStatus | null>(null);
@@ -173,6 +176,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
     yesterday.setDate(yesterday.getDate() - 1);
 
     const groups: { [key: string]: Chat[] } = {
+      Pinned: [],
       Today: [],
       Yesterday: [],
       'Previous 7 Days': [],
@@ -181,6 +185,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
     };
 
     chats.forEach(chat => {
+      if (chat.pinnedAt) { groups.Pinned.push(chat); return; }
       const chatDate = new Date(chat.timestamp);
       const chatDay = new Date(chatDate.getFullYear(), chatDate.getMonth(), chatDate.getDate());
 
@@ -200,6 +205,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
       }
     });
 
+    groups.Pinned.sort((a, b) => b.pinnedAt!.localeCompare(a.pinnedAt!) || a.id.localeCompare(b.id));
     return groups;
   };
 
@@ -259,11 +265,21 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
     }
     const rect = e.currentTarget.getBoundingClientRect();
     const left = Math.min(rect.left, window.innerWidth - 176);
-    // Flip upward when too close to the viewport bottom (~160px menu height)
-    if (rect.bottom + 160 > window.innerHeight) {
+    // Flip upward when too close to the viewport bottom (~200px menu height)
+    if (rect.bottom + 200 > window.innerHeight) {
       setChatMenu({ id: chatId, left, bottom: window.innerHeight - rect.top + 4 });
     } else {
       setChatMenu({ id: chatId, left, top: rect.bottom + 4 });
+    }
+  };
+
+  const handlePinClick = async (chat: Chat) => {
+    setChatMenu(null);
+    setPinningIds(previous => new Set(previous).add(chat.id));
+    try {
+      await onChatPin?.(chat.id, !chat.pinnedAt);
+    } finally {
+      setPinningIds(previous => { const next = new Set(previous); next.delete(chat.id); return next; });
     }
   };
 
@@ -486,6 +502,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                               title={chat.title}
                             >
                               <div className="sidebar-chat-title" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                {chat.pinnedAt && <Pin size={12} className="flex-shrink-0" aria-label="Pinned chat" />}
                                 {/* Branch indicator for branched chats */}
                                 {chat.parentSessionId && (
                                   <GitBranch size={12} className="text-[rgb(165,180,252)] flex-shrink-0" />
@@ -534,6 +551,11 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
                                 <button className="sidebar-chat-dropdown-item" onClick={(e) => handleRenameClick(chat, e)}>
                                   <Edit size={14} />
                                   Rename
+                                </button>
+                                <button className="sidebar-chat-dropdown-item" disabled={pinningIds.has(chat.id)}
+                                  onClick={() => void handlePinClick(chat)}>
+                                  {chat.pinnedAt ? <PinOff size={14} /> : <Pin size={14} />}
+                                  {chat.pinnedAt ? 'Unpin chat' : 'Pin chat'}
                                 </button>
                                 <button className="sidebar-chat-dropdown-item" onClick={(e) => handleBranchClick(chat.id, e)}>
                                   <GitBranch size={14} />

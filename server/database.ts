@@ -46,6 +46,7 @@ export interface Session {
   title: string;
   created_at: string;
   updated_at: string;
+  pinned_at?: string | null;
   message_count: number;
   working_directory: string;
   workspace_id?: string;
@@ -216,6 +217,10 @@ export class SessionDatabase {
     // Explicit workspace provenance, structural history, and stable ordering.
     this.migrateWorkspaceOwnership();
     this.migrateStructuralHistory();
+    const sessionColumns = this.db.query<{ name: string }, []>('PRAGMA table_info(sessions)').all();
+    if (!sessionColumns.some(column => column.name === 'pinned_at')) {
+      this.db.run('ALTER TABLE sessions ADD COLUMN pinned_at TEXT');
+    }
     this.searchProjection = new SearchProjection(this.db);
   }
 
@@ -741,6 +746,16 @@ export class SessionDatabase {
     return { results, hasMore: false, hasOlder };
   }
 
+  setSessionPinned(sessionId: string, pinned: boolean): boolean {
+    // Pinning is a sidebar preference, not new conversation activity. Repeated
+    // requests preserve the original pin order and never change updated_at.
+    return this.db.run(
+      `UPDATE sessions SET pinned_at = CASE WHEN ? THEN COALESCE(pinned_at, ?) ELSE NULL END
+       WHERE id = ? AND deleted_at IS NULL`,
+      [pinned ? 1 : 0, new Date().toISOString(), sessionId],
+    ).changes > 0;
+  }
+
   getSessions(): { sessions: Session[]; recreatedDirectories: string[] } {
     const sessions = this.db
       .query<Session, []>(
@@ -749,6 +764,7 @@ export class SessionDatabase {
           s.title,
           s.created_at,
           s.updated_at,
+          s.pinned_at,
           s.working_directory,
           s.permission_mode,
           s.mode,
@@ -803,6 +819,7 @@ export class SessionDatabase {
           s.title,
           s.created_at,
           s.updated_at,
+          s.pinned_at,
           s.working_directory,
           s.permission_mode,
           s.mode,

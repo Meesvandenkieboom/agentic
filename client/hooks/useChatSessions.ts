@@ -135,6 +135,22 @@ export function useChatSessions() {
     }
   }, [sessionAPI, currentSessionId, loadSessions]);
 
+  const pinRequests = useRef(new Set<string>());
+  const handleChatPin = useCallback(async (chatId: string, pinned: boolean) => {
+    if (pinRequests.current.has(chatId)) return;
+    pinRequests.current.add(chatId);
+    try {
+      const pinnedAt = await sessionAPI.setSessionPinned(chatId, pinned);
+      setSessions(prev => prev.map(session => session.id === chatId ? { ...session, pinned_at: pinnedAt } : session));
+    } catch (error) {
+      toast.error(pinned ? 'Couldn’t pin chat' : 'Couldn’t unpin chat', {
+        description: error instanceof Error ? error.message : 'Please try again.',
+      });
+    } finally {
+      pinRequests.current.delete(chatId);
+    }
+  }, [sessionAPI]);
+
   // Rename session title
   const handleChatRename = useCallback(async (chatId: string, newTitle: string) => {
     const result = await sessionAPI.renameSessionTitle(chatId, newTitle);
@@ -190,6 +206,7 @@ export function useChatSessions() {
     loadSlashCommands,
     handleChatDelete,
     handleChatRename,
+    handleChatPin,
     persistSessionId,
   };
 }

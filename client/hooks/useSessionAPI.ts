@@ -27,6 +27,7 @@ export interface Session {
   title: string;
   created_at: string;
   updated_at: string;
+  pinned_at?: string | null;
   message_count: number;
   working_directory: string;
   workspace_path?: string;
@@ -183,6 +184,17 @@ export function useSessionAPI() {
     } finally {
       setIsLoading(false);
     }
+  }, []);
+
+  const setSessionPinned = useCallback(async (sessionId: string, pinned: boolean): Promise<string | null> => {
+    const response = await fetch(`${API_BASE}/sessions/${sessionId}/pin`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinned }),
+    });
+    const result = await response.json() as { pinnedAt: string | null; error?: string };
+    if (!response.ok) throw new Error(result.error || 'Failed to update pin');
+    return result.pinnedAt;
   }, []);
 
   /**
@@ -348,6 +360,7 @@ export function useSessionAPI() {
     createSession,
     deleteSession,
     renameSessionTitle,
+    setSessionPinned,
     updateWorkingDirectory,
     validateDirectory,
     updatePermissionMode,

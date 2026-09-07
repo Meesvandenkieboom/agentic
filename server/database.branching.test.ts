@@ -20,7 +20,7 @@ describe('database branching integration', () => {
       import fs from 'fs';
       import path from 'path';
       import { Database } from 'bun:sqlite';
-      const { sessionDb } = await import(${JSON.stringify(databaseModule)});
+      const { sessionDb, SessionDatabase } = await import(${JSON.stringify(databaseModule)});
       const assert = (condition, message) => { if (!condition) throw new Error(message); };
       const repo = ${JSON.stringify(externalRepo)};
       const managed = ${JSON.stringify(managedBase)};
@@ -37,8 +37,25 @@ describe('database branching integration', () => {
       const second = sessionDb.addMessage(external.id, 'assistant', '[{"type":"text","text":"two"}]');
       sessionDb.addMessage(external.id, 'user', 'three');
 
+      const activityBeforePin = sessionDb.getSession(external.id).updated_at;
+      assert(sessionDb.setSessionPinned(external.id, true), 'pin failed');
+      const pinnedAt = sessionDb.getSession(external.id).pinned_at;
+      assert(pinnedAt, 'pin timestamp missing');
+      assert(sessionDb.setSessionPinned(external.id, true), 'repeated pin failed');
+      assert(sessionDb.getSession(external.id).pinned_at === pinnedAt, 'repeated pin changed ordering');
+      assert(sessionDb.getSession(external.id).updated_at === activityBeforePin, 'pin changed chat activity');
+      assert(sessionDb.getSessions().sessions.find(s => s.id === external.id)?.pinned_at === pinnedAt, 'list omitted pin');
+      const reopened = new SessionDatabase(path.join(appData, 'sessions.db'), { appDataDirectory: appData, managedBaseDirectory: managed });
+      assert(reopened.getSession(external.id).pinned_at === pinnedAt, 'pin did not survive reopening database');
+      reopened.close();
+      assert(!sessionDb.setSessionPinned('missing-chat', true), 'missing chat accepted pin');
+
       const branch = sessionDb.createBranchedSession(external.id, second.id, undefined, 'External branch');
       assert(branch, 'external branch failed');
+      assert(!branch.pinned_at, 'branch inherited parent pin');
+      assert(sessionDb.setSessionPinned(branch.id, true), 'branch pin failed');
+      assert(sessionDb.setSessionPinned(branch.id, false), 'unpin failed');
+      assert(sessionDb.getSession(branch.id).pinned_at === null, 'unpin did not clear timestamp');
       assert(branch.workspace_status === 'ready', 'external branch should be immediately ready');
       assert(branch.workspace_id === external.workspace_id, 'external workspace record was not shared');
       assert(branch.workspace_path === repo, 'external branch changed cwd');
@@ -57,6 +74,7 @@ describe('database branching integration', () => {
 
       assert(sessionDb.deleteSession(external.id), 'parent delete failed');
       assert(sessionDb.getSession(external.id) === null, 'deleted parent remained visible');
+      assert(!sessionDb.setSessionPinned(external.id, true), 'soft-deleted parent accepted pin');
       assert(sessionDb.getSessionMessages(branch.id).length === 3, 'soft-deleted lineage was lost');
       const inheritedSearch = (await sessionDb.searchSessions('two')).results;
       assert(inheritedSearch.length === 1 && inheritedSearch[0].id === branch.id, 'search lost inherited text or exposed deleted parent');

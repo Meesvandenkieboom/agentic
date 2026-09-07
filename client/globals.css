@@ -1561,9 +1561,14 @@
   pointer-events: none;
 }
 
-.sidebar-chat-item-wrapper:hover .sidebar-chat-menu-hidden {
+.sidebar-chat-item-wrapper:hover .sidebar-chat-menu-hidden,
+.sidebar-chat-item-wrapper:focus-within .sidebar-chat-menu-hidden {
   opacity: 1;
   pointer-events: auto;
+}
+
+@media (hover: none) {
+  .sidebar-chat-menu-hidden { opacity: 1; pointer-events: auto; }
 }
 
 .sidebar-chat-menu-btn {

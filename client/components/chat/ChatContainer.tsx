@@ -72,7 +72,7 @@ export function ChatContainer() {
     isAnySessionLoading, isCurrentSessionLoading,
     loadSessions, loadSlashCommands,
     handleChatDelete: baseHandleChatDelete,
-    handleChatRename,
+    handleChatRename, handleChatPin,
     persistSessionId,
   } = sessionHook;
 
@@ -728,6 +728,7 @@ export function ChatContainer() {
             isActive: session.id === currentSessionId,
             isLoading: loadingSessions.has(session.id),
             parentSessionId: session.parent_session_id,
+            pinnedAt: session.pinned_at,
             branchCount,
           };
         })}
@@ -735,6 +736,7 @@ export function ChatContainer() {
         onChatSelect={handleSessionSelect}
         onChatDelete={handleChatDelete}
         onChatRename={handleChatRename}
+        onChatPin={handleChatPin}
         onChatBranch={handleChatBranch}
         onChatImport={handleChatImport}
         currentSessionId={currentSessionId}
