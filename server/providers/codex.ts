@@ -100,7 +100,11 @@ export class CodexSessions {
     const interrupt = () => {
       if (!run.turnId || !run.threadId || run.interrupting || finished) return;
       run.interrupting = true;
-      stopTimer = setTimeout(() => run.settle(new Error('Codex did not finish stopping. Send a new message to resume the saved conversation.')), this.stopTimeoutMs);
+      stopTimer = setTimeout(() => {
+        // Unsubscribing only detaches events; it cannot stop an unresponsive turn.
+        // Reset the managed runtime so every affected chat gets an explicit failure.
+        this.app.stop(new Error('Codex did not finish stopping. Its runtime was reset; send a new message to resume the saved conversation.'));
+      }, this.stopTimeoutMs);
       void this.app.request('turn/interrupt', { threadId: run.threadId, turnId: run.turnId }).catch(error => run.settle(error));
     };
     opts.signal?.addEventListener('abort', interrupt);
@@ -130,7 +134,7 @@ export class CodexSessions {
       clearTimeout(stopTimer);
       opts.signal?.removeEventListener('abort', interrupt);
       for (const { question } of run.questions.values()) emit({ type: 'question_resolved', toolId: question.toolId });
-      // Finish unloading before allowing a subsequent turn to resume this thread.
+      // Release our subscription before a subsequent turn resumes this thread.
       try {
         if (run.threadId && this.app.connected) await this.app.request('thread/unsubscribe', { threadId: run.threadId });
       } catch { /* A failed connection already rejected the active turn. */ }

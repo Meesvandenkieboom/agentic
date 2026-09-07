@@ -117,16 +117,20 @@ describe('Codex App Server integration', () => {
     expect(after.filter(r => r.method === 'thread/resume')).toHaveLength(1);
   });
 
-  it('finishes cancellation even when Codex acknowledges Stop without completing the turn', async () => {
+  it('resets an unresponsive runtime instead of unsubscribing while work could still run', async () => {
     const app = makeApp(); const sessions = new CodexSessions(app, 20); const abort = new AbortController();
     const a = await begin(app, sessions, 'a', abort.signal);
+    const b = await begin(app, sessions, 'b');
     await app.request('test/holdStop', {});
     abort.abort();
     await expect(a.done).rejects.toThrow('did not finish stopping');
-    const received = await app.request<{ method?: string }[]>('test/received', {});
-    expect(received.filter(r => r.method === 'thread/unsubscribe')).toHaveLength(1);
+    await expect(b.done).rejects.toThrow('runtime was reset');
     expect(sessions.isActive('a')).toBe(false);
-    expect(app.connected).toBe(true);
+    expect(sessions.isActive('b')).toBe(false);
+    expect(app.connected).toBe(false);
+    await app.request('model/list', {});
+    const received = await app.request<{ method?: string }[]>('test/received', {});
+    expect(received.some(r => r.method === 'turn/start')).toBe(false);
   });
 
   it('settles every affected turn after a process failure and restarts only on a new request', async () => {

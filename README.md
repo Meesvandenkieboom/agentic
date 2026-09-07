@@ -240,6 +240,10 @@ Codex runs through a private stdio App Server connection using the runtime insta
 
 During a turn, you can send follow-ups and answer nonblocking questions while Codex continues working. Stop interrupts the active turn. Output is saved as it streams; reconnecting restores saved messages and pending questions. Browser disconnects and idle-session cleanup do not stop active Codex turns. If the runtime fails, Agentic preserves received output and reports the failure. Sending a new message restarts the connection and resumes the conversation; failed turns are never automatically replayed.
 
+When upgrading from the SDK version, finish active turns before updating dependencies (`bun install`), rebuilding (`bun run build`), and restarting Agentic. Refresh open browser tabs afterward. Running SDK turns cannot transfer into App Server mid-turn. This migration does not rewrite the chat database or attachment files; keep Codex's saved transcripts available for conversation resumption.
+
+Codex chats share one managed runtime. A runtime crash, or the fallback reset when Stop remains unresponsive for 30 seconds, interrupts its active chats and reports an error to each. Saved output remains available; start a new message to resume.
+
 - **Codex** - OpenAI models via ChatGPT subscription
 - No API key needed - uses CLI auth
 

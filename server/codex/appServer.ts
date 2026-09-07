@@ -120,7 +120,7 @@ export class CodexAppServer {
     timer.unref();
   }
 
-  stop(): void { if (this.child) this.fail(this.child, new Error('Codex App Server shut down.')); }
+  stop(reason = new Error('Codex App Server shut down.')): void { if (this.child) this.fail(this.child, reason); }
 }
 
 export const codexAppServer = new CodexAppServer();
