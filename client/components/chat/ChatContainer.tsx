@@ -39,6 +39,7 @@ import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
 import { handleWebSocketMessage } from './websocketHandler';
 import { QUESTION_ANSWER_EVENT, type QuestionAnswerDetail } from '../../utils/questionEvents';
+import { decodeStoredMessage, encodeUserMessage } from '../../../shared/storedMessage';
 import { BRANCH_MESSAGE_EVENT, type BranchMessageDetail } from '../../utils/branchEvents';
 import { resolveBranchPointId } from '../../utils/branchPoint';
 import { QuestionInput, type PendingQuestionData } from '../question/QuestionInput';
@@ -80,6 +81,7 @@ export function ChatContainer() {
   // doesn't re-render this container. Bumping this nonce remounts the input to clear a draft.
   const [newChatNonce, setNewChatNonce] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [searchTarget, setSearchTarget] = useState<{ sessionId: string; messageId: string } | null>(null);
   const [liveTokenCount, setLiveTokenCount] = useState(0);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     const stored = localStorage.getItem('agentic-model');
@@ -234,7 +236,12 @@ export function ChatContainer() {
   };
 
   // --- Session switching (CRITICAL: atomic state transitions) ---
-  const handleSessionSelect = async (sessionId: string) => {
+  const handleSessionSelect = async (sessionId: string, messageId?: string) => {
+    setSearchTarget(messageId ? { sessionId, messageId } : null);
+    if (messageId) {
+      setIsSearchOpen(false);
+      chatSearch.clearSearch();
+    }
     const storedUsage = contextUsage.get(sessionId);
     const cachedMessages = switchMessages(
       currentSessionId,
@@ -263,7 +270,8 @@ export function ChatContainer() {
     const sessionMessages = await sessionAPI.fetchSessionMessages(sessionId);
     const convertedMessages: Message[] = sessionMessages.map(msg => {
       if (msg.type === 'user') {
-        return { id: msg.id, type: 'user' as const, content: msg.content, timestamp: msg.timestamp };
+        const decoded = decodeStoredMessage(msg.content);
+        return { id: msg.id, type: 'user' as const, content: decoded.text, attachments: decoded.attachments, timestamp: msg.timestamp };
       }
       let content;
       try {
@@ -525,22 +533,7 @@ export function ChatContainer() {
       setMessages(prev => [...prev, userMessage]);
       if (currentSessionId) setSessionLoading(sessionId, true);
 
-      let messageContent: string | Array<Record<string, unknown>> = messageText;
-      if (files && files.length > 0) {
-        const contentBlocks: Array<Record<string, unknown>> = [];
-        if (messageText.trim()) contentBlocks.push({ type: 'text', text: messageText });
-        for (const file of files) {
-          if (file.preview && file.type.startsWith('image/')) {
-            const base64Match = file.preview.match(/^data:([^;]+);base64,(.+)$/);
-            if (base64Match) {
-              contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: base64Match[1], data: base64Match[2] } });
-            }
-          } else if (file.preview) {
-            contentBlocks.push({ type: 'document', name: file.name, data: file.preview });
-          }
-        }
-        messageContent = contentBlocks;
-      }
+      const messageContent = encodeUserMessage(messageText, files);
 
       sendMessage({
         type: 'chat',
@@ -752,6 +745,7 @@ export function ChatContainer() {
           <>
             <SearchContext.Provider value={searchContextValue}>
               <MessageList
+                searchTarget={searchTarget}
                 messages={messages}
                 isLoading={isCurrentSessionLoading}
                 liveTokenCount={liveTokenCount}

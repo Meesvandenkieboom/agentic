@@ -20,6 +20,8 @@
 
 import { Database } from "bun:sqlite";
 import { randomUUID } from "crypto";
+import { searchSessions } from './utils/sessionSearch';
+import type { ChatSearchFilter } from '../shared/chatSearch';
 import * as path from "path";
 import * as fs from "fs";
 import { getDefaultWorkingDirectory, expandPath, validateDirectory, getAppDataDirectory } from "./directoryUtils";
@@ -702,6 +704,13 @@ export class SessionDatabase {
     return this.db.query<WorkspaceRecord, [string]>(
       'SELECT * FROM workspaces WHERE id = ?'
     ).get(workspaceId) || null;
+  }
+
+  searchSessions(query: string, offset = 0, filter: ChatSearchFilter = 'chats') {
+    const sessions = this.db.query<{ id: string; title: string; updated_at: string }, []>(
+      'SELECT id, title, updated_at FROM sessions WHERE deleted_at IS NULL ORDER BY updated_at DESC, id ASC'
+    ).all();
+    return searchSessions(sessions, id => this.getSessionMessages(id), query, offset, 50, filter);
   }
 
   getSessions(): { sessions: Session[]; recreatedDirectories: string[] } {

@@ -30,7 +30,10 @@ describe('database branching integration', () => {
       assert(external.workspace_origin === 'external', 'selected repo was not external');
       assert(external.workspace_path === repo, 'repo with workspace/ was misrouted');
       assert(!fs.existsSync(path.join(repo, '.claude')), 'chat infrastructure polluted selected repo');
-      const first = sessionDb.addMessage(external.id, 'user', 'one');
+      const first = sessionDb.addMessage(external.id, 'user', JSON.stringify([
+        { type: 'text', text: 'one' },
+        { type: 'document', name: 'branch-notes.txt', data: 'data:text/plain;base64,YWJj' },
+      ]));
       const second = sessionDb.addMessage(external.id, 'assistant', '[{"type":"text","text":"two"}]');
       sessionDb.addMessage(external.id, 'user', 'three');
 
@@ -48,10 +51,18 @@ describe('database branching integration', () => {
       assert(directBefore.count === 0, 'branch duplicated message rows');
       sessionDb.addMessage(branch.id, 'user', 'branch-only');
       assert(sessionDb.getSessionMessages(branch.id).length === 3, 'branch suffix was not appended');
+      assert(sessionDb.searchSessions('two').results.length === 2, 'inherited text was not searchable');
+      assert(sessionDb.searchSessions('three').results.every(r => r.id === external.id), 'search included history after branch point');
+      assert(sessionDb.searchSessions('branch-only').results[0]?.id === branch.id, 'branch suffix was not searchable');
 
       assert(sessionDb.deleteSession(external.id), 'parent delete failed');
       assert(sessionDb.getSession(external.id) === null, 'deleted parent remained visible');
       assert(sessionDb.getSessionMessages(branch.id).length === 3, 'soft-deleted lineage was lost');
+      const inheritedSearch = sessionDb.searchSessions('two').results;
+      assert(inheritedSearch.length === 1 && inheritedSearch[0].id === branch.id, 'search lost inherited text or exposed deleted parent');
+      const inheritedFiles = sessionDb.searchSessions('branch-notes', 0, 'files').results;
+      assert(inheritedFiles.length === 1 && inheritedFiles[0].sessionId === branch.id && inheritedFiles[0].messageId === first.id,
+        'attachment search lost inherited file or navigated to deleted parent');
       assert(fs.readFileSync(path.join(repo, 'pictures', 'keep.txt'), 'utf8') === 'pictures', 'pictures deleted');
       assert(fs.readFileSync(path.join(repo, 'files', 'keep.txt'), 'utf8') === 'files', 'files deleted');
       assert(sessionDb.deleteSession(branch.id), 'branch delete failed');

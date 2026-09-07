@@ -19,7 +19,8 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Edit3, Search, Trash2, Check, Edit, FolderOpen, Github, Loader2, LogOut, Settings as SettingsIcon, GitBranch, Download, Upload, MoreHorizontal } from 'lucide-react';
+import { Menu, Edit3, Trash2, Check, Edit, FolderOpen, Github, Loader2, LogOut, Settings as SettingsIcon, GitBranch, Download, Upload, MoreHorizontal } from 'lucide-react';
+import { ChatSearchDialog } from './ChatSearchDialog';
 import { toast } from '../../utils/toast';
 import { GitHubOAuthSetupModal } from '../setup/GitHubOAuthSetupModal';
 import { Settings } from '../settings/Settings';
@@ -50,7 +51,7 @@ interface SidebarProps {
   onToggle: () => void;
   chats?: Chat[];
   onNewChat?: () => void;
-  onChatSelect?: (chatId: string) => void;
+  onChatSelect?: (chatId: string, messageId?: string) => void;
   onChatDelete?: (chatId: string) => void;
   onChatRename?: (chatId: string, newTitle: string) => void;
   onChatBranch?: (chatId: string) => void;
@@ -59,7 +60,6 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect, onChatDelete, onChatRename, onChatBranch, onChatImport, currentSessionId: _currentSessionId }: SidebarProps) {
-  const [searchQuery, setSearchQuery] = useState('');
   const [isAllChatsExpanded, setIsAllChatsExpanded] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
@@ -203,11 +203,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
     return groups;
   };
 
-  const filteredChats = chats.filter(chat =>
-    chat.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const groupedChats = groupChatsByDate(filteredChats);
+  const groupedChats = groupChatsByDate(chats);
 
   // Focus input when editing starts
   useEffect(() => {
@@ -417,17 +413,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
 
         {/* Search */}
         <div className="sidebar-search-container">
-          <div className="sidebar-search">
-            <div className="sidebar-search-icon">
-              <Search size={16} />
-            </div>
-            <input
-              className="sidebar-search-input"
-              placeholder="Search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
+          <ChatSearchDialog onChatSelect={onChatSelect} />
         </div>
 
         {/* Chat List */}

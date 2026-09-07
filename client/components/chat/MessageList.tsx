@@ -31,11 +31,13 @@ interface MessageListProps {
   liveTokenCount?: number;
   scrollContainerRef?: React.RefObject<HTMLDivElement>;
   sessionId?: string | null;
+  searchTarget?: { sessionId: string; messageId: string } | null;
 }
 
-export const MessageList = React.memo(function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef, sessionId }: MessageListProps) {
+export const MessageList = React.memo(function MessageList({ messages, isLoading, liveTokenCount = 0, scrollContainerRef, sessionId, searchTarget }: MessageListProps) {
   const parentRef = scrollContainerRef || useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const appliedSearchTarget = useRef<typeof searchTarget>(null);
   const { query: searchQuery, currentMatchMessageIndex, currentMatchIndex, currentMatch, allMatches } = useSearchContext();
 
   // Compute which occurrence (0-based) a match is within its message
@@ -245,6 +247,18 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
   // Track whether we need to scroll to the active range after highlights are applied
   const pendingScrollRef = useRef(false);
 
+  // File/history search can target a message that has not been mounted yet.
+  useEffect(() => {
+    if (!searchTarget || searchTarget.sessionId !== sessionId || appliedSearchTarget.current === searchTarget) return;
+    const index = messages.findIndex(message => message.id === searchTarget.messageId);
+    if (index < 0) return;
+    appliedSearchTarget.current = searchTarget;
+    userScrolledUpRef.current = true;
+    isAtBottomRef.current = false;
+    setIsAtBottom(false);
+    virtualizer.scrollToIndex(index, { align: 'center' });
+  }, [searchTarget, sessionId, messages, virtualizer]);
+
   // --- Search: scroll to matched message via virtualizer (Phase 1: get message in DOM) ---
   useEffect(() => {
     if (currentMatchMessageIndex !== null && currentMatchMessageIndex >= 0) {
@@ -404,16 +418,19 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
     // Always scroll to bottom and reset scroll tracking state
     const isBulkLoad = prevCount === 0 || isSessionSwitch;
     if (isBulkLoad) {
+      // Search navigation owns the initial scroll when opening a matched attachment/message.
+      if (searchTarget && searchTarget.sessionId === sessionId && messages.some(message => message.id === searchTarget.messageId)) return;
       userScrolledUpRef.current = false;
       scrollCooldownRef.current = false;
       setIsAtBottom(true);
       // Use double-rAF to ensure DOM has rendered the new messages before scrolling
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
+      let secondFrame = 0;
+      const firstFrame = requestAnimationFrame(() => {
+        secondFrame = requestAnimationFrame(() => {
           container.scrollTop = container.scrollHeight;
         });
       });
-      return;
+      return () => { cancelAnimationFrame(firstFrame); cancelAnimationFrame(secondFrame); };
     }
 
     // Don't auto-scroll if user has explicitly scrolled up or we're in cooldown
@@ -437,7 +454,7 @@ export const MessageList = React.memo(function MessageList({ messages, isLoading
         container.scrollTop = container.scrollHeight;
       }
     });
-  }, [messages, sessionId, parentRef, checkIfAtBottom]);
+  }, [messages, sessionId, parentRef, checkIfAtBottom, searchTarget]);
 
   if (messages.length === 0 && !isLoading) {
     return (

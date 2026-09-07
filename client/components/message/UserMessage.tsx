@@ -19,7 +19,7 @@
  */
 
 import React, { useState } from 'react';
-import { GitBranch } from 'lucide-react';
+import { FileText, GitBranch } from 'lucide-react';
 import { UserMessage as UserMessageType, UserToolResultMessage } from './types';
 import { showError } from '../../utils/errorMessages';
 import { CommandTextRenderer } from './CommandTextRenderer';
@@ -113,54 +113,40 @@ export function UserMessage({ message }: UserMessageProps) {
                 <div className="flex overflow-x-auto flex-col flex-wrap gap-1 justify-end mt-2.5 mb-1 w-full">
                   <div className="self-end">
                     {userMessage.attachments.map((file) => (
-                      <button
+                      <a
                         key={file.id}
-                        className="relative group p-1.5 w-60 max-w-60 flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 text-left mb-1"
-                        type="button"
+                        href={file.preview}
+                        download={file.preview ? file.name : undefined}
+                        aria-label={`Download ${file.name}`}
+                        aria-disabled={!file.preview}
+                        className="attachment-card"
+                        title={file.name}
                       >
-                        <div className="flex justify-center items-center">
-                          <div className="flex flex-col gap-1 items-center">
-                            <button
-                              className="relative w-12 h-12 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700"
-                              disabled
-                            >
-                              <button className="outline-hidden focus:outline-hidden w-full h-full not-prose" type="button">
-                                {file.preview && file.type.startsWith('image/') ? (
-                                  <img
-                                    src={file.preview}
-                                    alt={file.name}
-                                    className="rounded-lg w-full h-full object-cover object-center not-prose"
-                                    draggable="false"
-                                  />
-                                ) : (
-                                  <div className="flex items-center justify-center w-full h-full bg-gray-100 dark:bg-gray-800 text-gray-400 text-xs font-medium">
-                                    {file.name.split('.').pop()?.toUpperCase()}
-                                  </div>
-                                )}
-                              </button>
-                            </button>
-                          </div>
-                        </div>
-                        <div className="flex flex-col justify-center px-2.5 -space-y-0.5 flex-1 min-w-0 overflow-hidden">
-                          <div className="mb-1 text-sm font-medium dark:text-gray-100 truncate w-full">
-                            {file.name}
-                          </div>
-                          <div className="flex justify-between text-xs text-gray-500 line-clamp-1">
-                            <span className="uppercase">{file.name.split('.').pop()}</span>
+                        <span className="attachment-card-thumbnail">
+                          {file.preview && file.type.startsWith('image/') ? (
+                            <img src={file.preview} alt={file.name} loading="lazy" draggable="false" />
+                          ) : <FileText size={24} aria-hidden="true" />}
+                        </span>
+                        <span className="attachment-card-details">
+                          <span className="attachment-card-name">{file.name}</span>
+                          <span className="attachment-card-meta">
+                            <span>{file.name.includes('.') ? file.name.split('.').pop() : 'File'}</span>
                             <span>{formatFileSize(file.size)}</span>
-                          </div>
-                        </div>
-                      </button>
+                          </span>
+                        </span>
+                      </a>
                     ))}
                   </div>
                 </div>
               )}
 
-              <div className="message-user-bubble-container">
-                <div className="message-user-bubble">
-                  <CommandTextRenderer content={filterImagePathReferences(userMessage.content)} />
+              {filterImagePathReferences(userMessage.content) && (
+                <div className="message-user-bubble-container">
+                  <div className="message-user-bubble">
+                    <CommandTextRenderer content={filterImagePathReferences(userMessage.content)} />
+                  </div>
                 </div>
-              </div>
+              )}
               <div className="message-user-actions">
                 <button
                   onClick={handleCopy}

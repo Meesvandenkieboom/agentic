@@ -8,6 +8,7 @@ import { backgroundProcessManager } from "../backgroundProcessManager";
 import { sessionStreamManager } from "../sessionStreamManager";
 import { setupSessionCommands } from "../commandSetup";
 import { normalizeModelId } from "../../client/config/models";
+import type { ChatSearchFilter } from '../../shared/chatSearch';
 
 /**
  * Handle session-related API routes
@@ -48,6 +49,17 @@ export async function handleSessionRoutes(
     return new Response(JSON.stringify({ sessionIds }), {
       headers: { 'Content-Type': 'application/json' },
     });
+  }
+
+  // Keep this before the dynamic session ID route.
+  if (url.pathname === '/api/sessions/search' && req.method === 'GET') {
+    const query = url.searchParams.get('q') || '';
+    const offset = Number(url.searchParams.get('offset') || 0);
+    const filter = url.searchParams.get('filter') || 'chats';
+    if (query.length > 500 || !Number.isSafeInteger(offset) || offset < 0 || !['all', 'chats', 'files', 'images'].includes(filter)) {
+      return Response.json({ error: 'Invalid search query or offset' }, { status: 400 });
+    }
+    return Response.json(sessionDb.searchSessions(query, offset, filter as ChatSearchFilter));
   }
 
   // GET /api/sessions/:id - Get session by ID
