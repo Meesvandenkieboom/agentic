@@ -494,6 +494,25 @@ Customize Claude's behavior in `server/systemPrompt.ts`.
 
 ## 🐛 Troubleshooting
 
+### Windows MCP servers when Agentic runs in WSL
+
+Keep the MCP server's normal HTTP URL in Settings, for example
+`http://127.0.0.1:8000/mcp` for UEFN. Agentic first checks for a listener inside
+WSL. If none is reachable, it automatically checks Windows loopback and creates
+an internal relay. The Test button, Claude, and Codex use the same resolution.
+No Windows bind-address change, port forwarding rule, or separate bridge process
+is needed. Start the Windows MCP server before testing or starting a new chat.
+
+This requires WSL Windows interop and `powershell.exe` on WSL's `PATH` (normally
+available by default). The relay listens only on WSL's `127.0.0.1`, uses an
+available port, preserves HTTP/SSE traffic, and closes with Agentic. Saved URLs
+are not changed. Native Windows/macOS/Linux connections, reachable WSL servers,
+remote URLs, and HTTPS URLs keep their existing behavior. HTTPS is not rewritten
+because changing its authority can invalidate TLS certificates.
+
+The Test button checks HTTP reachability, including MCP endpoints returning 405;
+it does not validate the complete MCP handshake or tool discovery.
+
 ### Port Already in Use
 
 ```bash

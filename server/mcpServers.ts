@@ -21,6 +21,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { ProviderType } from '../client/config/models';
+import { resolveMcpEndpoint, mcpConnectionError } from './mcpEndpoint';
 
 const MCP_CONFIG_PATH = path.join(process.cwd(), '.claude', 'mcp-servers.json');
 
@@ -153,6 +154,17 @@ export async function getMcpServers(provider: ProviderType, _modelId?: string): 
     const { name: _name, ...serverConfig } = config;
     servers[id] = serverConfig as McpServerConfig;
   }
+
+  // Resolve once in the backend for both Claude and Codex. Keep persisted URLs intact.
+  await Promise.all(Object.entries(servers).map(async ([id, config]) => {
+    if (config.type !== 'http') return;
+    try {
+      servers[id] = { ...config, url: await resolveMcpEndpoint(config.url) };
+    } catch (error) {
+      // An offline optional MCP must not prevent the chat itself from starting.
+      console.warn(`MCP [${id}]: ${mcpConnectionError(error)}`);
+    }
+  }));
 
   // Diagnostic: show what we loaded so user can verify the config file
   // was found and parsed. Useful for "my custom MCP server isn't showing

@@ -9,6 +9,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { MCP_SERVERS_BY_PROVIDER } from '../mcpServers';
 import { mcpClientManager } from '../mcpClientManager';
+import { resolveMcpEndpoint, mcpConnectionError } from '../mcpEndpoint';
 
 const MCP_CONFIG_PATH = path.join(process.cwd(), '.claude', 'mcp-servers.json');
 
@@ -233,7 +234,8 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
     // Test HTTP server by making a request
     if (serverConfig.type === 'http') {
       try {
-        const response = await fetch(serverConfig.url, {
+        const endpoint = await resolveMcpEndpoint(serverConfig.url);
+        const response = await fetch(endpoint, {
           method: 'GET',
           headers: serverConfig.headers || {},
           signal: AbortSignal.timeout(5000)
@@ -266,7 +268,7 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
       } catch (error) {
         return new Response(JSON.stringify({
           success: false,
-          error: error instanceof Error ? error.message : 'Connection failed'
+          error: mcpConnectionError(error)
         }), {
           headers: { 'Content-Type': 'application/json' }
         });

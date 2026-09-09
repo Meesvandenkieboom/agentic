@@ -69,6 +69,7 @@ import { sessionStreamManager } from "./sessionStreamManager";
 import { runStartupMigrations } from "./utils/configMigration";
 import { cleanupOrphanedMcpProcesses } from "./mcpCleanup";
 import { shutdownAllMcpBridges } from "./mcpSingletonBridge";
+import { shutdownMcpEndpoints } from "./mcpEndpoint";
 import type { ServerWebSocket, Server as ServerType } from "bun";
 
 // Initialize startup configuration (loads env vars, sets up PostCSS)
@@ -112,7 +113,7 @@ const _mcpShutdownHandler = (signal: 'SIGINT' | 'SIGTERM') => {
   stopTelegramNotifications();
   sessionStreamManager.shutdown();
   codexAppServer.stop();
-  shutdownAllMcpBridges()
+  Promise.all([shutdownAllMcpBridges(), shutdownMcpEndpoints()])
     .catch((err) => console.error(`MCP bridge shutdown error on ${signal}:`, err))
     .finally(() => {
       clearTimeout(forceExit);

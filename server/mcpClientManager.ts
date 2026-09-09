@@ -13,6 +13,7 @@ import type { Subprocess } from "bun";
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { spawn } from 'child_process';
+import { resolveMcpEndpoint } from './mcpEndpoint';
 
 // Config path for connected servers
 const MCP_CONNECTIONS_PATH = path.join(process.cwd(), '.claude', 'mcp-connections.json');
@@ -131,7 +132,8 @@ class MCPClientManager {
     try {
       // Spawn mcp-remote as stdio proxy
       // mcp-remote handles OAuth flow automatically (opens browser)
-      const proc = spawn('npx', ['-y', 'mcp-remote', url], {
+      const endpoint = await resolveMcpEndpoint(url);
+      const proc = spawn('npx', ['-y', 'mcp-remote', endpoint], {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env },
       });
@@ -147,7 +149,7 @@ class MCPClientManager {
         stdin: proc.stdin as unknown as NodeJS.WritableStream,
         stdout: proc.stdout as unknown as NodeJS.ReadableStream,
         pid: proc.pid,
-        url,
+        url: endpoint,
         messageQueue: [],
         requestId: 0,
         tools: [],
@@ -408,7 +410,7 @@ class MCPClientManager {
         servers[conn.id] = {
           type: 'stdio',
           command: 'npx',
-          args: ['-y', 'mcp-remote', conn.url],
+          args: ['-y', 'mcp-remote', this.processes.get(conn.id)?.url || conn.url],
         };
       }
     }
