@@ -10,6 +10,7 @@ import { generateMessageId } from '../../hooks/useChatMessages';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
 import { areNotificationsEnabled, showClaudeResponseNotification } from '../../utils/notifications';
+import { showTabCompletionNotification } from '../../utils/tabNotification';
 import type { ContextUsageData } from '../../hooks/useChatSessions';
 import type { Session } from '../../hooks/useSessionAPI';
 import type { PendingQuestionData } from '../question/QuestionInput';
@@ -84,6 +85,9 @@ export function handleWebSocketMessage(message: Record<string, any>, deps: WebSo
   if (msgSessionId && ['result', 'error', 'generation_stopped'].includes(message.type)) {
     deps.setActiveCodexTurn?.(msgSessionId, null);
   }
+
+  // Notify for completions in any session before background events are filtered.
+  if (message.type === 'result') showTabCompletionNotification();
 
   // --- Background session filtering ---
   if (isBackgroundSession) {
