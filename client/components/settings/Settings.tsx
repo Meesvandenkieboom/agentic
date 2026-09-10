@@ -34,6 +34,8 @@ interface SettingsProps {
 
 export function Settings({ onClose, initialTab = 'agents' }: SettingsProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  const [integrationEdit, setIntegrationEdit] = useState({ dirty: false, saving: false });
+  const canLeaveTab = () => activeTab !== 'mcp-servers' || (!integrationEdit.saving && (!integrationEdit.dirty || window.confirm('Discard your unsaved integration changes?')));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -46,7 +48,7 @@ export function Settings({ onClose, initialTab = 'agents' }: SettingsProps) {
           </div>
           <button
             aria-label="Close settings"
-            onClick={onClose}
+            onClick={() => { if (canLeaveTab()) onClose(); }}
             className="p-2 hover:bg-white/5 rounded-lg transition-colors"
           >
             <X size={20} className="text-gray-400" />
@@ -65,7 +67,7 @@ export function Settings({ onClose, initialTab = 'agents' }: SettingsProps) {
                   key={tab.id}
                   aria-label={tab.label}
                   title={tab.label}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => { if (tab.id === activeTab || canLeaveTab()) { setActiveTab(tab.id); if (tab.id !== activeTab) setIntegrationEdit({ dirty: false, saving: false }); } }}
                   className={`flex items-center justify-center sm:justify-start gap-3 px-2 sm:px-3 py-2.5 rounded-lg text-left transition-all ${
                     isActive
                       ? 'bg-white/10 text-white'
@@ -84,7 +86,7 @@ export function Settings({ onClose, initialTab = 'agents' }: SettingsProps) {
             {activeTab === 'notifications' && <NotificationsSettingsTab />}
             {activeTab === 'agents' && <AgentSettingsTab />}
             {activeTab === 'skills' && <SkillsSettingsTab />}
-            {activeTab === 'mcp-servers' && <MCPServersTab />}
+            {activeTab === 'mcp-servers' && <MCPServersTab onEditStateChange={setIntegrationEdit} />}
           </div>
         </div>
       </div>

@@ -22,6 +22,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { ProviderType } from '../client/config/models';
 import { resolveMcpEndpoint, mcpConnectionError } from './mcpEndpoint';
+import { resolveServerConfig } from './mcpConfigEdits';
 
 const MCP_CONFIG_PATH = path.join(process.cwd(), '.claude', 'mcp-servers.json');
 
@@ -120,39 +121,12 @@ export async function getMcpServers(provider: ProviderType, _modelId?: string): 
   const baseServers = MCP_SERVERS_BY_PROVIDER[provider] || {};
   const mcpConfig = await loadMcpConfig();
 
-  // Deep clone and merge header overrides for built-in servers
   const servers: Record<string, McpServerConfig> = {};
-
-  // Add built-in servers (if enabled)
-  for (const [id, config] of Object.entries(baseServers)) {
-    // Skip if explicitly disabled
-    if (mcpConfig.enabled[id] === false) {
-      continue;
-    }
-
-    if (config.type === 'http' && mcpConfig.headerOverrides[id]) {
-      servers[id] = {
-        ...config,
-        headers: {
-          ...config.headers,
-          ...mcpConfig.headerOverrides[id],
-        },
-      };
-    } else {
-      servers[id] = config;
-    }
-  }
-
-  // Add custom servers (if enabled)
-  for (const [id, config] of Object.entries(mcpConfig.custom)) {
-    // Skip if explicitly disabled
-    if (mcpConfig.enabled[id] === false) {
-      continue;
-    }
-
-    // Add the custom server (strip the name field as it's not part of McpServerConfig)
-    const { name: _name, ...serverConfig } = config;
-    servers[id] = serverConfig as McpServerConfig;
+  for (const id of new Set([...Object.keys(baseServers), ...Object.keys(mcpConfig.custom)])) {
+    if (mcpConfig.enabled[id] === false) continue;
+    const resolved = resolveServerConfig(mcpConfig, baseServers, id)!;
+    const { name: _name, ...server } = resolved;
+    servers[id] = server;
   }
 
   // Resolve once in the backend for both Claude and Codex. Keep persisted URLs intact.

@@ -10,26 +10,9 @@ import * as path from 'path';
 import { MCP_SERVERS_BY_PROVIDER } from '../mcpServers';
 import { mcpClientManager } from '../mcpClientManager';
 import { resolveMcpEndpoint, mcpConnectionError } from '../mcpEndpoint';
+import { resolveServerConfig, editServerConfig, connectionConfigChanged, type MCPServerConfig } from '../mcpConfigEdits';
 
 const MCP_CONFIG_PATH = path.join(process.cwd(), '.claude', 'mcp-servers.json');
-
-interface MCPHttpServerConfig {
-  type: 'http';
-  name?: string;
-  url: string;
-  headers?: Record<string, string>;
-  authProvider?: string; // e.g., 'atlassian', 'figma', etc.
-}
-
-interface MCPStdioServerConfig {
-  type: 'stdio';
-  name?: string;
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-}
-
-type MCPServerConfig = MCPHttpServerConfig | MCPStdioServerConfig;
 
 interface MCPAuthToken {
   accessToken: string;
@@ -80,11 +63,14 @@ async function loadMCPConfig(): Promise<MCPServersConfig> {
     const data = await fs.readFile(MCP_CONFIG_PATH, 'utf-8');
     const config = JSON.parse(data) as MCPServersConfig;
     // Ensure fields exist
+    if (!config.enabled) config.enabled = {};
+    if (!config.custom) config.custom = {};
     if (!config.auth) config.auth = {};
     if (!config.headerOverrides) config.headerOverrides = {};
     if (!config.nameOverrides) config.nameOverrides = {};
     return config;
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     // Initialize with all built-in servers enabled
     const config: MCPServersConfig = {
       enabled: {},
@@ -110,70 +96,36 @@ async function loadMCPConfig(): Promise<MCPServersConfig> {
 async function saveMCPConfig(config: MCPServersConfig): Promise<void> {
   const dir = path.dirname(MCP_CONFIG_PATH);
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(MCP_CONFIG_PATH, JSON.stringify(config, null, 2));
+  const temporaryPath = `${MCP_CONFIG_PATH}.${crypto.randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temporaryPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    await fs.rename(temporaryPath, MCP_CONFIG_PATH);
+  } finally { await fs.rm(temporaryPath, { force: true }); }
 }
 
 /**
  * Get all MCP servers (built-in + custom)
  */
 function getAllServers(config: MCPServersConfig) {
-  const servers: Array<{
-    id: string;
-    name: string;
-    type: 'http' | 'stdio';
-    url?: string;
-    command?: string;
-    args?: string[];
-    enabled: boolean;
-    builtin: boolean;
-    authenticated: boolean;
-    authProvider?: string;
-    hasApiKey?: boolean;
-  }> = [];
-
-  // Add built-in servers from Anthropic provider (as they're the default)
-  const builtinServers = MCP_SERVERS_BY_PROVIDER['anthropic'] || {};
-  Object.entries(builtinServers).forEach(([id, serverConfig]) => {
-    const url = serverConfig.type === 'http' ? serverConfig.url : undefined;
-    const authProvider = url ? detectAuthProvider(url) : undefined;
-    const headerOverride = config.headerOverrides[id];
-    const defaultName = id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, ' ');
-    servers.push({
+  const builtins = MCP_SERVERS_BY_PROVIDER.anthropic || {};
+  return [...new Set([...Object.keys(builtins), ...Object.keys(config.custom)])].map(id => {
+    const server = resolveServerConfig(config, builtins, id)!;
+    return {
       id,
-      name: config.nameOverrides[id] || defaultName,
-      type: serverConfig.type,
-      url,
-      command: serverConfig.type === 'stdio' ? serverConfig.command : undefined,
-      args: serverConfig.type === 'stdio' ? serverConfig.args : undefined,
+      name: server.name || (builtins[id] ? id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, ' ') : id),
+      type: server.type,
+      url: server.type === 'http' ? server.url : undefined,
+      command: server.type === 'stdio' ? server.command : undefined,
+      args: server.type === 'stdio' ? server.args : undefined,
       enabled: config.enabled[id] ?? true,
-      builtin: true,
+      builtin: !!builtins[id],
       authenticated: !!config.auth[id],
-      authProvider,
-      hasApiKey: headerOverride && Object.keys(headerOverride).length > 0,
-    });
+      authProvider: server.type === 'http' ? (server.authProvider || detectAuthProvider(server.url)) : undefined,
+      hasApiKey: server.type === 'http' && Object.keys(server.headers || {}).length > 0,
+      headerKeys: server.type === 'http' ? Object.keys(server.headers || {}) : [],
+      envKeys: server.type === 'stdio' ? Object.keys(server.env || {}) : [],
+    };
   });
-
-  // Add custom servers
-  Object.entries(config.custom).forEach(([id, serverConfig]) => {
-    const url = serverConfig.type === 'http' ? serverConfig.url : undefined;
-    const authProvider = serverConfig.type === 'http'
-      ? (serverConfig.authProvider || (url ? detectAuthProvider(url) : undefined))
-      : undefined;
-    servers.push({
-      id,
-      name: serverConfig.name || id,
-      type: serverConfig.type,
-      url,
-      command: serverConfig.type === 'stdio' ? serverConfig.command : undefined,
-      args: serverConfig.type === 'stdio' ? serverConfig.args : undefined,
-      enabled: config.enabled[id] ?? true,
-      builtin: false,
-      authenticated: !!config.auth[id],
-      authProvider,
-    });
-  });
-
-  return servers;
 }
 
 /**
@@ -196,9 +148,14 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
     const id = toggleMatch[1];
     const config = await loadMCPConfig();
 
+    if (!resolveServerConfig(config, MCP_SERVERS_BY_PROVIDER.anthropic, id)) {
+      return Response.json({ success: false, error: 'Server not found' }, { status: 404 });
+    }
+
     // Toggle the enabled state
     const currentState = config.enabled[id] ?? true;
     config.enabled[id] = !currentState;
+    if (!config.enabled[id]) await mcpClientManager.disconnect(id);
 
     await saveMCPConfig(config);
 
@@ -219,7 +176,7 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
 
     // Find the server
     const builtinServers = MCP_SERVERS_BY_PROVIDER['anthropic'] || {};
-    const serverConfig = builtinServers[id] || config.custom[id];
+    const serverConfig = resolveServerConfig(config, builtinServers, id);
 
     if (!serverConfig) {
       return new Response(JSON.stringify({
@@ -246,13 +203,13 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
           return new Response(JSON.stringify({
             success: true,
             needsAuth: true,
-            message: 'Server reachable - OAuth login required'
+            message: 'Server reachable; authentication required'
           }), {
             headers: { 'Content-Type': 'application/json' }
           });
         }
 
-        // Accept various success responses (200, 404 for path-based servers, 405/406 for MCP servers)
+        // Preserve the existing reachability check; a GET is not a full MCP handshake.
         if (response.ok || response.status === 404 || response.status === 405 || response.status === 406) {
           return new Response(JSON.stringify({ success: true }), {
             headers: { 'Content-Type': 'application/json' }
@@ -292,7 +249,7 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
     const config = await loadMCPConfig();
 
     // Can only delete custom servers
-    if (!config.custom[id]) {
+    if (MCP_SERVERS_BY_PROVIDER.anthropic[id] || !config.custom[id]) {
       return new Response(JSON.stringify({
         success: false,
         error: 'Cannot delete built-in MCP servers'
@@ -302,8 +259,12 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
       });
     }
 
+    await mcpClientManager.removeConnection(id);
     delete config.custom[id];
     delete config.enabled[id];
+    delete config.headerOverrides[id];
+    delete config.nameOverrides[id];
+    delete config.auth[id];
 
     await saveMCPConfig(config);
 
@@ -325,7 +286,7 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
       env?: Record<string, string>;
     };
 
-    const { id, name, type } = body;
+    const { id, type } = body;
 
     // Validate input
     if (!id || !type) {
@@ -338,29 +299,8 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
       });
     }
 
-    // Validate type-specific fields
-    if (type === 'http' && !body.url) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'HTTP servers require a URL'
-      }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    if (type === 'stdio' && !body.command) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Stdio servers require a command'
-      }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
     // Validate ID format (lowercase alphanumeric + dashes)
-    if (!/^[a-z0-9-]+$/.test(id)) {
+    if (typeof id !== 'string' || !/^[a-z0-9-]+$/.test(id)) {
       return new Response(JSON.stringify({
         success: false,
         error: 'Server ID must be lowercase alphanumeric with dashes'
@@ -374,7 +314,7 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
 
     // Check if server already exists
     const builtinServers = MCP_SERVERS_BY_PROVIDER['anthropic'] || {};
-    if (builtinServers[id] || config.custom[id]) {
+    if (resolveServerConfig(config, builtinServers, id)) {
       return new Response(JSON.stringify({
         success: false,
         error: 'MCP server with this ID already exists'
@@ -384,22 +324,10 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
       });
     }
 
-    // Add custom server
-    if (type === 'http') {
-      config.custom[id] = {
-        type: 'http',
-        name,
-        url: body.url!,
-        headers: body.headers
-      };
-    } else {
-      config.custom[id] = {
-        type: 'stdio',
-        name,
-        command: body.command!,
-        args: body.args,
-        env: body.env
-      };
+    try {
+      config.custom[id] = editServerConfig(undefined, body);
+    } catch (error) {
+      return Response.json({ success: false, error: (error as Error).message }, { status: 400 });
     }
     config.enabled[id] = true;
 
@@ -418,7 +346,7 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
 
     // Find the server
     const builtinServers = MCP_SERVERS_BY_PROVIDER['anthropic'] || {};
-    const serverConfig = builtinServers[id] || config.custom[id];
+    const serverConfig = resolveServerConfig(config, builtinServers, id);
 
     if (!serverConfig) {
       return new Response(JSON.stringify({
@@ -556,62 +484,36 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
     });
   }
 
-  // PATCH /api/mcp-servers/:id/config - Update config for an MCP server (name, headers)
+  // PATCH preserves omitted fields, including credentials. null explicitly removes them.
   const configMatch = url.pathname.match(/^\/api\/mcp-servers\/([^/]+)\/config$/);
   if (req.method === 'PATCH' && configMatch) {
     const id = configMatch[1];
-    const body = await req.json() as { name?: string; headers?: Record<string, string> };
     const config = await loadMCPConfig();
-
-    // Validate server exists
-    const builtinServers = MCP_SERVERS_BY_PROVIDER['anthropic'] || {};
-    const serverConfig = builtinServers[id] || config.custom[id];
-
-    if (!serverConfig) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Server not found'
-      }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' }
-      });
+    const current = resolveServerConfig(config, MCP_SERVERS_BY_PROVIDER.anthropic, id);
+    if (!current) return Response.json({ success: false, error: 'Server not found' }, { status: 404 });
+    let updated: MCPServerConfig;
+    try {
+      updated = editServerConfig(current, await req.json());
+    } catch (error) {
+      return Response.json({ success: false, error: (error as Error).message }, { status: 400 });
     }
-
-    // Only HTTP servers can have headers
-    if (serverConfig.type !== 'http') {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Only HTTP servers support custom headers'
-      }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
+    const connectionChanged = connectionConfigChanged(current, updated);
+    // Custom entries also serve as full overrides for built-in configurations.
+    config.custom[id] = updated;
+    delete config.headerOverrides[id];
+    delete config.nameOverrides[id];
+    // Preserve OAuth state when editing names, headers, or local settings.
+    if (current.type !== updated.type || (current.type === 'http' && updated.type === 'http' && current.url !== updated.url)) {
+      delete config.auth[id];
     }
-
-    // Update name override
-    if (!config.nameOverrides) config.nameOverrides = {};
-    if (body.name && body.name.trim()) {
-      config.nameOverrides[id] = body.name.trim();
-    } else {
-      delete config.nameOverrides[id];
-    }
-
-    // Update headers override
-    if (body.headers && Object.keys(body.headers).length > 0) {
-      config.headerOverrides[id] = body.headers;
-    } else {
-      delete config.headerOverrides[id];
-    }
-
     await saveMCPConfig(config);
-
-    return new Response(JSON.stringify({
-      success: true,
-      id,
-      hasApiKey: config.headerOverrides[id] && Object.keys(config.headerOverrides[id]).length > 0
-    }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
+    // Do not leave a process connected with stale settings after a successful edit.
+    let connectionError: string | undefined;
+    if (connectionChanged && mcpClientManager.getConnection(id)) {
+      try { await mcpClientManager.disconnect(id); }
+      catch { connectionError = 'Settings saved, but disconnect failed. Disconnect before reconnecting.'; }
+    }
+    return Response.json({ success: true, id, connectionChanged, connectionError, hasApiKey: updated.type === 'http' && Object.keys(updated.headers || {}).length > 0 });
   }
 
   // POST /api/mcp-servers/:id/connect - Connect to an MCP server (spawns mcp-remote)
@@ -622,7 +524,7 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
 
     // Find the server
     const builtinServers = MCP_SERVERS_BY_PROVIDER['anthropic'] || {};
-    const serverConfig = builtinServers[id] || config.custom[id];
+    const serverConfig = resolveServerConfig(config, builtinServers, id);
 
     if (!serverConfig) {
       return new Response(JSON.stringify({
@@ -645,9 +547,16 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
       });
     }
 
-    // Extract URL from args (mcp-remote uses URL as last argument)
+    if (config.enabled[id] === false) {
+      return Response.json({ success: false, error: 'Enable this integration before connecting' }, { status: 400 });
+    }
+    if (!serverConfig.args?.includes('mcp-remote')) {
+      return Response.json({ success: false, error: 'Connect is supported for mcp-remote servers' }, { status: 400 });
+    }
+
+    // mcp-remote options may follow the URL.
     const args = serverConfig.args || [];
-    const mcpUrl = args[args.length - 1]; // Last arg should be the URL
+    const mcpUrl = args.find(arg => /^https?:\/\//.test(arg));
 
     if (!mcpUrl || !mcpUrl.startsWith('http')) {
       return new Response(JSON.stringify({
@@ -661,7 +570,7 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
 
     try {
       const name = (serverConfig as { name?: string }).name || id;
-      const connection = await mcpClientManager.connect(id, name, mcpUrl);
+      const connection = await mcpClientManager.connect(id, name, mcpUrl, serverConfig);
 
       return new Response(JSON.stringify({
         success: true,

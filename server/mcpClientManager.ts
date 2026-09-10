@@ -14,6 +14,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { resolveMcpEndpoint } from './mcpEndpoint';
+import type { MCPServerConfig } from './mcpConfigEdits';
+type StdioConfig = Extract<MCPServerConfig, { type: 'stdio' }>;
 
 // Config path for connected servers
 const MCP_CONNECTIONS_PATH = path.join(process.cwd(), '.claude', 'mcp-connections.json');
@@ -36,6 +38,7 @@ interface MCPTool {
 }
 
 interface MCPProcess {
+  config: StdioConfig;
   id: string;
   subprocess: Subprocess;
   process?: ReturnType<typeof spawn>;
@@ -103,7 +106,7 @@ class MCPClientManager {
    * Connect to an MCP server via mcp-remote
    * This spawns the mcp-remote process which handles OAuth in the browser
    */
-  async connect(id: string, name: string, url: string): Promise<MCPConnection> {
+  async connect(id: string, name: string, url: string, config?: StdioConfig): Promise<MCPConnection> {
     // Check if already connected
     const existing = this.processes.get(id);
     if (existing) {
@@ -133,16 +136,22 @@ class MCPClientManager {
       // Spawn mcp-remote as stdio proxy
       // mcp-remote handles OAuth flow automatically (opens browser)
       const endpoint = await resolveMcpEndpoint(url);
-      const proc = spawn('npx', ['-y', 'mcp-remote', endpoint], {
+      const launchConfig: StdioConfig = config
+        ? { ...config, args: config.args?.map(arg => arg === url ? endpoint : arg) }
+        : { type: 'stdio', command: 'npx', args: ['-y', 'mcp-remote', endpoint] };
+      const proc = spawn(launchConfig.command, launchConfig.args || [], {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env },
+        env: { ...process.env, ...launchConfig.env },
       });
 
+      let spawnError: Error | undefined;
+      proc.on('error', error => { spawnError = error; });
       if (!proc.pid) {
         throw new Error('Failed to spawn mcp-remote process');
       }
 
       const mcpProcess: MCPProcess = {
+        config: launchConfig,
         id,
         subprocess: null as unknown as Subprocess, // We use child_process spawn instead
         process: proc,
@@ -180,6 +189,7 @@ class MCPClientManager {
 
       // Handle process exit
       proc.on('exit', (code) => {
+        if (this.processes.get(id) !== mcpProcess) return;
         console.log(`🔌 MCP [${name}]: Process exited with code ${code}`);
         this.processes.delete(id);
 
@@ -192,6 +202,8 @@ class MCPClientManager {
 
       // Wait a moment for mcp-remote to initialize
       await new Promise(resolve => setTimeout(resolve, 2000));
+
+      if (spawnError) throw spawnError;
 
       // Initialize MCP connection via JSON-RPC
       await this.sendRequest(id, 'initialize', {
@@ -402,16 +414,14 @@ class MCPClientManager {
    * Get all tools from connected MCP servers in Claude SDK format
    * These can be passed to mcpServers option
    */
-  getMcpServersForSDK(): Record<string, { type: 'stdio'; command: string; args: string[] }> {
-    const servers: Record<string, { type: 'stdio'; command: string; args: string[] }> = {};
+  getMcpServersForSDK(): Record<string, StdioConfig> {
+    const servers: Record<string, StdioConfig> = {};
 
     for (const conn of this.connections.values()) {
-      if (conn.status === 'connected') {
-        servers[conn.id] = {
-          type: 'stdio',
-          command: 'npx',
-          args: ['-y', 'mcp-remote', this.processes.get(conn.id)?.url || conn.url],
-        };
+      const config = this.processes.get(conn.id)?.config;
+      if (conn.status === 'connected' && config) {
+        const { name: _name, ...runtimeConfig } = config;
+        servers[conn.id] = runtimeConfig;
       }
     }
 
