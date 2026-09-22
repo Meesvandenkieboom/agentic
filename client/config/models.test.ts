@@ -42,30 +42,17 @@ describe('GPT-6 Astra', () => {
     });
   });
 
-  it('offers the released GPT-6 family before the retained GPT-5.6 Sol option', () => {
+  it('offers only models supported by the current Codex-with-ChatGPT catalog', () => {
     const codexIds = AVAILABLE_MODELS.filter(model => model.provider === 'codex').map(model => model.id);
 
     expect(codexIds.slice(0, 4)).toEqual([
-      'codex-6-astra',
-      'codex-6-sol',
-      'codex-6-luna',
       'codex-5-6-sol',
+      'codex-6-astra',
+      'codex-5-6-terra',
+      'codex-5-6-luna',
     ]);
-    expect(codexIds).not.toContain('codex-5-6-terra');
-    expect(codexIds).not.toContain('codex-5-6-luna');
-  });
-
-  it('uses the official GPT-6 Sol and Luna model slugs', () => {
-    expect(getModelConfig('codex-6-sol')).toMatchObject({
-      name: 'Codex (GPT-6 Sol)',
-      apiModelId: 'gpt-6-sol',
-      provider: 'codex',
-    });
-    expect(getModelConfig('codex-6-luna')).toMatchObject({
-      name: 'Codex (GPT-6 Luna)',
-      apiModelId: 'gpt-6-luna',
-      provider: 'codex',
-    });
+    expect(codexIds).not.toContain('codex-6-sol');
+    expect(codexIds).not.toContain('codex-6-luna');
   });
 });
 
@@ -85,8 +72,8 @@ describe('normalizeModelId', () => {
   it('maps a legacy alias to its current id', () => {
     expect(normalizeModelId('opus-4-7')).toBe(DEFAULT_MODEL_ID);
     expect(normalizeModelId('opus-4-8')).toBe(DEFAULT_MODEL_ID);
-    expect(normalizeModelId('codex-5-6-terra')).toBe('codex-6-sol');
-    expect(normalizeModelId('codex-5-6-luna')).toBe('codex-6-luna');
+    expect(normalizeModelId('codex-6-sol')).toBe('codex-5-6-sol');
+    expect(normalizeModelId('codex-6-luna')).toBe('codex-5-6-luna');
   });
 
   it('passes through a known id unchanged', () => {

@@ -32,8 +32,8 @@ export const DEFAULT_MODEL_ID = 'opus-5';
 const LEGACY_MODEL_ALIASES: Record<string, string> = {
   'opus-4-7': DEFAULT_MODEL_ID,
   'opus-4-8': DEFAULT_MODEL_ID,
-  'codex-5-6-terra': 'codex-6-sol',
-  'codex-5-6-luna': 'codex-6-luna',
+  'codex-6-sol': 'codex-5-6-sol',
+  'codex-6-luna': 'codex-5-6-luna',
 };
 
 export interface ModelConfig {
@@ -93,6 +93,13 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     provider: 'anthropic',
   },
   {
+    id: 'codex-5-6-sol',
+    name: 'Codex (GPT-5.6 Sol)',
+    description: 'OpenAI Codex via ChatGPT — flagship GPT-5.6 Sol for complex agentic coding',
+    apiModelId: 'gpt-5.6-sol',
+    provider: 'codex',
+  },
+  {
     id: 'codex-6-astra',
     name: 'Codex (GPT-6 Astra)',
     description: 'OpenAI Codex via ChatGPT — GPT-6 Astra for complex reasoning, coding, and computer use',
@@ -100,24 +107,17 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     provider: 'codex',
   },
   {
-    id: 'codex-6-sol',
-    name: 'Codex (GPT-6 Sol)',
-    description: 'OpenAI Codex via ChatGPT — built for complex coding and agentic workflows',
-    apiModelId: 'gpt-6-sol',
+    id: 'codex-5-6-terra',
+    name: 'Codex (GPT-5.6 Terra)',
+    description: 'OpenAI Codex via ChatGPT — GPT-5.6 Terra, the everyday production tier',
+    apiModelId: 'gpt-5.6-terra',
     provider: 'codex',
   },
   {
-    id: 'codex-6-luna',
-    name: 'Codex (GPT-6 Luna)',
-    description: 'OpenAI Codex via ChatGPT — efficient model for focused, high-volume tasks',
-    apiModelId: 'gpt-6-luna',
-    provider: 'codex',
-  },
-  {
-    id: 'codex-5-6-sol',
-    name: 'Codex (GPT-5.6 Sol)',
-    description: 'OpenAI Codex via ChatGPT — reliable agentic workhorse for everyday tasks',
-    apiModelId: 'gpt-5.6-sol',
+    id: 'codex-5-6-luna',
+    name: 'Codex (GPT-5.6 Luna)',
+    description: 'OpenAI Codex via ChatGPT — GPT-5.6 Luna, fastest and most cost-efficient',
+    apiModelId: 'gpt-5.6-luna',
     provider: 'codex',
   },
   {
