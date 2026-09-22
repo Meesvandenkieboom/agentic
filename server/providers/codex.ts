@@ -35,6 +35,9 @@ export interface RunCodexOptions {
 }
 export function buildCodexConfig(options: Pick<RunCodexOptions, 'mcpServers' | 'developerInstructions' | 'skillsConfig'>): Record<string, unknown> {
   return {
+    // The App Server otherwise defaults some Codex models to no readable
+    // reasoning summary, leaving the UI's thoughts blocks empty.
+    model_reasoning_summary: 'detailed',
     ...(options.mcpServers && Object.keys(options.mcpServers).length ? { mcp_servers: options.mcpServers } : {}),
     ...(options.developerInstructions ? { developer_instructions: options.developerInstructions } : {}),
     ...(options.skillsConfig !== undefined ? { skills: { config: options.skillsConfig } } : {}),
@@ -49,6 +52,16 @@ export function buildCodexInput(prompt: string, imagePaths: string[] = []) {
 export function parseCodexRetryNotice(message: string | undefined): Extract<CodexEvent, { type: 'retry_attempt' }> | null {
   const match = message?.match(/^Reconnecting\.\.\.\s*(\d+)\s*\/\s*(\d+)\s*(?:\(([\s\S]*)\))?$/);
   return match ? { type: 'retry_attempt', attempt: Number(match[1]), maxAttempts: Number(match[2]), message: match[3] || 'Connection interrupted' } : null;
+}
+
+export function parseCodexReasoningSummary(summary: unknown): string {
+  if (typeof summary === 'string') return summary;
+  if (!Array.isArray(summary)) return '';
+  return summary.map(part => {
+    if (typeof part === 'string') return part;
+    if (part && typeof part === 'object' && 'text' in part && typeof part.text === 'string') return part.text;
+    return '';
+  }).filter(Boolean).join('\n');
 }
 
 type Item = { id: string; type: string; [key: string]: unknown };
@@ -259,7 +272,13 @@ export class CodexSessions {
           questions: item.questions.map((q, i) => ({ id: `question_${i}`, header: `question_${i}`, question: q.title, options: (q.options || []).map((label: string) => ({ label })) })),
         } });
         break;
-      case 'reasoning': this.block(run, { type: 'thinking', id: item.id, thinking: Array.isArray(item.summary) ? item.summary.join('\n') : '' }); break;
+      case 'reasoning': {
+        const thinking = parseCodexReasoningSummary(item.summary);
+        // Empty started/completed snapshots must not create or overwrite a
+        // readable summary already assembled from summaryTextDelta events.
+        if (thinking) this.block(run, { type: 'thinking', id: item.id, thinking });
+        break;
+      }
       case 'commandExecution': this.block(run, { type: 'tool_use', id: item.id, name: 'Bash', input: { command: item.command, output: item.aggregatedOutput || '', exit_code: item.exitCode, status: item.status } }); break;
       case 'fileChange': this.block(run, { type: 'tool_use', id: item.id, name: 'Edit', input: { changes: (item.changes as { path: string; kind: { type: string }; diff: string }[] || []).map(c => ({ path: c.path, kind: c.kind.type, diff: c.diff })), status: item.status } }); break;
       case 'mcpToolCall': this.block(run, { type: 'tool_use', id: item.id, name: `${item.server}.${item.tool}`, input: { arguments: item.arguments, result: item.result, error: item.error, status: item.status } }); break;

@@ -49,6 +49,26 @@ describe('Codex App Server integration', () => {
     expect(sessions.isActive('a')).toBe(false);
   });
 
+  it('streams readable reasoning and replaces it with the structured final summary', async () => {
+    const app = makeApp(); const sessions = new CodexSessions(app); const a = await begin(app, sessions, 'a');
+    const received = await app.request<{
+      method?: string;
+      params?: { config?: { model_reasoning_summary?: unknown } };
+    }[]>('test/received', {});
+    expect(received.find(r => r.method === 'thread/start')?.params?.config?.model_reasoning_summary).toBe('detailed');
+    await emit(app, [
+      { method: 'item/started', params: { threadId: a.threadId, turnId: a.turnId, item: { id: 'r1', type: 'reasoning', summary: [] } } },
+      { method: 'item/reasoning/summaryTextDelta', params: { threadId: a.threadId, turnId: a.turnId, itemId: 'r1', delta: 'Inspecting' } },
+      { method: 'item/completed', params: { threadId: a.threadId, turnId: a.turnId, item: { id: 'r1', type: 'reasoning', summary: [{ type: 'summary_text', text: 'Inspecting the implementation' }] } } },
+      complete(a.threadId, a.turnId),
+    ]);
+    await a.done;
+    expect(a.events.filter(e => e.type === 'block')).toEqual([
+      { type: 'block', block: { type: 'thinking', id: 'r1', thinking: 'Inspecting' } },
+      { type: 'block', block: { type: 'thinking', id: 'r1', thinking: 'Inspecting the implementation' } },
+    ]);
+  });
+
   it('keeps a quiet turn alive beyond the RPC deadline and treats retries as nonterminal', async () => {
     const app = makeApp(250); const sessions = new CodexSessions(app); const a = await begin(app, sessions, 'a');
     await emit(app, [{ method: 'error', params: { threadId: a.threadId, turnId: a.turnId, willRetry: true, error: { message: 'Temporary network error' } } }]);

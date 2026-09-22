@@ -42,12 +42,30 @@ describe('GPT-6 Astra', () => {
     });
   });
 
-  it('appears directly below GPT-5.6 Sol in the model dropdown', () => {
-    const solIndex = AVAILABLE_MODELS.findIndex(model => model.id === 'codex-5-6-sol');
-    const astraIndex = AVAILABLE_MODELS.findIndex(model => model.id === 'codex-6-astra');
+  it('offers the released GPT-6 family before the retained GPT-5.6 Sol option', () => {
+    const codexIds = AVAILABLE_MODELS.filter(model => model.provider === 'codex').map(model => model.id);
 
-    expect(solIndex).toBeGreaterThanOrEqual(0);
-    expect(astraIndex).toBe(solIndex + 1);
+    expect(codexIds.slice(0, 4)).toEqual([
+      'codex-6-astra',
+      'codex-6-sol',
+      'codex-6-luna',
+      'codex-5-6-sol',
+    ]);
+    expect(codexIds).not.toContain('codex-5-6-terra');
+    expect(codexIds).not.toContain('codex-5-6-luna');
+  });
+
+  it('uses the official GPT-6 Sol and Luna model slugs', () => {
+    expect(getModelConfig('codex-6-sol')).toMatchObject({
+      name: 'Codex (GPT-6 Sol)',
+      apiModelId: 'gpt-6-sol',
+      provider: 'codex',
+    });
+    expect(getModelConfig('codex-6-luna')).toMatchObject({
+      name: 'Codex (GPT-6 Luna)',
+      apiModelId: 'gpt-6-luna',
+      provider: 'codex',
+    });
   });
 });
 
@@ -67,6 +85,8 @@ describe('normalizeModelId', () => {
   it('maps a legacy alias to its current id', () => {
     expect(normalizeModelId('opus-4-7')).toBe(DEFAULT_MODEL_ID);
     expect(normalizeModelId('opus-4-8')).toBe(DEFAULT_MODEL_ID);
+    expect(normalizeModelId('codex-5-6-terra')).toBe('codex-6-sol');
+    expect(normalizeModelId('codex-5-6-luna')).toBe('codex-6-luna');
   });
 
   it('passes through a known id unchanged', () => {

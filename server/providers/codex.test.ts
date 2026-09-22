@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'bun:test';
-import { buildCodexConfig, buildCodexInput, parseCodexRetryNotice } from './codex';
+import { buildCodexConfig, buildCodexInput, parseCodexReasoningSummary, parseCodexRetryNotice } from './codex';
 
 describe('buildCodexConfig', () => {
-  it('preserves native configuration when Agentic has no overrides', () => {
-    expect(buildCodexConfig({})).toEqual({});
+  it('requests readable reasoning summaries when Agentic has no other overrides', () => {
+    expect(buildCodexConfig({})).toEqual({ model_reasoning_summary: 'detailed' });
   });
 
   it('preserves an explicit empty skill selection', () => {
     expect(buildCodexConfig({ skillsConfig: [] })).toEqual({
+      model_reasoning_summary: 'detailed',
       skills: { config: [] },
     });
   });
@@ -21,6 +22,7 @@ describe('buildCodexConfig', () => {
         { path: '/skills/demo/SKILL.md', enabled: true },
       ],
     })).toEqual({
+      model_reasoning_summary: 'detailed',
       developer_instructions: 'Use Agentic GitHub credentials.',
       mcp_servers: { docs: { url: 'https://example.test/mcp' } },
       skills: {
@@ -30,6 +32,20 @@ describe('buildCodexConfig', () => {
         ],
       },
     });
+  });
+});
+
+describe('parseCodexReasoningSummary', () => {
+  it('reads the structured summary parts emitted by Codex App Server', () => {
+    expect(parseCodexReasoningSummary([
+      { type: 'summary_text', text: 'Inspecting the request' },
+      { type: 'summary_text', text: 'Checking the implementation' },
+    ])).toBe('Inspecting the request\nChecking the implementation');
+  });
+
+  it('supports legacy string parts and ignores malformed entries', () => {
+    expect(parseCodexReasoningSummary(['First', null, { text: 42 }, 'Second'])).toBe('First\nSecond');
+    expect(parseCodexReasoningSummary(undefined)).toBe('');
   });
 });
 

@@ -29,7 +29,7 @@ const CLAUDE_EFFORT_OPTIONS: EffortOption[] = [
   { id: 'max',    label: 'Max',    description: 'Exhaustive — slowest, highest quality' },
 ];
 
-// ChatGPT/Codex reasoning ladder (GPT-5.6 era). Ultra is Codex-specific:
+// ChatGPT/Codex reasoning ladder. Ultra is Codex-specific:
 // it fans work out to parallel subagents rather than just thinking longer.
 const CODEX_EFFORT_OPTIONS: EffortOption[] = [
   { id: 'low',    label: 'Low',        description: 'Fast responses with lighter reasoning' },
