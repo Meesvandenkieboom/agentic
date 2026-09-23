@@ -64,6 +64,15 @@ describe('database branching integration', () => {
       assert(inherited[0].id === first.id && inherited[1].id === second.id, 'message identity was copied');
 
       const raw = new Database(path.join(appData, 'sessions.db'));
+      assert(raw.query('PRAGMA journal_mode').get().journal_mode === 'wal', 'database is not using WAL');
+      // A second connection holds a read snapshot while streaming output saves.
+      // This fails with SQLITE_BUSY under the previous rollback journal mode.
+      raw.run('BEGIN');
+      assert(raw.query('SELECT title FROM sessions WHERE id = ?').get(branch.id), 'reader snapshot missing');
+      sessionDb.renameSession(branch.id, 'Updated while reader is open');
+      assert(raw.query('SELECT title FROM sessions WHERE id = ?').get(branch.id).title !== 'Updated while reader is open', 'reader snapshot changed');
+      raw.run('COMMIT');
+      assert(raw.query('SELECT title FROM sessions WHERE id = ?').get(branch.id).title === 'Updated while reader is open', 'write was not persisted');
       const directBefore = raw.query('SELECT COUNT(*) as count FROM messages WHERE session_id = ?').get(branch.id);
       assert(directBefore.count === 0, 'branch duplicated message rows');
       sessionDb.addMessage(branch.id, 'user', 'branch-only');
@@ -107,6 +116,21 @@ describe('database branching integration', () => {
       assert(!fs.existsSync(branchRoot), 'managed branch root was not deleted');
 
       assert(fs.existsSync(repo), 'external repo root was deleted');
+      const missing = sessionDb.createSession('Removed workspace');
+      sessionDb.addMessage(missing.id, 'user', 'Keep this saved conversation');
+      fs.rmSync(missing.workspace_path, { recursive: true });
+      const originalWarn = console.warn;
+      const warnings = [];
+      console.warn = (...args) => warnings.push(args.join(' '));
+      try {
+        for (let i = 0; i < 3; i++) {
+          const listed = sessionDb.getSessions().sessions.find(s => s.id === missing.id);
+          assert(listed?.message_count === 1, 'missing workspace chat was removed or lost its count');
+        }
+      } finally { console.warn = originalWarn; }
+      assert(!warnings.some(w => w.includes('Missing workspace')), 'sidebar refresh emitted workspace warnings');
+      assert(!fs.existsSync(missing.workspace_path), 'listing recreated a deleted workspace');
+      assert(sessionDb.getSessionMessages(missing.id)[0].content === 'Keep this saved conversation', 'history was lost');
       const now = new Date().toISOString();
       const oldDate = new Date(Date.now() - 300 * 86400000).toISOString();
       raw.run('INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)', ['old-search', 'Archived needle', oldDate, oldDate]);

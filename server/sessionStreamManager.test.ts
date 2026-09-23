@@ -5,6 +5,23 @@ const create = () => { const manager = new SessionStreamManager(); managers.push
 afterEach(() => { for (const manager of managers.splice(0)) manager.shutdown(); });
 
 describe('session lifecycle', () => {
+  it('releases an idle runtime after five minutes but preserves active and recently used sessions', () => {
+    const manager = create();
+    const now = Date.now();
+    manager.getOrCreateStream('idle');
+    const signal = manager.getAbortController('idle')!.signal;
+    manager.getOrCreateStream('busy'); manager.setGenerating('busy', true);
+    manager.cleanupIdleSessions(now + 4 * 60 * 1000);
+    expect(manager.hasStream('idle')).toBe(true);
+    manager.cleanupIdleSessions(now + 6 * 60 * 1000);
+    expect(manager.hasStream('idle')).toBe(false);
+    expect(signal.aborted).toBe(true);
+    expect(manager.hasStream('busy')).toBe(true);
+    expect(manager.getAbortController('busy')?.signal.aborted).toBe(false);
+    manager.getOrCreateStream('idle');
+    expect(manager.getAbortController('idle')?.signal.aborted).toBe(false);
+  });
+
   it('expires only idle sessions, even after hours of quiet generation', () => {
     const manager = create();
     manager.getOrCreateStream('busy'); manager.setGenerating('busy', true);

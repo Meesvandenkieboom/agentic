@@ -263,6 +263,9 @@ export function startResponseLoop(
       await handleLoopError(error, sessionId, activeQueries, currentMessageContent, currentTextResponse, currentMessageId, onLoopError, streamSignal);
     } finally {
       clearInterval(heartbeatInterval);
+      // Idle cleanup aborts the iterator too. Release its query reference even
+      // when the iterator finishes normally instead of throwing AbortError.
+      if (activeQueries.get(sessionId) === result) activeQueries.delete(sessionId);
     }
   })();
 }

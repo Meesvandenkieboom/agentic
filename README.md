@@ -238,6 +238,8 @@ agentic --update
 
 Codex runs through a private stdio App Server connection using the runtime installed with Agentic. Existing Codex conversations resume using their saved thread IDs, and authentication continues to use `bun run login` → Codex.
 
+GPT-6 Sol and Luna require Agentic's bundled Codex runtime to be updated to 0.156.1 or newer. Updating a global `codex` installation does not update the bundled runtime. After updating Agentic, run `bun install` in the installation directory and restart Agentic once active turns finish. Check the bundled version with `bun node_modules/@openai/codex/bin/codex.js --version`. The model selector lists configured models; account access still depends on Codex's model catalog and workspace rollout. An unsupported-model error is separate from an unreachable MCP server warning.
+
 During a turn, you can send follow-ups and answer nonblocking questions while Codex continues working. Stop interrupts the active turn. Output is saved as it streams; reconnecting restores saved messages and pending questions. Browser disconnects and idle-session cleanup do not stop active Codex turns. If the runtime fails, Agentic preserves received output and reports the failure. Sending a new message restarts the connection and resumes the conversation; failed turns are never automatically replayed.
 
 When upgrading from the SDK version, finish active turns before updating dependencies (`bun install`), rebuilding (`bun run build`), and restarting Agentic. Refresh open browser tabs afterward. Running SDK turns cannot transfer into App Server mid-turn. This migration does not rewrite the chat database or attachment files; keep Codex's saved transcripts available for conversation resumption.

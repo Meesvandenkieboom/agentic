@@ -162,6 +162,11 @@ export class SessionDatabase {
   }
 
   private initialize() {
+    // Readers (search, exports, diagnostics) must not block streaming writes.
+    // Apply on every connection, including the recovery path above.
+    this.db.run('PRAGMA busy_timeout = 5000');
+    this.db.run('PRAGMA journal_mode = WAL');
+
     // Create sessions table
     this.db.run(`
       CREATE TABLE IF NOT EXISTS sessions (
@@ -788,7 +793,7 @@ export class SessionDatabase {
           w.status as workspace_status,
           w.error as workspace_error,
           w.managed_root,
-          COALESCE(s.inherited_message_count, 0) + COUNT(m.id) as message_count
+          COALESCE(s.inherited_message_count, 0) + COUNT(m.rowid) as message_count
         FROM sessions s
         LEFT JOIN messages m ON s.id = m.session_id
         LEFT JOIN workspaces w ON s.workspace_id = w.id
@@ -798,15 +803,10 @@ export class SessionDatabase {
       )
       .all();
 
-    // Missing external paths must never be recreated by Agentic. Managed paths
-    // also require a valid ownership marker, so report them without mutation.
+    // Listing saved chats must not probe every workspace (including slow or
+    // disconnected mounts). Validate the selected directory when running a turn.
+    // Deleted workspaces do not imply that the saved conversation should be deleted.
     const recreatedDirectories: string[] = [];
-
-    for (const session of sessions) {
-      if (session.workspace_path && !fs.existsSync(session.workspace_path)) {
-        console.warn(`⚠️  Missing workspace for session ${session.id}: ${session.workspace_path}`);
-      }
-    }
 
     return { sessions, recreatedDirectories };
   }
@@ -843,7 +843,7 @@ export class SessionDatabase {
           w.status as workspace_status,
           w.error as workspace_error,
           w.managed_root,
-          COALESCE(s.inherited_message_count, 0) + COUNT(m.id) as message_count
+          COALESCE(s.inherited_message_count, 0) + COUNT(m.rowid) as message_count
         FROM sessions s
         LEFT JOIN messages m ON s.id = m.session_id
         LEFT JOIN workspaces w ON s.workspace_id = w.id
@@ -1116,35 +1116,19 @@ export class SessionDatabase {
   }
 
   getSessionMessages(sessionId: string): SessionMessage[] {
-    return this.resolveSessionMessages(sessionId, new Set());
-  }
-
-  private resolveSessionMessages(sessionId: string, visited: Set<string>): SessionMessage[] {
-    if (visited.has(sessionId)) {
-      console.error(`Branch history cycle detected at session ${sessionId}`);
-      return [];
+    // Resolve lightweight identities before fetching content. A short branch of
+    // a huge chat must not materialize its parent's later messages in memory.
+    const ids = this.resolveSessionMessageIds(sessionId);
+    const read = this.db.query<SessionMessage, [string]>(
+      'SELECT id, session_id, type, content, timestamp, ordinal FROM messages WHERE id = ?'
+    );
+    // Preserve the resolved order without sorting large content blobs in SQLite.
+    const messages: SessionMessage[] = [];
+    for (const id of ids) {
+      const message = read.get(id);
+      if (message) messages.push(message);
     }
-    visited.add(sessionId);
-
-    const session = this.getSessionRecord(sessionId);
-    if (!session) return [];
-    const ownMessages = this.db.query<SessionMessage, [string]>(
-      `SELECT id, session_id, type, content, timestamp, ordinal
-        FROM messages WHERE session_id = ? ORDER BY ordinal ASC, rowid ASC`
-    ).all(sessionId);
-
-    if (session.branch_history_mode !== 'shared' || !session.parent_session_id
-      || !session.branch_point_message_id) {
-      return ownMessages;
-    }
-
-    const parentMessages = this.resolveSessionMessages(session.parent_session_id, visited);
-    const branchIndex = parentMessages.findIndex(message => message.id === session.branch_point_message_id);
-    if (branchIndex < 0) {
-      console.error(`Missing branch point ${session.branch_point_message_id} for ${sessionId}`);
-      return ownMessages;
-    }
-    return [...parentMessages.slice(0, branchIndex + 1), ...ownMessages];
+    return messages;
   }
 
   private resolveSessionMessageIds(sessionId: string, visited = new Set<string>()): string[] {

@@ -6,6 +6,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import type { Message } from '../components/message/types';
+import { MessageCache } from '../utils/messageCache';
 
 // Monotonic message ID counter - prevents collisions that Date.now() causes
 let messageIdCounter = 0;
@@ -14,54 +15,23 @@ export function generateMessageId(): string {
   return `msg-${Date.now()}-${++messageIdCounter}`;
 }
 
-const MAX_CACHE_SIZE = 20;
-
 export function useChatMessages() {
   const [messages, setMessages] = useState<Message[]>([]);
 
-  // LRU message cache: sessionId -> { messages, lastAccessed }
-  const messageCache = useRef<Map<string, { messages: Message[]; lastAccessed: number }>>(new Map());
-
-  /**
-   * Evict oldest cache entries when over capacity
-   */
-  const evictCache = useCallback(() => {
-    const cache = messageCache.current;
-    if (cache.size <= MAX_CACHE_SIZE) return;
-
-    // Sort by lastAccessed ascending (oldest first)
-    const entries = Array.from(cache.entries())
-      .sort((a, b) => a[1].lastAccessed - b[1].lastAccessed);
-
-    // Remove oldest entries until at capacity
-    const toRemove = entries.slice(0, entries.length - MAX_CACHE_SIZE);
-    for (const [key] of toRemove) {
-      cache.delete(key);
-    }
-  }, []);
+  const messageCache = useRef(new MessageCache());
 
   /**
    * Explicitly cache messages for a session (call before session switch)
    */
   const cacheMessages = useCallback((sessionId: string, msgs: Message[]) => {
-    if (!sessionId || msgs.length === 0) return;
-    messageCache.current.set(sessionId, {
-      messages: msgs,
-      lastAccessed: Date.now(),
-    });
-    evictCache();
-  }, [evictCache]);
+    messageCache.current.set(sessionId, msgs);
+  }, []);
 
   /**
    * Get cached messages for a session (returns undefined if not cached)
    */
   const getCachedMessages = useCallback((sessionId: string): Message[] | undefined => {
-    const entry = messageCache.current.get(sessionId);
-    if (entry) {
-      entry.lastAccessed = Date.now();
-      return entry.messages;
-    }
-    return undefined;
+    return messageCache.current.get(sessionId);
   }, []);
 
   /**
@@ -70,10 +40,7 @@ export function useChatMessages() {
   const updateCachedMessages = useCallback((sessionId: string, updater: (prev: Message[]) => Message[]) => {
     const entry = messageCache.current.get(sessionId);
     if (!entry) return;
-    messageCache.current.set(sessionId, {
-      messages: updater(entry.messages),
-      lastAccessed: Date.now(),
-    });
+    messageCache.current.set(sessionId, updater(entry));
   }, []);
 
   /**
@@ -108,6 +75,8 @@ export function useChatMessages() {
 
     // Get cached messages for incoming session
     const cached = getCachedMessages(incomingSessionId);
+    // Current messages live in React state; don't retain an older copy in cache.
+    messageCache.current.delete(incomingSessionId);
 
     // Atomically set session messages + token count using flushSync
     flushSync(() => {

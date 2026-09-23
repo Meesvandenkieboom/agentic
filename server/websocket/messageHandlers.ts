@@ -226,6 +226,15 @@ async function handleChatMessage(
   const trimmedPrompt = promptText.trim();
   if (handleSpecialCommands(ws, trimmedPrompt, sessionId as string)) { turnNotifications.cancel(sessionId as string); return; }
 
+  // Check before saving input or reserving a stream. A removed workspace must
+  // not leave a Codex session permanently marked as generating.
+  const validation = validateDirectory(workingDir);
+  if (!validation.valid) {
+    turnNotifications.finish(session.id, 'error');
+    ws.send(JSON.stringify({ type: 'error', message: `Working directory error: ${validation.error}. Select an existing working directory to continue this chat.`, sessionId }));
+    return;
+  }
+
   // Save user message to database
   const contentForDb = typeof content === 'string' ? content : JSON.stringify(content);
   const savedUserMessage = sessionDb.addMessage(sessionId as string, 'user', contentForDb);
@@ -302,15 +311,6 @@ async function handleChatMessage(
   const mcpServers = await getMcpServers(providerType, apiModelId);
 
   console.log(`📨 [${apiModelId} @ ${provider}] Session: ${sessionId?.toString().substring(0, 8)} (${session.mode} mode) ${isNewStream ? '🆕 NEW SUBPROCESS' : '♻️ CONTINUE SUBPROCESS'}`);
-
-  // Validate working directory
-  const validation = validateDirectory(workingDir);
-  if (!validation.valid) {
-    turnNotifications.finish(session.id, 'error');
-    console.error('❌ Working directory invalid:', validation.error);
-    ws.send(JSON.stringify({ type: 'error', message: `Working directory error: ${validation.error}`, sessionId }));
-    return;
-  }
 
   if (process.platform === 'linux' && workingDir.startsWith('/mnt/')) {
     console.warn('⚠️  WARNING: Working directory is on Windows filesystem (WSL) — 10-20x slower I/O');
@@ -711,8 +711,7 @@ IMPORTANT: Do not modify files outside the workspace directory.
     let recoveryAttempted = false;
 
     // Check resume capability
-    const sessionMessages = sessionDb.getSessionMessages(sessionId);
-    const isFirstMessage = sessionMessages.length === 1;
+    const isFirstMessage = sessionDb.getSession(sessionId)?.message_count === 1;
 
     if (!isFirstMessage && session.sdk_session_id) {
       console.log(`📋 Using resume with SDK session ID: ${session.sdk_session_id}`);

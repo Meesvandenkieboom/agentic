@@ -36,7 +36,9 @@ interface SessionStream {
 export class SessionStreamManager {
   private streams = new Map<string, SessionStream>();
   private disconnectGraceTimers = new Map<string, Timer>();
-  private readonly SESSION_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours (SDK pre-flight checks can be slow on WSL)
+  // Completed chats can resume from persisted provider history. Active turns,
+  // including slow startup and tool calls, are excluded from idle cleanup.
+  private readonly SESSION_TIMEOUT_MS = 5 * 60 * 1000;
   private readonly MAX_CONCURRENT_SESSIONS = 100;
   private cleanupInterval: Timer | null = null;
 
