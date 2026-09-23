@@ -1839,3 +1839,6 @@
   background-color: rgba(96, 165, 250, 0.55);
   color: inherit;
 }
+
+/* Keep the approved interface rules last in the compiled cascade. */
+@import "./styles/interface.css";

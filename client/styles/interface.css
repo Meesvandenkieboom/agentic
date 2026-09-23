@@ -1,0 +1,186 @@
+/* Approved interface styling shared by the application and UI preview.
+ * Reference: supplied ChatGPT computed styles + stylesheet export (2026-09-23).
+ * Retain Agentic's layout, 57.75rem content width, controls, and tool rendering.
+ * Export: system sans; prose 16/26; h2 20px/600; neutral #212121/#303030 surfaces.
+ * Tighter adaptation: prose 15/24, paragraph gaps 12px, heading gaps 16px.
+ */
+:root {
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-heading: var(--font-sans);
+  --bg-primary: 24 24 24;
+  --bg-input: 48 48 48;
+  --bg-secondary: 33 33 33;
+  --bg-hover: 54 54 54;
+  --bg-sidebar: 17 17 17;
+  --bg-sidebar-hover: 40 40 40;
+  --text-primary: 243 243 243;
+  --text-secondary: 171 171 171;
+  --text-placeholder: 171 171 171;
+  --border-white: 255 255 255 / .1;
+}
+body { font-family: var(--font-sans); }
+.header::before { background: linear-gradient(to bottom, #181818 0%, #181818 50%, transparent 100%); }
+.header-title { font-size: 18px; font-weight: 600; letter-spacing: -.35px; }
+.text-gradient { background: none; -webkit-text-fill-color: currentColor; animation: none; }
+.header-btn { border-radius: 8px; }
+.header-btn svg { opacity: .85; }
+
+/* The composer retains every existing control and its two-row arrangement. */
+.input-field-wrapper {
+  border: 1px solid #ffffff12;
+  border-radius: 22px;
+  background: #303030;
+  box-shadow: 0 2px 8px #00000010;
+  transition: border-color 140ms ease;
+}
+.input-field-wrapper:hover { background: #303030; border-color: #ffffff20; }
+.input-field-wrapper:focus-within { border-color: #ffffff30; }
+#chat-input { font-family: var(--font-sans); font-size: 15px; line-height: 24px; }
+.input-field-wrapper > .overflow-hidden { padding-inline: 14px; }
+.input-controls { margin: 6px 12px 10px; }
+.input-controls .btn-icon { border-color: transparent; border-radius: 8px; padding: 7px; }
+.input-controls .btn-icon:hover { background: #ffffff12; }
+.input-controls .btn-icon:has(.lucide-plus) { gap: 2px; border-radius: 8px; }
+.input-controls .btn-icon:has(.lucide-plus) svg:first-child { width: 20px; height: 20px; }
+
+/* Input and chat menus use the exported neutral popover treatment. */
+.input-controls .absolute.bottom-full,
+.sidebar-chat-dropdown,
+[role="menu"],
+[role="listbox"]:not(#chat-search-results) {
+  background: #212121;
+  border: 1px solid #ffffff1a;
+  border-radius: 14px;
+  padding: 5px;
+  box-shadow: 0 8px 28px #0005;
+}
+.input-controls .absolute.bottom-full { min-width: 220px; }
+.input-controls .absolute.bottom-full > button,
+.sidebar-chat-dropdown-item,
+[role="menuitem"] {
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.input-controls .absolute.bottom-full > button { border-top: 0; }
+.input-controls .absolute.bottom-full > button:hover:not(:disabled),
+.sidebar-chat-dropdown-item:hover,
+[role="menuitem"][data-highlighted] { background: #ffffff12; }
+.sidebar-chat-dropdown-item-danger { color: #ff8583; }
+.sidebar-container { border-right: 1px solid #ffffff08; gap: 4px; justify-content: flex-start; }
+.sidebar-new-chat-btn {
+  border-radius: 8px;
+  background: transparent;
+  justify-content: flex-start;
+  gap: 10px;
+  height: 36px;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  margin-top: 0 !important; /* Remove legacy inline gaps between the action buttons. */
+}
+.sidebar-search-trigger { height: 36px; align-items: center; border-radius: 8px; }
+.sidebar-header + .sidebar-new-chat-btn { background: #ffffff09; }
+.sidebar-chat-item { border-radius: 8px; }
+.sidebar-chat-item-active { background: #ffffff10; }
+.sidebar-group-label { color: #929292; font-weight: 500; }
+.sidebar-search-container input { background: #212121; }
+
+/* Markdown hierarchy without adding a new message shell or cards. */
+.message-user-bubble { background: #303030; border-radius: 18px; padding: 10px 15px; font-size: 15px; line-height: 24px; }
+.message-assistant-body .prose { font-size: 15px; line-height: 24px; color: #ededed; }
+.message-assistant-body .prose p { margin: 0 0 12px; font-size: inherit; line-height: inherit; color: inherit; }
+.message-assistant-body .prose :is(h1,h2,h3,h4) { font-family: var(--font-sans); font-weight: 600; color: #fafafa; letter-spacing: -.2px; }
+.message-assistant-body .prose h1 { font-size: 23px; line-height: 30px; margin: 20px 0 8px; }
+.message-assistant-body .prose h2 { font-size: 20px; line-height: 28px; margin: 16px 0 6px; }
+.message-assistant-body .prose h3 { font-size: 17px; line-height: 25px; margin: 16px 0 6px; }
+.message-assistant-body .prose h4 { font-size: 15px; line-height: 24px; margin: 14px 0 4px; }
+.message-assistant-body .prose > :first-child { margin-top: 0; }
+.message-assistant-body .prose strong { font-weight: 600; color: #fff; }
+.message-assistant-body .prose :is(ul,ol) { margin: 6px 0 12px; padding-left: 24px; }
+.message-assistant-body .prose li { padding-left: 2px; margin: 3px 0; line-height: 24px; }
+.message-assistant-body .prose li > p { margin-bottom: 4px; }
+.message-assistant-body .prose li::marker { color: #b4b4b4; }
+.message-assistant-body .prose :is(p,li,td,th) > code { background: #ffffff12 !important; color: #ededed !important; border: none !important; border-radius: 4px; padding: 2px 5px; font-size: 13px; font-weight: 500; }
+.message-assistant-body .prose blockquote { border-left: 2px solid #666; padding: 2px 0 2px 14px; margin: 14px 0; color: #b4b4b4; font-style: normal; background: transparent; }
+.message-assistant-body .prose blockquote p { margin: 0; color: inherit; }
+.message-assistant-body .prose hr { border-color: #ffffff1a; margin: 20px 0; }
+.message-assistant-body .prose table { font-size: 14px; line-height: 22px; }
+.message-assistant-body .prose :is(th,td) { padding: 9px 12px; border-color: #ffffff1a; }
+.message-assistant-body .prose th { background: #ffffff06; font-weight: 600; }
+.message-assistant-body .prose a { color: #a9c7eb; text-decoration-color: #a9c7eb60; }
+.message-assistant-body .prose div:has(> pre) { background: #141414; }
+.message-assistant-body .prose pre { font-size: 13px !important; line-height: 22px !important; }
+.message-assistant-body .prose pre code { background: transparent; font-size: inherit !important; line-height: inherit !important; }
+.message-action-btn:focus-visible, button:focus-visible { outline: 2px solid #aaa; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { .input-field-wrapper { transition: none; } }
+
+.send-button { border-radius: 50%; }
+.send-button-active { background: #fff; color: #181818; animation: none; }
+.send-button-active:hover:not(:disabled) { background: #ddd; }
+
+/* New-chat composer uses utility classes instead of the ChatInput class names. */
+.border-b-2:has(> .overflow-hidden > #chat-input) {
+  background: #303030 !important;
+  border: 1px solid #ffffff12;
+  border-radius: 22px;
+  box-shadow: 0 2px 8px #00000010;
+}
+.border-b-2:has(> .overflow-hidden > #chat-input):focus-within { border-color: #ffffff30; }
+.border-b-2:has(> .overflow-hidden > #chat-input) > .overflow-hidden { padding-inline: 14px; }
+.border-b-2:has(> .overflow-hidden > #chat-input) > .justify-between { margin: 6px 12px 10px; }
+.border-b-2:has(> .overflow-hidden > #chat-input) button:has(> .lucide-plus) { border-color: transparent; border-radius: 8px; padding: 7px; }
+.border-b-2:has(> .overflow-hidden > #chat-input) .absolute.bottom-full {
+  background: #212121; border: 1px solid #ffffff1a; border-radius: 14px;
+  padding: 5px; min-width: 220px; box-shadow: 0 8px 28px #0005;
+}
+.border-b-2:has(> .overflow-hidden > #chat-input) .absolute.bottom-full > button {
+  border-top: 0; border-radius: 8px; padding: 8px 10px; min-height: 36px;
+}
+.header-center div[style*="position: absolute"] {
+  background: #212121 !important;
+  border-radius: 14px !important;
+  box-shadow: 0 8px 28px #0005 !important;
+}
+
+/* Hide token badges in both running and completed turns; keep progress/time visible. */
+.message-container div:has(> svg.lucide-zap) { display: none !important; }
+
+/* Display equations scroll within the answer on narrow screens. */
+.message-assistant-body .katex-display { overflow-x: auto; overflow-y: hidden; padding-block: 4px; margin-block: 14px; }
+
+/* Preserve native checkbox semantics while making saved checklist states distinct. */
+.message-assistant-body .prose input[type="checkbox"] {
+  appearance: none;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin: 0 6px 0 0;
+  vertical-align: -2px;
+  border: 1.5px solid #929292;
+  border-radius: 3px;
+  background: transparent;
+  opacity: 1;
+}
+.message-assistant-body .prose input[type="checkbox"]:checked {
+  border-color: #ededed;
+  background: #ededed url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m3.5 8 3 3 6-6' fill='none' stroke='%23181818' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 14px 14px no-repeat;
+}
+@media (forced-colors: active) {
+  .message-assistant-body .prose input[type="checkbox"] { appearance: auto; }
+}
+
+/* Align repository, directory labels, and actions on one header centerline. */
+.header-right { align-items: center; }
+.header-right > div:has(> svg.lucide-github),
+.header-right > div:has(> .font-mono) { height: 32px; padding-block: 0; }
+.header-right > div:has(> .font-mono) > span { line-height: 16px; transform: translateY(1px); }
+/* Center the badge's lettering rather than the font's padded line box. */
+.header-right > div:has(> svg.lucide-github) > span { line-height: 1; transform: translateY(-1px); }
+@supports (text-box: trim-both cap alphabetic) {
+  .header-right > div:has(> svg.lucide-github) > span {
+    text-box: trim-both cap alphabetic;
+    transform: none;
+  }
+}
+.header-right > div:has(> .font-mono) > span { font-family: var(--font-mono); }
