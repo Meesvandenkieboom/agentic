@@ -49,7 +49,7 @@ import { DEFAULT_EFFORT, ALL_EFFORTS, normalizeEffort } from './ReasoningEffortS
 import { ArtifactPanel } from '../artifact/ArtifactPanel';
 import { ResizableDivider } from '../artifact/ResizableDivider';
 import { useArtifactPanel } from '../../hooks/useArtifactPanel';
-import { normalizeModelId, getModelConfig } from '../../config/models';
+import { normalizeModelId, getModelConfig, migrateModelPreference } from '../../config/models';
 
 export function ChatContainer() {
   // --- Extracted hooks for message + session state ---
@@ -85,7 +85,9 @@ export function ChatContainer() {
   const [liveTokenCount, setLiveTokenCount] = useState(0);
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     const stored = localStorage.getItem('agentic-model');
-    const normalized = normalizeModelId(stored);
+    const migrationKey = 'agentic-model-upgrade-2026-09';
+    const normalized = migrateModelPreference(stored, localStorage.getItem(migrationKey) === '1');
+    localStorage.setItem(migrationKey, '1');
     if (stored !== normalized) {
       localStorage.setItem('agentic-model', normalized);
     }

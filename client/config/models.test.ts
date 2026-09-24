@@ -12,6 +12,7 @@ import {
   getModelConfig,
   getDefaultModel,
   normalizeModelId,
+  migrateModelPreference,
 } from './models';
 
 describe('getModelConfig', () => {
@@ -29,6 +30,33 @@ describe('getModelConfig', () => {
     for (const m of AVAILABLE_MODELS) {
       expect(getModelConfig(m.id)?.id).toBe(m.id);
     }
+  });
+});
+
+
+describe('Claude model versions', () => {
+  it('selects Opus 5.5 by default and exposes both new API IDs', () => {
+    expect(DEFAULT_MODEL_ID).toBe('opus-5-5');
+    expect(AVAILABLE_MODELS.filter(model => model.provider === 'anthropic').slice(0, 2).map(model => model.id)).toEqual([
+      'opus-5-5', 'fable-5-1',
+    ]);
+    expect(getModelConfig('opus-5-5')?.apiModelId).toBe('claude-opus-5-5');
+    expect(getModelConfig('fable-5-1')?.apiModelId).toBe('claude-fable-5-1');
+    expect(getModelConfig('hive')?.apiModelId).toBe('claude-opus-5-5');
+  });
+
+  it('upgrades saved new-chat preferences only once', () => {
+    expect(migrateModelPreference('opus-5')).toBe('opus-5-5');
+    expect(migrateModelPreference('fable-5')).toBe('fable-5-1');
+    expect(migrateModelPreference('opus-5', true)).toBe('opus-5');
+    expect(migrateModelPreference('fable-5', true)).toBe('fable-5');
+  });
+
+  it('retains old model IDs for existing conversations', () => {
+    expect(getModelConfig('opus-5')?.apiModelId).toBe('claude-opus-5');
+    expect(getModelConfig('fable-5')?.apiModelId).toBe('claude-fable-5');
+    expect(normalizeModelId('opus-4-7')).toBe('opus-5');
+    expect(normalizeModelId('opus-4-8')).toBe('opus-5');
   });
 });
 
@@ -83,8 +111,8 @@ describe('normalizeModelId', () => {
   });
 
   it('maps a legacy alias to its current id', () => {
-    expect(normalizeModelId('opus-4-7')).toBe(DEFAULT_MODEL_ID);
-    expect(normalizeModelId('opus-4-8')).toBe(DEFAULT_MODEL_ID);
+    expect(normalizeModelId('opus-4-7')).toBe('opus-5');
+    expect(normalizeModelId('opus-4-8')).toBe('opus-5');
     expect(normalizeModelId('codex-5-6-terra')).toBe('codex-6-sol');
     expect(normalizeModelId('codex-5-6-luna')).toBe('codex-6-luna');
   });

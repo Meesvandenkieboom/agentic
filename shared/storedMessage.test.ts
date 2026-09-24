@@ -25,6 +25,15 @@ describe('persisted attachments', () => {
     expect(restored.attachments[1]).toMatchObject({ name: 'notes.txt', size: 1, type: 'text/plain' });
   });
 
+  it('stores image formats unsupported by the Claude API as files', () => {
+    const [block] = encodeUserMessage('', [{
+      id: 'svg', name: 'diagram.svg', type: 'image/svg+xml', size: 4,
+      preview: 'data:image/svg+xml;base64,PHN2Zz4=',
+    }]) as Array<Record<string, unknown>>;
+    expect(block.type).toBe('document');
+    expect(block.name).toBe('diagram.svg');
+  });
+
   it('does not mistake normal plain text or JSON values for attachment records', () => {
     for (const text of ['Hello', '[1, 2, 3]', '{"example": true}', '100% PR #42']) {
       expect(decodeStoredMessage(text)).toEqual({ text, attachments: [] });

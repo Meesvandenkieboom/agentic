@@ -45,7 +45,7 @@ import {
   handleStopGeneration,
 } from "./controlHandlers";
 import { normalizeModelId } from "../../client/config/models";
-import { isAdaptiveThinkingModel } from "../../shared/adaptiveThinkingModels.mjs";
+import { getClaudeThinkingOptions } from "./claudeThinking";
 
 // ───────────────────────────────────────────────
 // Main message router
@@ -366,26 +366,6 @@ async function handleChatMessage(
     apiModelId, providerType, timezone as string | undefined,
     mcpServers, activeQueries, effort as string | undefined,
   );
-}
-
-// ───────────────────────────────────────────────
-// Reasoning effort → thinking token budget
-// ───────────────────────────────────────────────
-
-/**
- * Map a user-facing reasoning effort level to the underlying
- * maxThinkingTokens budget used by the Claude Agent SDK.
- */
-function effortToThinkingTokens(effort: string | undefined): number {
-  switch (effort) {
-    case 'low':    return 2_000;
-    case 'medium': return 16_000;
-    case 'high':   return 80_000;   // previous hard-coded default
-    case 'xhigh':  return 128_000;
-    case 'max':    return 200_000;
-    case 'ultra':  return 200_000;  // Codex-only level; treat as max if it slips through
-    default:       return 80_000;
-  }
 }
 
 // ───────────────────────────────────────────────
@@ -776,27 +756,9 @@ IMPORTANT: Do not modify files outside the workspace directory.
     };
 
     if (providerType === 'anthropic') {
-      let thinkingTokens = effortToThinkingTokens(effort);
-
-      // Anthropic API enforces max_tokens <= 128000 on Claude 4.x models.
-      // The SDK derives max_tokens = max(B+1, wz0(model)) for non-adaptive
-      // (legacy) thinking. If B+1 > 128000 the API rejects the request and
-      // the SDK silently falls back to non-streaming, which our response
-      // loop renders as missing text/thinking blocks (only tool calls show).
-      // Adaptive-thinking models (Opus 4.7+, Sonnet 5, Fable 5, Mythos) get
-      // capped via the SDK patch in scripts/patch-sdk-reminders.mjs
-      // (`opus-4-8-max-tokens-cap`).
-      // Here we cap legacy/non-adaptive models so max_tokens stays under
-      // the 128000 ceiling. Uses the same shared regex the SDK patch embeds
-      // (shared/adaptiveThinkingModels.mjs) so the two can't drift.
-      const isAdaptiveThinking = isAdaptiveThinkingModel(apiModelId);
-      if (!isAdaptiveThinking && thinkingTokens > 127_000) {
-        console.log(`⚠️  Capping maxThinkingTokens for ${apiModelId}: ${thinkingTokens} → 127000 (API ceiling)`);
-        thinkingTokens = 127_000;
-      }
-
-      queryOptions.maxThinkingTokens = thinkingTokens;
-      console.log(`🧠 Extended thinking enabled — effort=${effort ?? 'high(default)'}, maxThinkingTokens=${thinkingTokens}`);
+      const thinkingOptions = getClaudeThinkingOptions(apiModelId, effort);
+      Object.assign(queryOptions, thinkingOptions);
+      console.log(`🧠 Claude thinking configured — model=${apiModelId}, effort=${thinkingOptions.effort ?? effort ?? 'high'}, mode=${thinkingOptions.thinking?.type}`);
     }
 
     // Merge MCP servers

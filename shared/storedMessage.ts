@@ -12,7 +12,7 @@ export function encodeUserMessage(text: string, files: StoredAttachment[] = []):
   const blocks: Array<Record<string, unknown>> = text.trim() ? [{ type: 'text', text }] : [];
   for (const file of files) {
     if (!file.preview) continue;
-    if (file.type.startsWith('image/')) {
+    if (['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) {
       const prefix = file.preview.match(/^data:([^;]+);base64,/);
       if (prefix) blocks.push({
         type: 'image', name: file.name, size: file.size,

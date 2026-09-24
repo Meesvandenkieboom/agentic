@@ -3,17 +3,19 @@ import { AVAILABLE_MODELS } from '../client/config/models';
 import { isAdaptiveThinkingModel } from './adaptiveThinkingModels.mjs';
 
 // Every Anthropic model must be consciously classified: adaptive thinking
-// (Opus 4.7+, Sonnet 5+, Fable 5+, Mythos) or legacy enabled+budget_tokens.
+// (Opus 4.6+, Sonnet 5+, Fable 5+, Mythos) or legacy enabled+budget_tokens.
 // If the first test fails, a new model was added without classifying it here
 // — decide which branch it belongs to and, if adaptive, make sure the shared
 // regex matches it. Misclassifying an adaptive-only model as legacy makes
 // its thinking blocks stream empty (Fable 5 and Sonnet 5 both hit this).
 const EXPECTED_ADAPTIVE: Record<string, boolean> = {
   'claude-fable-5': true,
+  'claude-fable-5-1': true,
   'claude-opus-5': true,
+  'claude-opus-5-5': true,
   'claude-opus-4-8': true,
   'claude-sonnet-5': true,
-  'claude-opus-4-6': false,
+  'claude-opus-4-6': true,
   'claude-haiku-4-5-20251001': false,
 };
 

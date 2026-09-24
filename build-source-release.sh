@@ -33,10 +33,11 @@ bun run build
 echo "📂 Copying source files..."
 cp -r server release/agentic-$PLATFORM/
 cp -r client release/agentic-$PLATFORM/
+cp -r shared release/agentic-$PLATFORM/
 cp -r dist release/agentic-$PLATFORM/
 cp cli.ts release/agentic-$PLATFORM/
 cp package.json release/agentic-$PLATFORM/
-cp bun.lockb release/agentic-$PLATFORM/ 2>/dev/null || true
+cp bun.lock release/agentic-$PLATFORM/ 2>/dev/null || true
 cp LICENSE release/agentic-$PLATFORM/
 cp credits.mp3 release/agentic-$PLATFORM/ 2>/dev/null || true
 cp tailwind.config.js release/agentic-$PLATFORM/ 2>/dev/null || true
@@ -134,8 +135,12 @@ if [ ! -d "node_modules" ]; then
     echo "✅ Dependencies installed!"
 fi
 
-# 5. Quick sanity check - verify SDK exists
-if [ ! -f "node_modules/@anthropic-ai/claude-agent-sdk/cli.js" ]; then
+# 5. Quick sanity check - verify SDK wrapper and native CLI exist
+SDK_BINARY_FOUND=false
+for candidate in node_modules/@anthropic-ai/claude-agent-sdk-*/claude node_modules/@anthropic-ai/claude-agent-sdk-*/claude.exe; do
+    if [ -f "$candidate" ]; then SDK_BINARY_FOUND=true; break; fi
+done
+if [ ! -f "node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs" ] || [ "$SDK_BINARY_FOUND" = false ]; then
     echo "⚠️  Claude SDK missing - reinstalling dependencies..."
     rm -rf node_modules
     bun install --production

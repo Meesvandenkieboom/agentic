@@ -8,7 +8,7 @@
  * Uses the same auth flow as the main chat (OAuth/API key) via the SDK.
  */
 
-import { unstable_v2_prompt } from '@anthropic-ai/claude-agent-sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 
 const TITLE_PROMPT = `Generate a concise 3-6 word title for a chat that starts with this message. Be specific and descriptive. No quotes, no emoji, no punctuation, just the title text. Respond with ONLY the title, nothing else.
 
@@ -23,16 +23,15 @@ export async function generateChatTitle(firstUserMessage: string): Promise<strin
   try {
     const truncated = firstUserMessage.slice(0, 500);
 
-    const result = await unstable_v2_prompt(
-      `${TITLE_PROMPT}\n"${truncated}"`,
-      { model: 'claude-haiku-4-5-20251001' }
-    );
-
-    if (result.subtype !== 'success' || result.is_error) {
-      return generateHeuristicTitle(firstUserMessage);
+    let raw = '';
+    for await (const message of query({
+      prompt: `${TITLE_PROMPT}\n"${truncated}"`,
+      options: { model: 'claude-haiku-4-5-20251001', tools: [], maxTurns: 1 },
+    })) {
+      if (message.type === 'result' && message.subtype === 'success') {
+        raw = message.result.trim();
+      }
     }
-
-    const raw = result.result.trim();
 
     // Guard against error messages leaking into the title
     if (!raw || raw.startsWith('API Error') || raw.startsWith('{') || raw.length > 80) {
