@@ -115,6 +115,10 @@ export function startResponseLoop(
     // there. Reset on every `message_start` so each model response within a
     // multi-turn (tool-use loop) is evaluated independently.
     let receivedStreamEvent = false;
+    let lastTurnSuccess = true;
+    // Input side of the latest main-loop API call = current context size.
+    // Result usage is summed over every call in a turn/session, so it can't be used.
+    let contextTokens: number | undefined;
 
     const sessionStartTime = Date.now();
 
@@ -131,6 +135,25 @@ export function startResponseLoop(
     try {
       for await (const message of result as AsyncIterable<Record<string, unknown>>) {
         if (streamSignal?.aborted) throw new DOMException('Generation aborted by user', 'AbortError');
+
+        // Authoritative turn state. The CLI also starts turns without user input
+        // (background agents/tasks finishing), and may emit several results per send.
+        if (message.type === 'system' && message.subtype === 'session_state_changed') {
+          if (message.state === 'running') {
+            sessionStreamManager.setGenerating(sessionId, true);
+            sessionStreamManager.safeSend(sessionId, JSON.stringify({ type: 'generation_started', sessionId }));
+          } else if (message.state === 'idle') {
+            sessionStreamManager.setIdle(sessionId);
+            sessionStreamManager.safeSend(sessionId, JSON.stringify({ type: 'result', success: lastTurnSuccess, sessionId }));
+          }
+          continue;
+        }
+        if (message.type === 'system' && message.subtype === 'background_tasks_changed') {
+          const tasks = (message.tasks ?? []) as Array<{ ambient?: boolean }>;
+          sessionStreamManager.setBackgroundTaskCount(sessionId, tasks.filter(t => !t.ambient).length);
+          continue;
+        }
+
         // Capture SDK's internal session ID from init message
         if (message.type === 'system' && (message as { subtype?: string }).subtype === 'init') {
           const sdkSessionId = (message as { session_id?: string }).session_id;
@@ -154,10 +177,10 @@ export function startResponseLoop(
             applyParserEvent(ev, sessionId, currentMessageContent);
           }
 
-          handleTurnCompletion(
+          lastTurnSuccess = handleTurnCompletion(
             message, sessionId, apiModelId,
             currentMessageContent, currentTextResponse,
-            currentMessageId, baseOutputTokens, totalCharCount,
+            currentMessageId, baseOutputTokens, totalCharCount, contextTokens,
           );
 
           // Reset state for next turn
@@ -173,6 +196,7 @@ export function startResponseLoop(
 
         // Handle stream events (text deltas, thinking, etc.)
         if (message.type === 'stream_event') {
+          if (message.parent_tool_use_id) continue; // sub-agent output never belongs in the main reply
           const event = message.event as Record<string, unknown>;
           // A `message_start` event signals a new model response within
           // the same turn (e.g. after a tool call). Reset the flag so
@@ -208,6 +232,7 @@ export function startResponseLoop(
         // messages, but they belong with the assistant's tool call for our
         // stored turn and cross-provider handoff.
         if (message.type === 'user') {
+          if (message.parent_tool_use_id) continue;
           const toolResults = extractPortableToolResults(message);
           if (toolResults.length > 0) {
             currentMessageContent.push(...toolResults);
@@ -240,6 +265,18 @@ export function startResponseLoop(
             } else {
               console.warn(`⚠️ MODEL MISMATCH: requested ${apiModelId}, API served ${servedModel}`);
             }
+          }
+
+          // Sub-agent tool calls are shown nested under their Agent block, not
+          // merged into (and persisted with) the main reply.
+          if (isSubagentMessage) {
+            emitSubagentToolUses(message, sessionId);
+            continue;
+          }
+
+          const usage = (message.message as { usage?: Record<string, number | undefined> } | undefined)?.usage;
+          if (usage) {
+            contextTokens = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
           }
 
           const assistantResult = handleAssistantMessage(
@@ -316,6 +353,24 @@ function handleCompactBoundary(message: SDKCompactBoundaryMessage, sessionId: st
   }
 }
 
+function emitSubagentToolUses(message: Record<string, unknown>, sessionId: string): void {
+  const content = (message.message as { content?: unknown } | undefined)?.content;
+  if (!Array.isArray(content)) return;
+  for (const block of content as Array<Record<string, unknown>>) {
+    if (block.type !== 'tool_use') continue;
+    console.log(`🔧 [${new Date().toISOString()}] Sub-agent tool: ${block.name}`);
+    sessionStreamManager.safeSend(sessionId, JSON.stringify({
+      type: 'tool_use',
+      toolId: block.id,
+      toolName: block.name,
+      toolInput: block.input,
+      parentToolUseId: message.parent_tool_use_id,
+      sessionId,
+    }));
+  }
+}
+
+/** Persists the finished turn and returns whether it succeeded. Idle state is driven by session_state_changed. */
 function handleTurnCompletion(
   message: Record<string, unknown>,
   sessionId: string,
@@ -325,7 +380,8 @@ function handleTurnCompletion(
   currentMessageId: string | null,
   baseOutputTokens: number,
   totalCharCount: number,
-): void {
+  contextTokens: number | undefined,
+): boolean {
   console.log(`✅ Turn completed: ${message.subtype}`);
 
   // Final save (if no content was saved incrementally)
@@ -344,19 +400,12 @@ function handleTurnCompletion(
   }
 
   // Process context usage
-  processContextUsage(message, sessionId, apiModelId, baseOutputTokens, totalCharCount);
+  processContextUsage(message, sessionId, apiModelId, baseOutputTokens, totalCharCount, contextTokens);
 
   const success = message.is_error !== true && message.subtype === 'success';
   if (sessionStreamManager.getAbortController(sessionId)?.signal.aborted) turnNotifications.cancel(sessionId);
   else turnNotifications.finish(sessionId, success ? 'finished' : 'error');
-
-  // Mark session as idle
-  sessionStreamManager.setIdle(sessionId);
-
-  // Send completion signal
-  sessionStreamManager.safeSend(sessionId, JSON.stringify({
-    type: 'result', success, sessionId,
-  }));
+  return success;
 }
 
 interface StreamEventResult {

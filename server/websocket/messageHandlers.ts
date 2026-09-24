@@ -316,8 +316,9 @@ async function handleChatMessage(
     console.warn('⚠️  WARNING: Working directory is on Windows filesystem (WSL) — 10-20x slower I/O');
   }
 
-  // For existing streams: update WebSocket, enqueue message, return
-  if (!isNewStream && providerType !== 'codex') {
+  // For existing streams: update WebSocket, enqueue message, return.
+  // Re-check: a stopped stream can be cleaned up during the awaits above.
+  if (!isNewStream && providerType !== 'codex' && sessionStreamManager.hasStream(sessionId as string)) {
     const abortCtrl = sessionStreamManager.getAbortController(sessionId as string);
     if (abortCtrl?.signal.aborted) {
       console.log(`🔄 Session ${(sessionId as string).substring(0, 8)} was aborted, cleaning up`);
@@ -735,6 +736,9 @@ IMPORTANT: Do not modify files outside the workspace directory.
       },
       ...(isFirstMessage || !session.sdk_session_id ? {} : { resume: session.sdk_session_id }),
       includePartialMessages: true,
+      // The CLI starts turns on its own (e.g. when background work finishes), so
+      // `result` is not "done"; session_state_changed idle/running is.
+      env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
       agents: agentsWithWorkingDir,
       cwd: workspaceDir,
       settingSources: ['project'],

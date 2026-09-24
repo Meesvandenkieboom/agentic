@@ -103,6 +103,7 @@ function ToolIcon({ toolName }: { toolName: string }) {
           </svg>
         );
       case 'Task':
+      case 'Agent':
         return (
           <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
@@ -774,6 +775,7 @@ function getToolSummary(toolUse: ToolUseBlock): string {
       case 'WebFetch':
         return String(input.query || input.url || '');
       case 'Task':
+      case 'Agent':
         return String(input.subagent_type || '');
       case 'TodoWrite': {
         // TodoWrite has an array of todos, show count
@@ -1590,7 +1592,7 @@ function ToolUseComponent({ toolUse }: { toolUse: ToolUseBlock }) {
   }
 
   // Use TaskToolComponent for Task tool
-  if (toolUse.name === 'Task') {
+  if (toolUse.name === 'Task' || toolUse.name === 'Agent') {
     return <TaskToolComponent toolUse={toolUse} />;
   }
 
@@ -1638,6 +1640,7 @@ function ToolUseComponent({ toolUse }: { toolUse: ToolUseBlock }) {
       case 'WebSearch':
       case 'WebFetch':
       case 'Task':
+      case 'Agent':
       case 'TodoWrite':
       case 'NotebookEdit':
         // These are handled in custom components

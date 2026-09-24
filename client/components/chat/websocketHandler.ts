@@ -322,47 +322,34 @@ function handleToolUse(message: Record<string, any>, applyUpdateSync: (u: (p: Me
   const toolId = message.toolId as string;
   const toolName = message.toolName as string;
   const toolInput = message.toolInput as Record<string, unknown>;
+  const parentToolUseId = message.parentToolUseId as string | undefined;
 
   applyUpdateSync(prev => {
     const last = prev[prev.length - 1];
     const toolBlock = {
       type: 'tool_use' as const, id: toolId, name: toolName, input: toolInput,
-      ...(toolName === 'Task' ? { nestedTools: [] } : {}),
+      ...(toolName === 'Task' || toolName === 'Agent' ? { nestedTools: [] } : {}),
     };
+
+    if (parentToolUseId) {
+      // Background agents can outlive the message that launched them.
+      for (let m = prev.length - 1; m >= 0; m--) {
+        const msg = prev[m];
+        if (msg.type !== 'assistant' || !Array.isArray(msg.content)) continue;
+        const idx = msg.content.findIndex(b => b.type === 'tool_use' && b.id === parentToolUseId);
+        const parent = msg.content[idx];
+        if (!parent || parent.type !== 'tool_use') continue;
+        if ((parent.nestedTools || []).some(n => n.id === toolId)) return prev;
+        const content = msg.content.map((b, i) => i === idx ? { ...parent, nestedTools: [...(parent.nestedTools || []), toolBlock] } : b);
+        return [...prev.slice(0, m), { ...msg, content }, ...prev.slice(m + 1)];
+      }
+      return prev;
+    }
 
     if (last && last.type === 'assistant') {
       const blocks = Array.isArray(last.content) ? last.content : [];
       if (blocks.some(b => b.type === 'tool_use' && b.id === toolId)) return prev;
-
-      const activeTaskIndices: number[] = [];
-      let foundText = false;
-      for (let i = blocks.length - 1; i >= 0; i--) {
-        const b = blocks[i];
-        if (b.type === 'text') foundText = true;
-        if (b.type === 'tool_use' && b.name === 'Task') {
-          if (!foundText) activeTaskIndices.unshift(i);
-          else break;
-        }
-      }
-
-      if (toolName === 'Task' || activeTaskIndices.length === 0) {
-        return [...prev.slice(0, -1), { ...last, content: [...blocks, toolBlock] }];
-      }
-
-      const totalNested = activeTaskIndices.reduce((sum, idx) => {
-        const b = blocks[idx];
-        return sum + (b.type === 'tool_use' ? (b.nestedTools?.length || 0) : 0);
-      }, 0);
-      const targetIdx = activeTaskIndices[totalNested % activeTaskIndices.length];
-
-      const updated = blocks.map((b, i) => {
-        if (i === targetIdx && b.type === 'tool_use') {
-          if ((b.nestedTools || []).some(n => n.id === toolId)) return b;
-          return { ...b, nestedTools: [...(b.nestedTools || []), toolBlock] };
-        }
-        return b;
-      });
-      return [...prev.slice(0, -1), { ...last, content: updated }];
+      return [...prev.slice(0, -1), { ...last, content: [...blocks, toolBlock] }];
     }
 
     return [...prev, { id: generateMessageId(), type: 'assistant' as const, content: [toolBlock], timestamp: new Date().toISOString() }];

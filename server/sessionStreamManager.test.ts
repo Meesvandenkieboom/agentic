@@ -32,6 +32,16 @@ describe('session lifecycle', () => {
     expect(manager.hasStream('idle')).toBe(false);
   });
 
+  it('keeps an idle session alive while CLI background work will resume it', () => {
+    const manager = create();
+    manager.getOrCreateStream('waiting'); manager.setBackgroundTaskCount('waiting', 1);
+    manager.cleanupIdleSessions(Date.now() + 60 * 60 * 1000);
+    expect(manager.hasStream('waiting')).toBe(true);
+    manager.setBackgroundTaskCount('waiting', 0);
+    manager.cleanupIdleSessions(Date.now() + 60 * 60 * 1000);
+    expect(manager.hasStream('waiting')).toBe(false);
+  });
+
   it('evicts an idle session at capacity and refuses to evict active work', () => {
     const manager = create();
     for (let n = 0; n < 100; n++) { manager.getOrCreateStream(String(n)); manager.setGenerating(String(n), true); }

@@ -39,9 +39,12 @@ export function processContextUsage(
   apiModelId: string,
   baseOutputTokens: number,
   totalCharCount: number,
+  contextTokens?: number,
 ): void {
   if (resultMessage.modelUsage) {
-    processModelUsage(resultMessage.modelUsage, sessionId, apiModelId, baseOutputTokens);
+    // No API call yet in this subprocess: keep the last reported value.
+    if (contextTokens === undefined) return;
+    processModelUsage(resultMessage.modelUsage, sessionId, apiModelId, baseOutputTokens, contextTokens);
   } else if (resultMessage.usage?.input_tokens) {
     processBasicUsage(resultMessage.usage, sessionId, baseOutputTokens);
   } else {
@@ -54,6 +57,7 @@ function processModelUsage(
   sessionId: string,
   apiModelId: string,
   baseOutputTokens: number,
+  totalInputTokens: number,
 ): void {
   let usage = modelUsage[apiModelId];
 
@@ -75,15 +79,11 @@ function processModelUsage(
     return;
   }
 
-  // Total context = uncached tokens + cached tokens (read + created)
-  const totalInputTokens = (usage.inputTokens || 0)
-    + (usage.cacheReadInputTokens || 0)
-    + (usage.cacheCreationInputTokens || 0);
-
+  // modelUsage token counts are cumulative across the session; only contextWindow is used from it.
   const contextPercentage = Number(((totalInputTokens / usage.contextWindow) * 100).toFixed(1));
   const cumulativeOutput = baseOutputTokens + (usage.outputTokens || 0);
 
-  console.log(`📊 Context usage: ${totalInputTokens.toLocaleString()}/${usage.contextWindow.toLocaleString()} tokens (${contextPercentage}%) [input: ${usage.inputTokens}, cache_read: ${usage.cacheReadInputTokens || 0}, cache_creation: ${usage.cacheCreationInputTokens || 0}]`);
+  console.log(`📊 Context usage: ${totalInputTokens.toLocaleString()}/${usage.contextWindow.toLocaleString()} tokens (${contextPercentage}%)`);
 
   sessionDb.updateContextUsage(sessionId, totalInputTokens, usage.contextWindow, contextPercentage, cumulativeOutput);
 

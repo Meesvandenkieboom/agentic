@@ -69,6 +69,7 @@ try {
     startResponseLoop(chat.id, 'claude-opus-4-1-20250805', (async function* () {
       yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Saved output' }] } };
       yield { type: 'result', subtype, is_error: subtype !== 'success', usage: { input_tokens: 1, output_tokens: 1 } };
+      yield { type: 'system', subtype: 'session_state_changed', state: 'idle' };
     })(), active);
     await tickUntil(() => !sessionStreamManager.isGenerating(chat.id));
     await telegram.drain();
@@ -76,6 +77,25 @@ try {
     assert(sent.at(-1)?.includes(subtype === 'success' ? '✅ Turn finished' : '⚠️ Chat error'));
     assert(sessionDb.getSessionMessages(chat.id).length > 0, 'completion preceded persistence');
   }
+  // The CLI starts turns without user input (background work finished); only session state ends one.
+  const auto = sessionDb.createSession('Claude autonomous', process.env.AGENTIC_WORKSPACE_DIR);
+  sessionStreamManager.getOrCreateStream(auto.id); sessionStreamManager.updateWebSocket(auto.id, ws as never);
+  sessionStreamManager.setGenerating(auto.id, true);
+  const generating: boolean[] = [];
+  const state = (s: string) => ({ type: 'system', subtype: 'session_state_changed', state: s });
+  startResponseLoop(auto.id, 'claude-opus-4-1-20250805', (async function* () {
+    yield { type: 'result', subtype: 'success' }; generating.push(sessionStreamManager.isGenerating(auto.id));
+    yield state('idle'); generating.push(sessionStreamManager.isGenerating(auto.id));
+    yield state('running'); generating.push(sessionStreamManager.isGenerating(auto.id));
+    yield { type: 'result', subtype: 'success' };
+    yield state('idle');
+  })(), active);
+  await tickUntil(() => generating.length === 3 && !sessionStreamManager.isGenerating(auto.id));
+  assert.deepEqual(generating, [true, false, true], 'turn state did not follow session_state_changed');
+  const turnSignals = wsMessages.filter(m => m.sessionId === auto.id && (m.type === 'result' || m.type === 'generation_started'));
+  assert.deepEqual(turnSignals.map(m => m.type), ['result', 'generation_started', 'result']);
+  assert(sessionStreamManager.hasStream(auto.id), 'autonomous turn ended the stream');
+
   // A stopped iterator may unwind after the user has already begun a new turn.
   const reused = sessionDb.createSession('Claude replacement', process.env.AGENTIC_WORKSPACE_DIR);
   sessionStreamManager.getOrCreateStream(reused.id); sessionStreamManager.setGenerating(reused.id, true);

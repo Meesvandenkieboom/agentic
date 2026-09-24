@@ -31,6 +31,7 @@ interface SessionStream {
   keepAliveOnDisconnect: boolean;
   waitForStopCompletion: boolean;
   isGenerating: boolean; // true when actively processing a response, false when idle between turns
+  backgroundTaskCount: number; // CLI-owned background work that will start a new turn when it finishes
 }
 
 export class SessionStreamManager {
@@ -71,6 +72,7 @@ export class SessionStreamManager {
         lastActivityAt: Date.now(),
         activeWebSockets: new Set(),
         isGenerating: false,
+        backgroundTaskCount: 0,
         keepAliveOnDisconnect: false,
         waitForStopCompletion: false,
       });
@@ -118,6 +120,11 @@ export class SessionStreamManager {
       stream.isGenerating = generating;
       stream.lastActivityAt = Date.now();
     }
+  }
+
+  setBackgroundTaskCount(sessionId: string, count: number): void {
+    const stream = this.streams.get(sessionId);
+    if (stream) stream.backgroundTaskCount = count;
   }
 
   /**
@@ -375,7 +382,7 @@ export class SessionStreamManager {
 
   cleanupIdleSessions(now = Date.now()): void {
     for (const [sessionId, stream] of this.streams) {
-      if (!stream.isGenerating && now - stream.lastActivityAt > this.SESSION_TIMEOUT_MS) {
+      if (!stream.isGenerating && stream.backgroundTaskCount === 0 && now - stream.lastActivityAt > this.SESSION_TIMEOUT_MS) {
         this.cleanupSession(sessionId, 'timeout');
       }
     }
@@ -389,7 +396,7 @@ export class SessionStreamManager {
     let oldestTime = Infinity;
 
     for (const [sessionId, stream] of Array.from(this.streams.entries())) {
-      if (!stream.isGenerating && stream.lastActivityAt < oldestTime) {
+      if (!stream.isGenerating && stream.backgroundTaskCount === 0 && stream.lastActivityAt < oldestTime) {
         oldestTime = stream.lastActivityAt;
         oldestSessionId = sessionId;
       }
