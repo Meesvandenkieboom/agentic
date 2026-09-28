@@ -3,7 +3,7 @@ import { getClaudeThinkingOptions } from './claudeThinking';
 
 describe('Claude thinking options', () => {
   it('uses native adaptive thinking and preserves effort for current models', () => {
-    for (const model of ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5', 'claude-opus-4-6']) {
+    for (const model of ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-opus-4-6']) {
       expect(getClaudeThinkingOptions(model, 'xhigh')).toEqual({
         thinking: { type: 'adaptive', display: 'summarized' },
         effort: 'xhigh',
