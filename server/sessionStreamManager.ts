@@ -180,12 +180,9 @@ export class SessionStreamManager {
    * Get AbortController for session (for manual abort/stop generation)
    */
   getAbortController(sessionId: string): AbortController | null {
-    const stream = this.streams.get(sessionId);
-    if (!stream) {
-      console.warn(`⚠️ AbortController requested for non-existent session: ${sessionId.substring(0, 8)}`);
-      return null;
-    }
-    return stream.abortController;
+    // No warning on a miss: response loops routinely check ownership after idle
+    // cleanup has removed the stream, and callers already handle null.
+    return this.streams.get(sessionId)?.abortController ?? null;
   }
 
   /**

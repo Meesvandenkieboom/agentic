@@ -6,12 +6,25 @@
  * - Background processes (dev servers) with duplicate detection
  */
 
-import type { HookInput } from "@anthropic-ai/claude-agent-sdk";
+import type { HookInput, SyncHookJSONOutput } from "@anthropic-ai/claude-agent-sdk";
 import { sessionDb } from "../database";
 import { backgroundProcessManager } from "../backgroundProcessManager";
 import { sessionStreamManager } from "../sessionStreamManager";
 
 type PreToolUseInput = HookInput & { tool_name: string; tool_input: Record<string, unknown> };
+
+// We already ran the real command; swap it for one that only reports the result.
+// The SDK reads updatedInput only from hookSpecificOutput — a top-level one is
+// ignored and the CLI runs the original command a second time.
+function replaceCommand(command: string, description: string | undefined): SyncHookJSONOutput {
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'allow',
+      updatedInput: { command, description },
+    },
+  };
+}
 
 /**
  * Create PreToolUse hooks for a given session
@@ -19,6 +32,9 @@ type PreToolUseInput = HookInput & { tool_name: string; tool_input: Record<strin
 export function createPreToolUseHooks(sessionId: string, workingDir: string) {
   return {
     PreToolUse: [{
+      // The hook waits for builds/tests to finish. If the CLI's (shorter) default
+      // hook timeout fired, it would fall through and run the command again.
+      timeout: 24 * 60 * 60,
       hooks: [async (input: HookInput, toolUseID: string | undefined) => {
         if (input.hook_event_name !== 'PreToolUse') return {};
 
@@ -146,13 +162,7 @@ async function handleLongRunningCommand(
     }));
 
     // Return the actual output to Claude
-    return {
-      decision: 'approve' as const,
-      updatedInput: {
-        command: `cat <<'EOF'\n${result.output}\nEOF`,
-        description,
-      },
-    };
+    return replaceCommand(`cat <<'EOF'\n${result.output}\nEOF`, description);
   } catch (error) {
     console.error(`❌ Long-running command failed:`, error);
 
@@ -175,13 +185,7 @@ async function handleLongRunningCommand(
     }));
 
     // Return error to Claude
-    return {
-      decision: 'approve' as const,
-      updatedInput: {
-        command: `echo "Error: ${error instanceof Error ? error.message : String(error)}" >&2 && exit 1`,
-        description,
-      },
-    };
+    return replaceCommand(`echo "Error: ${error instanceof Error ? error.message : String(error)}" >&2 && exit 1`, description);
   }
 }
 
@@ -201,13 +205,7 @@ async function handleBackgroundCommand(
       // kill -0 doesn't kill the process, just checks if it exists
       process.kill(existingProcess.pid, 0);
       // Process is alive, block duplicate
-      return {
-        decision: 'approve' as const,
-        updatedInput: {
-          command: `echo "✓ Command already running in background (PID ${existingProcess.pid}, started at ${new Date(existingProcess.startedAt).toLocaleTimeString()})"`,
-          description,
-        },
-      };
+      return replaceCommand(`echo "✓ Command already running in background (PID ${existingProcess.pid}, started at ${new Date(existingProcess.startedAt).toLocaleTimeString()})"`, description);
     } catch {
       // Process is dead, remove from registry and allow respawn
       backgroundProcessManager.delete(existingProcess.bashId);
@@ -230,11 +228,5 @@ async function handleBackgroundCommand(
   }));
 
   // Replace the command with an echo so the SDK gets a successful result
-  return {
-    decision: 'approve' as const,
-    updatedInput: {
-      command: `echo "✓ Background server started (PID ${pid})"`,
-      description,
-    },
-  };
+  return replaceCommand(`echo "✓ Background server started (PID ${pid})"`, description);
 }

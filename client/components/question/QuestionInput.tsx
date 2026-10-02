@@ -35,6 +35,10 @@ interface QuestionInputProps {
   disabled?: boolean;
 }
 
+// Codex matches answers by question id; the Claude SDK matches by exact question
+// text and reports "The user did not answer" for any other key (e.g. header).
+const answerKey = (q: Question) => q.id || q.question;
+
 export function QuestionInput({ question, onAnswer, onSkip, disabled }: QuestionInputProps) {
   const [currentQIdx, setCurrentQIdx] = useState(0);
   const [selections, setSelections] = useState<Record<number, string[]>>({});
@@ -92,7 +96,7 @@ export function QuestionInput({ question, onAnswer, onSkip, disabled }: Question
   const buildAnswers = useCallback((): Record<string, string> => {
     const answers: Record<string, string> = {};
     question.questions.forEach((qq, idx) => {
-      const key = qq.id || qq.header || `question_${idx}`;
+      const key = answerKey(qq);
       if (showCustom[idx] && customInputs[idx]) {
         answers[key] = customInputs[idx];
       } else {
@@ -155,7 +159,7 @@ export function QuestionInput({ question, onAnswer, onSkip, disabled }: Question
               } else {
                 const answers: Record<string, string> = {};
                 question.questions.forEach((qq, idx) => {
-                  const key = qq.id || qq.header || `question_${idx}`;
+                  const key = answerKey(qq);
                   if (idx === currentQIdx) {
                     answers[key] = q.options[focusedIdx].label;
                   } else if (showCustom[idx] && customInputs[idx]) {
