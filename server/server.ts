@@ -66,6 +66,7 @@ import { handleWebSocketMessage } from "./websocket/messageHandlers";
 import type { ChatWebSocketData } from "./websocket/types";
 import { codexAppServer } from './codex/appServer';
 import { sessionStreamManager } from "./sessionStreamManager";
+import { startOAuthTokenSync } from "./oauthTokenSync";
 import { runStartupMigrations } from "./utils/configMigration";
 import { cleanupOrphanedMcpProcesses } from "./mcpCleanup";
 import { shutdownAllMcpBridges } from "./mcpSingletonBridge";
@@ -84,6 +85,8 @@ await runStartupMigrations();
 // Clean up any orphaned MCP processes from previous sessions/crashes
 // This prevents port conflicts (e.g., Roblox Studio MCP on port 3002)
 await cleanupOrphanedMcpProcesses();
+
+startOAuthTokenSync();
 
 // Make sure singleton MCP bridges (eg rbxstudio-mcp) are torn down on
 // shutdown so they don't leak into the next agentic process. Registered

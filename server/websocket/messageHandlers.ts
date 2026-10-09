@@ -6,7 +6,6 @@
  * with sub-responsibilities delegated to:
  *   - controlHandlers.ts  — plan approval, permission mode, stop, kill, answer
  *   - responseLoop.ts     — background response streaming from SDK
- *   - preToolUseHook.ts   — Bash interception (background/long-running commands)
  *   - branchContext.ts    — branch history formatting
  *   - contextUsageHandler.ts — token usage tracking
  */
@@ -35,7 +34,6 @@ import { buildCodexSkillConfig, discoverUserSkills, normalizeSkillPolicy } from 
 import type { ChatWebSocket } from "./types";
 import { MODEL_MAP, pendingQuestions } from "./types";
 import { formatBranchHistory } from "./branchContext";
-import { createPreToolUseHooks } from "./preToolUseHook";
 import { startResponseLoop } from "./responseLoop";
 import {
   handleAnswerQuestion,
@@ -798,9 +796,6 @@ IMPORTANT: Do not modify files outside the workspace directory.
       return `${id}=${JSON.stringify(safe)}`;
     });
     console.log(`🔌 MCP → SDK (${mcpDiag.length} servers): ${mcpDiag.join(' | ') || '(none)'}`);
-
-    // PreToolUse hooks
-    queryOptions.hooks = createPreToolUseHooks(sessionId, workingDir);
 
     // Self-heal a stale resume target: if the SDK CLI can't find the
     // conversation we asked it to resume, clear the dead sdk_session_id and

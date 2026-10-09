@@ -144,6 +144,10 @@ export class SessionStreamManager {
     }
   }
 
+  getQueries(): Query[] {
+    return Array.from(this.streams.values(), s => s.sdkQuery).filter((q): q is Query => q !== null);
+  }
+
   /**
    * Attach a WebSocket for session updates (on reconnection or first connect).
    * Multiple tabs can watch the same session without stealing the stream.
