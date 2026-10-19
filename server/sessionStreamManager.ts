@@ -20,8 +20,12 @@ export type ImageBlock = {
 export type ContentBlock = TextBlock | ImageBlock;
 export type MessageContent = string | ContentBlock[];
 
+/** A follow-up sent mid-turn, saved to history only once the CLI folds it in. */
+export interface QueuedInput { stored: string; clientMessageId?: string }
+
 interface SessionStream {
-  messageQueue: AsyncQueue<MessageContent>;
+  messageQueue: AsyncQueue<{ content: MessageContent; uuid?: string }>;
+  queuedInputs: Map<string, QueuedInput>;
   sdkQuery: Query | null;
   abortController: AbortController;
   sessionId: string;
@@ -60,11 +64,12 @@ export class SessionStreamManager {
         if (this.streams.size >= this.MAX_CONCURRENT_SESSIONS) throw new Error('All available sessions are busy. Stop or finish a turn before starting another.');
       }
 
-      const messageQueue = new AsyncQueue<MessageContent>();
+      const messageQueue = new AsyncQueue<{ content: MessageContent; uuid?: string }>();
       const abortController = new AbortController();
 
       this.streams.set(sessionId, {
         messageQueue,
+        queuedInputs: new Map(),
         sdkQuery: null,
         abortController,
         sessionId,
@@ -93,7 +98,34 @@ export class SessionStreamManager {
 
     stream.lastActivityAt = Date.now();
     stream.isGenerating = true;
-    stream.messageQueue.enqueue(content);
+    stream.messageQueue.enqueue({ content });
+  }
+
+  /**
+   * Queue a follow-up into the running turn without interrupting it. The CLI
+   * reports a `command_lifecycle` "started" frame for `uuid` when Claude reads it.
+   */
+  queueInput(sessionId: string, content: MessageContent, uuid: string, input: QueuedInput): void {
+    const stream = this.streams.get(sessionId);
+    if (!stream) throw new Error(`Session stream not found: ${sessionId}`);
+    stream.lastActivityAt = Date.now();
+    stream.queuedInputs.set(uuid, input);
+    stream.messageQueue.enqueue({ content, uuid });
+  }
+
+  takeQueuedInput(sessionId: string, uuid: string): QueuedInput | undefined {
+    const queued = this.streams.get(sessionId)?.queuedInputs;
+    const input = queued?.get(uuid);
+    queued?.delete(uuid);
+    return input;
+  }
+
+  /** Follow-ups Claude never read die with the CLI process; let clients return them to the draft. */
+  private dropQueuedInputs(stream: SessionStream): void {
+    if (stream.queuedInputs.size === 0) return;
+    const clientMessageIds = Array.from(stream.queuedInputs.values(), input => input.clientMessageId).filter(Boolean);
+    stream.queuedInputs.clear();
+    this.safeSend(stream.sessionId, JSON.stringify({ type: 'queued_inputs_dropped', sessionId: stream.sessionId, clientMessageIds }));
   }
 
   /**
@@ -207,6 +239,7 @@ export class SessionStreamManager {
 
     console.log(`🛑 Generation stopped: ${sessionId.substring(0, 8)}`);
     stream.abortController.abort();
+    this.dropQueuedInputs(stream);
 
     // Send abort signal to client
     if (!stream.waitForStopCompletion) this.safeSend(sessionId, JSON.stringify({
@@ -284,6 +317,7 @@ export class SessionStreamManager {
     // Cancel any pending disconnect grace period
     this.cancelDisconnectGracePeriod(sessionId);
 
+    this.dropQueuedInputs(stream);
     stream.activeWebSockets.clear();
 
     // Abort SDK subprocess (safe to call even if already aborted)
@@ -347,7 +381,7 @@ export class SessionStreamManager {
     }
 
     try {
-      for await (const content of stream.messageQueue) {
+      for await (const { content, uuid } of stream.messageQueue) {
         stream.lastActivityAt = Date.now();
 
         // Log if multimodal content is being sent
@@ -365,6 +399,7 @@ export class SessionStreamManager {
           },
           session_id: sessionId,
           parent_tool_use_id: null,
+          ...(uuid ? { uuid: uuid as SDKUserMessage['uuid'] } : {}),
         };
       }
     } catch (error) {

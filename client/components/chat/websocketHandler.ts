@@ -25,6 +25,10 @@ export interface WebSocketHandlerDeps {
     updateMsgsSync: (msgSessionId: string | null, isBackground: boolean, updater: (prev: Message[]) => Message[]) => void;
   };
   setActiveCodexTurn?: (sessionId: string, turnId: string | null) => void;
+  setSessionRunning?: (sessionId: string, running: boolean) => void;
+  onQueuedInputDelivered?: (sessionId: string, clientMessageId: string) => void;
+  onQueuedInputsCleared?: (sessionId: string) => void;
+  onQueuedInputsDropped?: (sessionId: string, clientMessageIds: string[]) => void;
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   setSessions: React.Dispatch<React.SetStateAction<Session[]>>;
   setSessionLoading: (sessionId: string, loading: boolean) => void;
@@ -76,14 +80,24 @@ export function handleWebSocketMessage(message: Record<string, any>, deps: WebSo
   if (msgSessionId && ['generation_started', 'turn_started'].includes(message.type)) {
     setSessionLoading(msgSessionId, true);
   }
+  if (msgSessionId && message.type === 'generation_started') deps.setSessionRunning?.(msgSessionId, true);
 
   // Turn identity belongs to its session, including tabs running in the background.
   if (msgSessionId && (message.type === 'turn_started' || message.type === 'reconnect_ack')) {
     deps.setActiveCodexTurn?.(msgSessionId, message.turnId || null);
-    if (message.type === 'reconnect_ack') setSessionLoading(msgSessionId, !!message.isGenerating);
+    if (message.type === 'reconnect_ack') {
+      setSessionLoading(msgSessionId, !!message.isGenerating);
+      deps.setSessionRunning?.(msgSessionId, !!message.isGenerating);
+    }
   }
   if (msgSessionId && ['result', 'error', 'generation_stopped'].includes(message.type)) {
     deps.setActiveCodexTurn?.(msgSessionId, null);
+    deps.setSessionRunning?.(msgSessionId, false);
+    if (message.type === 'result') deps.onQueuedInputsCleared?.(msgSessionId);
+  }
+  if (msgSessionId && message.type === 'queued_inputs_dropped') {
+    deps.onQueuedInputsDropped?.(msgSessionId, message.clientMessageIds ?? []);
+    return;
   }
 
   // Notify for completions in any session before background events are filtered.
@@ -110,6 +124,7 @@ export function handleWebSocketMessage(message: Record<string, any>, deps: WebSo
   // --- Message type handlers ---
   switch (message.type) {
     case 'session_message':
+      if (msgSessionId && message.clientMessageId) deps.onQueuedInputDelivered?.(msgSessionId, message.clientMessageId);
       applyUpdate(prev => upsertSavedMessage(prev, message.message, message.clientMessageId));
       break;
     case 'session_history':

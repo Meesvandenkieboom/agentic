@@ -9,6 +9,7 @@ import { sessionStreamManager } from "../sessionStreamManager";
 import { setupSessionCommands } from "../commandSetup";
 import { normalizeModelId } from "../../client/config/models";
 import { handleCodexRoutes } from '../codex/routes';
+import { handleClaudeSteerRoute } from './claudeSteer';
 import { turnNotifications } from '../notifications';
 import type { ChatSearchFilter } from '../../shared/chatSearch';
 
@@ -21,6 +22,8 @@ export async function handleSessionRoutes(
   url: URL,
   activeQueries: Map<string, unknown>
 ): Promise<Response | undefined> {
+  const claudeSteerResponse = await handleClaudeSteerRoute(req, url);
+  if (claudeSteerResponse) return claudeSteerResponse;
   const codexResponse = await handleCodexRoutes(req, url);
   if (codexResponse) return codexResponse;
 

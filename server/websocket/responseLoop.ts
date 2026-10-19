@@ -116,6 +116,8 @@ export function startResponseLoop(
     // multi-turn (tool-use loop) is evaluated independently.
     let receivedStreamEvent = false;
     let lastTurnSuccess = true;
+    // A follow-up read after a `result` starts its own CLI turn (and result).
+    let betweenTurns = false;
     // Input side of the latest main-loop API call = current context size.
     // Result usage is summed over every call in a turn/session, so it can't be used.
     let contextTokens: number | undefined;
@@ -153,6 +155,33 @@ export function startResponseLoop(
           sessionStreamManager.setBackgroundTaskCount(sessionId, tasks.filter(t => !t.ambient).length);
           continue;
         }
+        // "started" marks where Claude reads a mid-turn follow-up (between tool
+        // rounds, or as the next turn). Split the reply there so history order matches.
+        if (message.type === 'command_lifecycle') {
+          const input = message.state === 'started'
+            ? sessionStreamManager.takeQueuedInput(sessionId, message.command_uuid as string)
+            : undefined;
+          if (input) {
+            for (const ev of artifactParser.flush()) applyParserEvent(ev, sessionId, currentMessageContent);
+            if (currentMessageContent.length > 0) {
+              if (currentMessageId) sessionDb.updateMessage(currentMessageId, JSON.stringify(currentMessageContent));
+              else sessionDb.addMessage(sessionId, 'assistant', JSON.stringify(currentMessageContent));
+            }
+            currentMessageContent = [];
+            currentTextResponse = '';
+            currentMessageId = null;
+            artifactParser = new ArtifactStreamParser();
+            const saved = sessionDb.addMessage(sessionId, 'user', input.stored);
+            sessionStreamManager.safeSend(sessionId, JSON.stringify({
+              type: 'session_message', sessionId, message: saved, clientMessageId: input.clientMessageId,
+            }));
+            if (betweenTurns) {
+              betweenTurns = false;
+              turnNotifications.begin(sessionId, sessionDb.getSession(sessionId)?.title ?? 'Chat');
+            }
+          }
+          continue;
+        }
 
         // Capture SDK's internal session ID from init message
         if (message.type === 'system' && (message as { subtype?: string }).subtype === 'init') {
@@ -184,6 +213,7 @@ export function startResponseLoop(
           );
 
           // Reset state for next turn
+          betweenTurns = true;
           currentMessageContent = [];
           currentTextResponse = '';
           currentMessageId = null;
@@ -197,6 +227,7 @@ export function startResponseLoop(
         // Handle stream events (text deltas, thinking, etc.)
         if (message.type === 'stream_event') {
           if (message.parent_tool_use_id) continue; // sub-agent output never belongs in the main reply
+          betweenTurns = false;
           const event = message.event as Record<string, unknown>;
           // A `message_start` event signals a new model response within
           // the same turn (e.g. after a tool call). Reset the flag so
@@ -273,6 +304,7 @@ export function startResponseLoop(
             emitSubagentToolUses(message, sessionId);
             continue;
           }
+          betweenTurns = false;
 
           const usage = (message.message as { usage?: Record<string, number | undefined> } | undefined)?.usage;
           if (usage) {

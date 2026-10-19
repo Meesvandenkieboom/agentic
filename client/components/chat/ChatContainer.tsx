@@ -34,6 +34,7 @@ import { useBranching } from '../../hooks/useBranching';
 import { useChatSearch } from '../../hooks/useChatSearch';
 import { useChatMessages, generateMessageId } from '../../hooks/useChatMessages';
 import { useChatSessions } from '../../hooks/useChatSessions';
+import { useQueuedInputs } from '../../hooks/useQueuedInputs';
 import type { Message, FileAttachment } from '../message/types';
 import { toast } from '../../utils/toast';
 import { showError } from '../../utils/errorMessages';
@@ -146,7 +147,11 @@ export function ChatContainer() {
   const isLoading = isAnySessionLoading;
   const currentSession = sessions.find(session => session.id === currentSessionId);
   const activeCodexTurn = currentSessionId ? activeCodexTurns[currentSessionId] : undefined;
-  const allowSteering = modelProvider === 'codex' && !!activeCodexTurn;
+  const queuedInputs = useQueuedInputs();
+  const allowSteering = modelProvider === 'codex'
+    ? !!activeCodexTurn
+    : !!currentSessionId && isCurrentSessionLoading && !!queuedInputs.running[currentSessionId];
+  const currentQueuedInputs = currentSessionId ? queuedInputs.bySession[currentSessionId] : undefined;
   const visibleQuestion = pendingQuestion?.sessionId === currentSessionId ? pendingQuestion : null;
   const isWorkspacePreparing = currentSession?.workspace_status === 'preparing';
   const isWorkspaceFailed = currentSession?.workspace_status === 'failed';
@@ -392,6 +397,7 @@ export function ChatContainer() {
           sendMessage({ type: 'reconnect', sessionId: sid });
         }
         setLoadingSessions(new Set(activeIds));
+        queuedInputs.restoreInactive(new Set(activeIds));
       } catch {
         if (tabSessionId) {
           sendMessage({ type: 'reconnect', sessionId: tabSessionId });
@@ -418,6 +424,10 @@ export function ChatContainer() {
           if (turnId) next[id] = turnId; else delete next[id];
           return next;
         }),
+        setSessionRunning: queuedInputs.setRunning,
+        onQueuedInputDelivered: queuedInputs.remove,
+        onQueuedInputsCleared: queuedInputs.clearQueued,
+        onQueuedInputsDropped: queuedInputs.restore,
         setBackgroundProcesses,
         clearCache,
         lastAssistantContentRef,
@@ -501,15 +511,19 @@ export function ChatContainer() {
     if (currentSessionId && isSessionLoading(currentSessionId)) {
       if (!allowSteering) return false;
       isSubmittingRef.current = true;
+      // Claude can read a follow-up before this request resolves, so show it first.
+      const queued = modelProvider === 'codex' ? null : { id: generateMessageId(), text: messageText, files };
+      if (queued) queuedInputs.add(currentSessionId, queued);
       try {
         const response = await fetch(`/api/sessions/${currentSessionId}/steer`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: encodeUserMessage(messageText, files), turnId: activeCodexTurn }),
+          body: JSON.stringify({ content: encodeUserMessage(messageText, files), turnId: activeCodexTurn, clientMessageId: queued?.id }),
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || 'Could not send your follow-up.');
         return true;
       } catch (error) {
+        if (queued) queuedInputs.remove(currentSessionId, queued.id);
         toast.error('Follow-up was not confirmed', { description: error instanceof Error ? error.message : 'Your draft has been kept. Check the conversation before retrying.' });
         return false;
       } finally { isSubmittingRef.current = false; }
@@ -817,7 +831,10 @@ export function ChatContainer() {
                 disabled={!isConnected || (isCurrentSessionLoading && !allowSteering) || !!visibleQuestion?.isBlocking || isCloning || isWorkspacePreparing || isWorkspaceFailed}
                 isGenerating={isCurrentSessionLoading}
                 allowSteering={allowSteering}
-                placeholder={allowSteering ? "Send a follow-up while Codex works…" : undefined}
+                placeholder={allowSteering ? `Send a follow-up while ${modelProvider === 'codex' ? 'Codex' : 'Claude'} works…` : undefined}
+                queuedMessages={currentQueuedInputs?.queued}
+                restoredDraft={currentQueuedInputs?.restored}
+                onDraftRestored={currentSessionId ? () => queuedInputs.clearRestored(currentSessionId) : undefined}
                 isCloning={isCloning || isWorkspacePreparing}
                 isPlanMode={isPlanMode}
                 onTogglePlanMode={handleTogglePlanMode}

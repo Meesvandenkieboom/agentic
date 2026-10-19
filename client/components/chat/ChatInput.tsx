@@ -32,6 +32,9 @@ import { FeaturesModal } from './FeaturesModal';
 import { GitHubRepoSelector } from './GitHubRepoSelector';
 import { ReasoningEffortSelector, type ReasoningEffort } from './ReasoningEffortSelector';
 import { getModelConfig } from '../../config/models';
+import { QueuedMessages } from './QueuedMessages';
+import type { QueuedInput } from '../../hooks/useQueuedInputs';
+import { toast } from '../../utils/toast';
 
 interface ChatInputProps {
   /** Returns true if the message was sent, so the input can clear its draft. */
@@ -57,9 +60,14 @@ interface ChatInputProps {
   connectedRepo?: string | null;
   reasoningEffort?: ReasoningEffort;
   onReasoningEffortChange?: (effort: ReasoningEffort) => void;
+  /** Follow-ups sent mid-turn that Claude hasn't read yet. */
+  queuedMessages?: QueuedInput[];
+  /** Undelivered follow-ups to put back into the draft. */
+  restoredDraft?: QueuedInput[];
+  onDraftRestored?: () => void;
 }
 
-export function ChatInput({ onSubmit, onStop, disabled, isGenerating, allowSteering, isCloning, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo, reasoningEffort, onReasoningEffortChange }: ChatInputProps) {
+export function ChatInput({ onSubmit, onStop, disabled, isGenerating, allowSteering, isCloning, placeholder, isPlanMode, onTogglePlanMode, backgroundProcesses: _backgroundProcesses = [], onKillProcess: _onKillProcess, mode, availableCommands = [], selectedModel, sessionId, onRepoSelected, selectedRepo, connectedRepo, reasoningEffort, onReasoningEffortChange, queuedMessages = [], restoredDraft, onDraftRestored }: ChatInputProps) {
   const [value, setValue] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -91,6 +99,14 @@ export function ChatInput({ onSubmit, onStop, disabled, isGenerating, allowSteer
       setShowCommandMenu(false);
     }
   }, [value, availableCommands]);
+
+  useEffect(() => {
+    if (!restoredDraft?.length) return;
+    setValue(current => [...restoredDraft.map(d => d.text), current].filter(t => t.trim()).join('\n\n'));
+    setAttachedFiles(current => [...restoredDraft.flatMap(d => d.files ?? []), ...current]);
+    toast.info('Follow-up returned to the input', { description: "Claude stopped before reading it, so it wasn't sent." });
+    onDraftRestored?.();
+  }, [restoredDraft, onDraftRestored]);
 
   // Auto-focus on mount with slight delay to ensure DOM is ready
   useEffect(() => {
@@ -270,6 +286,7 @@ export function ChatInput({ onSubmit, onStop, disabled, isGenerating, allowSteer
       onDrop={handleDrop}
     >
       <div className="input-wrapper flex-col">
+        <QueuedMessages items={queuedMessages} />
         {/* Slash Command Autocomplete Menu - Above input */}
         {showCommandMenu && filteredCommands.length > 0 && (
           <div className="mb-2 w-full bg-gray-800 border border-gray-700 rounded-lg shadow-lg overflow-hidden">
