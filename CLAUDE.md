@@ -13,6 +13,7 @@ agentic/
 │   ├── commands/         # Slash commands per mode
 │   ├── modes/            # System prompts per mode
 │   ├── templates/        # CLAUDE.md templates per mode
+│   ├── review/           # Agentic Review: own GitHub App, polls PRs, sandboxed review engine
 │   └── websocket/        # Real-time messaging
 ├── client/               # Frontend (React 19 + TypeScript)
 │   ├── App.tsx           # Main React component

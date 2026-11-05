@@ -6,13 +6,14 @@
  */
 
 import React, { useState } from 'react';
-import { X, Settings as SettingsIcon, Bot, Plug2, Sparkles, Bell } from 'lucide-react';
+import { X, Settings as SettingsIcon, Bot, Plug2, Sparkles, Bell, Github } from 'lucide-react';
 import { NotificationsSettingsTab } from './NotificationsSettingsTab';
 import { AgentSettingsTab } from './AgentSettingsTab';
 import { MCPServersTab } from './MCPServersTab';
 import { SkillsSettingsTab } from './SkillsSettingsTab';
+import { GitHubSettingsTab } from './GitHubSettingsTab';
 
-type SettingsTab = 'agents' | 'skills' | 'mcp-servers' | 'notifications';
+type SettingsTab = 'agents' | 'skills' | 'mcp-servers' | 'notifications' | 'github';
 
 interface Tab {
   id: SettingsTab;
@@ -25,6 +26,7 @@ const TABS: Tab[] = [
   { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'mcp-servers', label: 'Integrations', icon: Plug2 },
+  { id: 'github', label: 'GitHub', icon: Github },
 ];
 
 interface SettingsProps {
@@ -87,6 +89,7 @@ export function Settings({ onClose, initialTab = 'agents' }: SettingsProps) {
             {activeTab === 'agents' && <AgentSettingsTab />}
             {activeTab === 'skills' && <SkillsSettingsTab />}
             {activeTab === 'mcp-servers' && <MCPServersTab onEditStateChange={setIntegrationEdit} />}
+            {activeTab === 'github' && <GitHubSettingsTab />}
           </div>
         </div>
       </div>

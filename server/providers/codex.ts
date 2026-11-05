@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { CodexAppServer, codexAppServer, type RpcId, type RpcNotification, type RpcRequest } from '../codex/appServer';
 import type { CodexSkillConfigEntry } from '../skills';
+import { noteAgentCommand } from '../review';
 
 export type CodexBlock =
   | { type: 'text'; id: string; text: string }
@@ -279,7 +280,7 @@ export class CodexSessions {
         if (thinking) this.block(run, { type: 'thinking', id: item.id, thinking });
         break;
       }
-      case 'commandExecution': this.block(run, { type: 'tool_use', id: item.id, name: 'Bash', input: { command: item.command, output: item.aggregatedOutput || '', exit_code: item.exitCode, status: item.status } }); break;
+      case 'commandExecution': noteAgentCommand(item.command); this.block(run, { type: 'tool_use', id: item.id, name: 'Bash', input: { command: item.command, output: item.aggregatedOutput || '', exit_code: item.exitCode, status: item.status } }); break;
       case 'fileChange': this.block(run, { type: 'tool_use', id: item.id, name: 'Edit', input: { changes: (item.changes as { path: string; kind: { type: string }; diff: string }[] || []).map(c => ({ path: c.path, kind: c.kind.type, diff: c.diff })), status: item.status } }); break;
       case 'mcpToolCall': this.block(run, { type: 'tool_use', id: item.id, name: `${item.server}.${item.tool}`, input: { arguments: item.arguments, result: item.result, error: item.error, status: item.status } }); break;
       case 'webSearch': this.block(run, { type: 'tool_use', id: item.id, name: 'WebSearch', input: { query: item.query, action: item.action } }); break;

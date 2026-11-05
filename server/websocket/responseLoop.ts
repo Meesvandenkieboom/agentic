@@ -8,6 +8,7 @@
 
 import type { SDKCompactBoundaryMessage } from "@anthropic-ai/claude-agent-sdk";
 import { turnNotifications } from '../notifications';
+import { noteAgentCommand } from '../review';
 import { sessionDb } from "../database";
 import { sessionStreamManager } from "../sessionStreamManager";
 import { processContextUsage } from "./contextUsageHandler";
@@ -687,6 +688,7 @@ function handleAssistantMessage(
     if (block.type !== 'tool_use') continue;
 
     toolUseCount++;
+    if (block.name === 'Bash') noteAgentCommand((block.input as Record<string, unknown> | undefined)?.command);
     const toolTimestamp = new Date().toISOString();
     console.log(`🔧 [${toolTimestamp}] Tool #${toolUseCount}: ${block.name}`);
 
