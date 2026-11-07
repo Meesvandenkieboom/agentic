@@ -204,6 +204,7 @@ export function AgenticReviewTab() {
         </span>
       </div>
       <p className="text-xs text-gray-400">Add a focus after it: <code className="font-mono text-gray-300">{trigger} check the hot path</code>. Only collaborators with write access can trigger reviews.</p>
+      <p className="text-xs text-gray-400">To block merging until findings are resolved, turn on <span className="text-gray-300">Require conversation resolution before merging</span> in the branch’s protection rule or ruleset — each finding is a review thread, like Codex Review.</p>
     </div>
 
     <ReviewRepoList repos={repos} setRepos={setRepos} />

@@ -161,26 +161,31 @@ describe('publishing', () => {
   const ctx = { fullName: 'mees/bot', headSha: 'a'.repeat(40), mergeBase: 'b'.repeat(40), trigger: 'PR opened' };
 
   it('renders badges, fingerprints, and a status table', () => {
-    expect(renderFinding(finding, ctx)).toStartWith('**🟠 P1 · Keep RPC data at its declared slot**');
+    expect(renderFinding(finding, ctx)).toStartWith('![P1](https://img.shields.io/badge/P1-orange?style=flat) **Keep RPC data at its declared slot**');
     expect(renderFinding(finding, ctx)).toContain('fp=abc123def0');
     const summary = renderSummary([{ id: 1, status: 'done', findings: JSON.stringify({ P0: 0, P1: 1, P2: 0, P3: 0, preexisting: 0, fixed: 0 }), head_sha: 'a'.repeat(40), kind: 'ready', actor: 'mees', focus: '', review_url: 'https://x' } as never], 'agentic-review-mees');
-    expect(summary).toContain('| 📝 [Code review](https://x) | ✅ Completed · 🔴 0 · 🟠 1 · 🟡 0 | `aaaaaaa` | Draft marked ready |');
+    expect(summary).toContain('| 📝 [Code review](https://x) | ✅ Completed · ![P0: 0](https://img.shields.io/badge/P0-0-red?style=flat) ![P1: 1](https://img.shields.io/badge/P1-1-orange?style=flat) ![P2: 0](https://img.shields.io/badge/P2-0-yellow?style=flat) | `aaaaaaa` | Draft marked ready |');
   });
 
-  it('falls back to a body-only review when GitHub rejects an inline anchor', async () => {
+  it('threads off-diff findings in changed files and falls back to a body-only review on a 422', async () => {
     const posted: { comments?: unknown[]; body: string }[] = [];
+    const fileComments: Record<string, unknown>[] = [];
     const { store, gh } = setup((method, path, body) => {
+      if (method === 'POST' && path === '/repos/mees/bot/pulls/3/comments') { fileComments.push(body as never); return Response.json({ id: 9 }, { status: 201 }); }
       if (method === 'POST' && path === '/repos/mees/bot/pulls/3/reviews') {
         posted.push(body as never);
         return posted.length === 1 ? Response.json({ message: 'Line could not be resolved' }, { status: 422 }) : Response.json({ id: 1, html_url: 'https://review' });
       }
     });
-    const out = await new ReviewPublisher(store, gh).postReview(store.repo(7)!, 3, result, ctx);
+    const out = await new ReviewPublisher(store, gh).postReview(store.repo(7)!, 3, result, ctx, new Set(['src/rpc.ts']));
     expect(out.url).toBe('https://review');
+    expect(fileComments).toHaveLength(1);
+    expect(fileComments[0]).toMatchObject({ path: 'src/rpc.ts', subject_type: 'file' });
+    expect(String(fileComments[0].body)).toContain('src/rpc.ts#L300');
     expect(posted[0].comments).toHaveLength(1);
-    expect(posted[0].body).toContain('#### Outside the diff');
+    expect(posted[0].body).not.toContain('#### Outside the diff');
     expect(posted[1].comments).toBeUndefined();
-    expect(posted[1].body.match(/Keep RPC data/g)).toHaveLength(2);
+    expect(posted[1].body.match(/Keep RPC data/g)).toHaveLength(1);
   });
 
   it('withholds findings that contain key material', () => {
