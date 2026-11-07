@@ -75,7 +75,7 @@ export class ReviewPublisher {
       return {
         threadId: t.id, rootCommentId: root.databaseId,
         fingerprint: root.body.match(/<!-- agentic-review v1 fp=(\w+)/)?.[1] ?? null,
-        title: root.body.match(/^\*\*\S+ P\d · (.+?)\*\*/)?.[1] ?? root.body.split('\n')[0].slice(0, 100),
+        title: (([, a, b]) => a ?? b)(root.body.match(/^(?:!\[P\d\]\([^)]*\) \*\*(.+?)\*\*|\*\*\S+ P\d · (.+?)\*\*)/) ?? []) ?? root.body.split('\n')[0].slice(0, 100),
         path: t.path, line: t.line, originalCommit: root.originalCommit?.oid ?? '', resolved: t.isResolved, outdated: t.isOutdated,
         comments: t.comments.nodes.map(c => ({ author: c.author?.login ?? 'ghost', isBot: this.isOurs(c.author?.login), body: c.body, createdAt: c.createdAt })),
       };
@@ -83,7 +83,7 @@ export class ReviewPublisher {
   }
 
   /** Posts the review; falls back to a body-only review, then to a plain comment, so findings are never lost to a 422. */
-  async postReview(repo: RepoRow, pr: number, result: EngineResult, ctx: RenderContext): Promise<{ url: string; withheld: number }> {
+  async postReview(repo: RepoRow, pr: number, result: EngineResult, ctx: RenderContext, changedPaths: Set<string>): Promise<{ url: string; withheld: number }> {
     const safe = result.findings.filter(f => !containsSecret(`${f.title}\n${f.body}\n${f.suggestion ?? ''}`));
     const clean: EngineResult = { ...result, findings: safe, summary: containsSecret(result.summary) ? '' : result.summary };
     const inline = new Set<Finding>(safe.filter(f => f.inline).slice(0, 50));
@@ -91,16 +91,26 @@ export class ReviewPublisher {
       path: f.path, line: f.line, side: f.side, body: renderFinding(f, ctx),
       ...(f.startLine && f.startLine < f.line ? { start_line: f.startLine, start_side: f.side } : {}),
     }));
+    // Findings off the diff lines but in a changed file become file-level threads: threads are what
+    // "Require conversation resolution before merging" blocks on. Only untouched files stay body-only.
+    const threaded = new Set<Finding>();
+    for (const f of safe.filter(f => !inline.has(f) && changedPaths.has(f.path)).slice(0, 20)) {
+      try {
+        await this.gh.request(repo.installation_id, 'POST', `/repos/${repo.full_name}/pulls/${pr}/comments`,
+          { body: renderFinding(f, ctx), commit_id: ctx.headSha, path: f.path, subject_type: 'file' });
+        threaded.add(f);
+      } catch (error) { if (!(error instanceof GitHubError && error.status === 422)) throw error; }
+    }
     const endpoint = `/repos/${repo.full_name}/pulls/${pr}/reviews`;
     type Review = { id: number; html_url: string };
     try {
       const { data } = await this.gh.request<Review>(repo.installation_id, 'POST', endpoint,
-        { commit_id: ctx.headSha, event: 'COMMENT', body: renderReviewBody(clean, inline, ctx), comments });
+        { commit_id: ctx.headSha, event: 'COMMENT', body: renderReviewBody(clean, new Set([...inline, ...threaded]), ctx), comments });
       return { url: data.html_url, withheld: result.findings.length - safe.length };
     } catch (error) {
       if (!(error instanceof GitHubError && error.status === 422)) throw error;
     }
-    const body = renderReviewBody(clean, new Set(), ctx);
+    const body = renderReviewBody(clean, threaded, ctx);
     try {
       const { data } = await this.gh.request<Review>(repo.installation_id, 'POST', endpoint, { event: 'COMMENT', body });
       return { url: data.html_url, withheld: result.findings.length - safe.length };

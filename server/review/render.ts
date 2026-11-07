@@ -5,7 +5,10 @@ import type { EngineResult, Finding, Priority, Reply } from './types';
 
 export interface RenderContext { fullName: string; headSha: string; mergeBase: string; trigger: string }
 
-const BADGE: Record<Priority, string> = { P0: '🔴', P1: '🟠', P2: '🟡', P3: '⚪' };
+const COLOR: Record<Priority, string> = { P0: 'red', P1: 'orange', P2: 'yellow', P3: 'lightgrey' };
+// Same shields.io badges Codex Review uses; GitHub serves them through its camo image proxy.
+const badge = (p: Priority, count?: number) =>
+  `![${count === undefined ? p : `${p}: ${count}`}](https://img.shields.io/badge/${count === undefined ? p : `${p}-${count}`}-${COLOR[p]}?style=flat)`;
 const SCOPE: Record<Finding['scope'], string> = {
   change: '`change` · introduced by this PR',
   intent: '`intent` · conflicts with repo guidance',
@@ -36,7 +39,7 @@ function reference(f: Finding, ctx: RenderContext): string {
 export function renderFinding(f: Finding, ctx: RenderContext): string {
   const scope = f.scope === 'intent' && f.guidelineRef?.kind === 'inferred' ? '`intent` · inferred repo constraint' : SCOPE[f.scope];
   const suggestion = f.inline && f.side === 'RIGHT' && f.suggestion !== null ? `\n\n\`\`\`suggestion\n${f.suggestion}\n\`\`\`` : '';
-  return `**${BADGE[f.priority]} ${f.priority} · ${f.title}**\n<sub>${scope}</sub>\n\n${f.body}${suggestion}${reference(f, ctx)}\n`
+  return `${badge(f.priority)} **${f.title}**\n<sub>${scope}</sub>\n\n${f.body}${suggestion}${f.inline ? '' : `\n\n<sub>📍 ${permalink(ctx, f.path, f.side, f.startLine, f.line)}</sub>`}${reference(f, ctx)}\n`
     + `<!-- agentic-review v1 fp=${f.fingerprint} scope=${f.scope} p=${f.priority} head=${short(ctx.headSha)} -->`;
 }
 
@@ -51,7 +54,7 @@ export function counts(result: EngineResult): ReviewFindingCounts {
   c.fixed = result.replies.filter(r => r.verdict === 'fixed').length;
   return c;
 }
-const tally = (c: ReviewFindingCounts) => `🔴 ${c.P0} · 🟠 ${c.P1} · 🟡 ${c.P2}`;
+const tally = (c: ReviewFindingCounts) => `${badge('P0', c.P0)} ${badge('P1', c.P1)} ${badge('P2', c.P2)}`;
 
 /** `inline` = findings actually posted as inline comments; everything else is listed here. */
 export function renderReviewBody(result: EngineResult, inline: Set<Finding>, ctx: RenderContext): string {
@@ -59,7 +62,7 @@ export function renderReviewBody(result: EngineResult, inline: Set<Finding>, ctx
   const outside = result.findings.filter(f => !inline.has(f));
   if (outside.length) {
     parts.push('#### Outside the diff\n' + outside.map(f =>
-      `- **${BADGE[f.priority]} ${f.priority} · ${f.title}** · ${SCOPE[f.scope].split(' · ')[0]} — ${permalink(ctx, f.path, f.side, f.startLine, f.line)}\n  ${f.body.replace(/\n/g, '\n  ')}`).join('\n'));
+      `- ${badge(f.priority)} **${f.title}** · ${SCOPE[f.scope].split(' · ')[0]} — ${permalink(ctx, f.path, f.side, f.startLine, f.line)}\n  ${f.body.replace(/\n/g, '\n  ')}`).join('\n'));
   }
   if (result.replies.length) {
     const n = (v: Reply['verdict']) => result.replies.filter(r => r.verdict === v).length;
@@ -73,7 +76,7 @@ export function renderReviewBody(result: EngineResult, inline: Set<Finding>, ctx
       + (cov.truncated.length ? ` Partially in context: ${cov.truncated.map(p => `\`${p}\``).join(', ')}.` : ''),
     cov.guidance.length ? `Guidance: ${cov.guidance.map(p => `\`${p}\``).join(', ')}${cov.guidanceEditedByPr.length ? ` (read from the base branch; this PR edits ${cov.guidanceEditedByPr.map(p => `\`${p}\``).join(', ')})` : ''}.` : 'No REVIEW.md, AGENTS.md or CLAUDE.md found.',
     `Trigger: ${ctx.trigger}. ${cov.candidates} candidate${cov.candidates === 1 ? '' : 's'} → ${cov.verified} verified${cov.unverified ? `, ${cov.unverified} dropped unverified (budget)` : ''}.`,
-    ...result.minorNotes.map(n => `⚪ P3 · ${n.title} — ${permalink(ctx, n.path, 'RIGHT', null, n.line)}`),
+    ...result.minorNotes.map(n => `${badge('P3')} ${n.title} — ${permalink(ctx, n.path, 'RIGHT', null, n.line)}`),
   ];
   parts.push(`<details><summary>Coverage &amp; minor notes</summary>\n\n${coverage.join('\n\n')}\n</details>`);
   return parts.join('\n\n').slice(0, 65_000);

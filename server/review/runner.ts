@@ -81,7 +81,7 @@ export class ReviewRunner {
       live();
 
       const ctx = { fullName: repo.full_name, headSha, mergeBase, trigger: triggerLabel(job.kind, job.actor) };
-      const posted = await this.publisher.postReview(repo, job.pr, result, ctx);
+      const posted = await this.publisher.postReview(repo, job.pr, result, ctx, new Set(files.map(f => f.filename)));
       await this.publisher.postReplies(repo, job.pr, result, ctx);
       // Once posted, the review exists on GitHub; record it as done even if a cancel raced the post.
       this.store.transition(job.id, ['running', 'cancelled'], 'done', {
