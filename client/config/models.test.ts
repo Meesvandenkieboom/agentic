@@ -38,16 +38,16 @@ describe('Claude model versions', () => {
   it('selects Opus 5.5 by default and exposes both new API IDs', () => {
     expect(DEFAULT_MODEL_ID).toBe('opus-5-5');
     expect(AVAILABLE_MODELS.filter(model => model.provider === 'anthropic').slice(0, 2).map(model => model.id)).toEqual([
-      'opus-5-5', 'fable-5-1',
+      'opus-5-5', 'fable-5-2',
     ]);
     expect(getModelConfig('opus-5-5')?.apiModelId).toBe('claude-opus-5-5');
-    expect(getModelConfig('fable-5-1')?.apiModelId).toBe('claude-fable-5-1');
+    expect(getModelConfig('fable-5-2')?.apiModelId).toBe('claude-fable-5-2');
     expect(getModelConfig('hive')?.apiModelId).toBe('claude-opus-5-5');
   });
 
   it('upgrades saved new-chat preferences only once', () => {
     expect(migrateModelPreference('opus-5')).toBe('opus-5-5');
-    expect(migrateModelPreference('fable-5')).toBe('fable-5-1');
+    expect(migrateModelPreference('fable-5')).toBe('fable-5-2');
     expect(migrateModelPreference('opus-5', true)).toBe('opus-5');
     expect(migrateModelPreference('fable-5', true)).toBe('fable-5');
   });
@@ -57,6 +57,7 @@ describe('Claude model versions', () => {
     expect(getModelConfig('fable-5')?.apiModelId).toBe('claude-fable-5');
     expect(normalizeModelId('opus-4-7')).toBe('opus-5');
     expect(normalizeModelId('opus-4-8')).toBe('opus-5');
+    expect(normalizeModelId('fable-5-1')).toBe('fable-5-2');
   });
 });
 

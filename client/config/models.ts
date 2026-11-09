@@ -32,6 +32,7 @@ export const DEFAULT_MODEL_ID = 'opus-5-5';
 const LEGACY_MODEL_ALIASES: Record<string, string> = {
   'opus-4-7': 'opus-5',
   'opus-4-8': 'opus-5',
+  'fable-5-1': 'fable-5-2',
   'codex-5-6-terra': 'codex-6-sol',
   'codex-5-6-luna': 'codex-6-luna',
 };
@@ -58,10 +59,10 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     provider: 'anthropic',
   },
   {
-    id: 'fable-5-1',
-    name: 'Claude Fable 5.1',
+    id: 'fable-5-2',
+    name: 'Claude Fable 5.2',
     description: 'For demanding reasoning and long-horizon agentic work',
-    apiModelId: 'claude-fable-5-1',
+    apiModelId: 'claude-fable-5-2',
     provider: 'anthropic',
   },
   {
@@ -182,6 +183,6 @@ export function normalizeModelId(modelId?: string | null): string {
 /** Upgrade a saved new-chat preference once; persisted session models stay fixed. */
 export function migrateModelPreference(modelId?: string | null, alreadyMigrated = false): string {
   if (!alreadyMigrated && modelId === 'opus-5') return 'opus-5-5';
-  if (!alreadyMigrated && modelId === 'fable-5') return 'fable-5-1';
+  if (!alreadyMigrated && modelId === 'fable-5') return 'fable-5-2';
   return normalizeModelId(modelId);
 }
