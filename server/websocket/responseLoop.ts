@@ -768,7 +768,10 @@ async function handleLoopError(
 
   if (!ownsStream) return;
   // Actual error
-  console.error(`❌ Background response loop error for session ${sessionId}:`, error);
+  // Log the stack string, not the Error object: Bun prints source excerpts for
+  // thrown errors, which for the minified SDK bundle is pages of noise.
+  console.error(`❌ Background response loop error for session ${sessionId}:`,
+    error instanceof Error ? error.stack ?? errorMessage : errorMessage);
 
   // Give the turn launcher a chance to self-heal (eg a stale resume target).
   // If it handles recovery it owns cleanup + respawn, so stay silent here.

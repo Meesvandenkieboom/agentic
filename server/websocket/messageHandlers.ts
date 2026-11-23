@@ -799,23 +799,29 @@ IMPORTANT: Do not modify files outside the workspace directory.
 
     // Self-heal a stale resume target: if the SDK CLI can't find the
     // conversation we asked it to resume, clear the dead sdk_session_id and
-    // re-run this turn fresh (branch injection rebuilds full context from the
-    // DB). Guarded to fire once so it can never loop. Only reachable on the
-    // resume path, so `messageContent` here is still the untouched user
-    // message (branch injection mutates it only when not resuming).
+    // re-run this turn fresh with the chat history from the DB prepended, so
+    // the new SDK session isn't amnesiac. Guarded to fire once so it can never
+    // loop. Only reachable on the resume path, so `messageContent` here is
+    // still the untouched user message.
     const onLoopError = (): boolean => {
       if (!resumeSessionNotFound || recoveryAttempted) return false;
       recoveryAttempted = true;
+      const stored = sessionDb.getSessionMessages(sessionId);
+      const lastUserIndex = stored.map(m => m.type).lastIndexOf('user');
+      const history = lastUserIndex > 0 ? formatBranchHistory(stored.slice(0, lastUserIndex)) : '';
       console.warn(
         `♻️ Resume target missing for ${sessionId.substring(0, 8)} ` +
-        `(stale SDK session ${session.sdk_session_id}) — clearing and retrying fresh`,
+        `(stale SDK session ${session.sdk_session_id}) — retrying fresh with ${lastUserIndex > 0 ? lastUserIndex : 0} prior messages injected`,
       );
+      const retryContent: MessageContent = !history ? messageContent
+        : typeof messageContent === 'string' ? `${history}\n\n${messageContent}`
+          : [{ type: 'text' as const, text: history }, ...messageContent];
       sessionDb.updateSdkSessionId(sessionId, null);
       sessionStreamManager.cleanupSession(sessionId, 'resume_recovery');
       activeQueries.delete(sessionId);
       void spawnClaudeStream(
         ws, { ...session, sdk_session_id: undefined }, sessionId, workingDir,
-        messageContent, apiModelId, providerType, timezone,
+        retryContent, apiModelId, providerType, timezone,
         mcpServers, activeQueries, effort,
       );
       return true;

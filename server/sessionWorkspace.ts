@@ -101,15 +101,86 @@ export function getRuntimeSessionPaths(session: RuntimeSessionPaths): SessionPat
   };
 }
 
+// Leave room so a branch copy can never fill the disk and starve SQLite writes.
+const COPY_HEADROOM_BYTES = 1024 ** 3;
+
+async function diskUsage(target: string): Promise<number> {
+  let total = 0;
+  const pending = [target];
+  while (pending.length > 0) {
+    const dir = pending.pop() as string;
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) pending.push(full);
+      else if (entry.isFile()) total += (await fs.promises.lstat(full).catch(() => null))?.size ?? 0;
+    }
+  }
+  return total;
+}
+
+async function freeBytes(target: string): Promise<number> {
+  const { bavail, bsize } = await fs.promises.statfs(target);
+  let free = bavail * bsize;
+  // Inside WSL, statfs reports the virtual disk's max size, not real space:
+  // the ext4.vhdx grows on the Windows drive (normally C:), which can fill first.
+  if (process.platform === 'linux' && fs.existsSync('/mnt/c')
+    && fs.readFileSync('/proc/version', 'utf8').toLowerCase().includes('microsoft')) {
+    const host = await fs.promises.statfs('/mnt/c').catch(() => null);
+    if (host) free = Math.min(free, host.bavail * host.bsize);
+  }
+  return free;
+}
+
+function formatGb(bytes: number): string {
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
+
 export async function copyManagedWorkspace(source: string, destination: string): Promise<void> {
-  await fs.promises.cp(source, destination, {
-    recursive: true,
-    force: true,
-    errorOnExist: false,
-    // Prefer copy-on-write clones where the filesystem supports them and
-    // transparently fall back to a regular copy elsewhere.
-    mode: fs.constants.COPYFILE_FICLONE,
-  });
+  const needed = await diskUsage(source);
+  const free = await freeBytes(destination);
+  if (needed + COPY_HEADROOM_BYTES > free) {
+    throw new Error(`Not enough disk space to copy workspace: needs ${formatGb(needed)} `
+      + `(+${formatGb(COPY_HEADROOM_BYTES)} headroom), ${formatGb(free)} free`);
+  }
+
+  const skipped: string[] = [];
+  try {
+    await fs.promises.cp(source, destination, {
+      recursive: true,
+      force: true,
+      errorOnExist: false,
+      // Prefer copy-on-write clones where the filesystem supports them and
+      // transparently fall back to a regular copy elsewhere.
+      mode: fs.constants.COPYFILE_FICLONE,
+      // Skip entries we can't read (eg root/container-owned Docker volume data)
+      // instead of failing the whole branch.
+      filter: async (src) => {
+        const stat = await fs.promises.lstat(src);
+        if (stat.isSymbolicLink()) return true;
+        const access = stat.isDirectory() ? fs.constants.R_OK | fs.constants.X_OK : fs.constants.R_OK;
+        try {
+          await fs.promises.access(src, access);
+          return true;
+        } catch {
+          skipped.push(path.relative(source, src));
+          return false;
+        }
+      },
+    });
+  } catch (error) {
+    // A failed branch is unusable; don't leave a partial copy eating disk.
+    await fs.promises.rm(destination, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+  if (skipped.length > 0) {
+    console.warn(`⚠️  Branch copy skipped ${skipped.length} unreadable path(s): ${skipped.slice(0, 10).join(', ')}`);
+  }
 }
 
 function isDirectChild(candidate: string, parent: string): boolean {
