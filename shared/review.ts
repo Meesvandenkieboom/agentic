@@ -5,6 +5,7 @@ export const defaultReviewSettings: ReviewSettings = { model: 'claude-opus-5-5' 
 export const reviewModels = [
   { id: 'claude-opus-5-5', label: 'Opus 5.5' },
   { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
+  { id: 'gemini-4-neon', label: 'Gemini 4 Neon' },
 ] as const;
 
 export interface ReviewAppState {

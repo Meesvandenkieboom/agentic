@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { runAgent, type AgentRequest } from './agent';
 import { buildContext, type ContextPack, type GuidanceFile } from './context';
+import { GEMINI_REVIEW_MODEL, runGeminiAgent } from './gemini';
 import { isCommentable, parseHunks, type ChangedFile, type Hunk, type Side } from './diff';
 import {
   MODE_VERDICTS, reviewerSchema, reviewerSystem, verifierPrompt, verifierSchema, verifierSystem,
@@ -153,8 +154,11 @@ export async function runReview(input: EngineInput): Promise<EngineResult> {
   const roots = [input.worktree, realpathSync(input.worktree)];
   const instructions = input.repo.instructions;
   let costUsd = 0, budgetHit = false;
+  const gemini = input.settings.model === GEMINI_REVIEW_MODEL, geminiKey = process.env.GEMINI_API_KEY;
+  if (gemini && !geminiKey) throw new Error(`Set GEMINI_API_KEY in .env to review with ${GEMINI_REVIEW_MODEL}.`);
   const run = async <T>(label: string, system: string[], prompt: string, schema: AgentRequest<T>['schema'], limits: Limits): Promise<T | null> => {
-    const result = await runAgent({ label, worktree: input.worktree, model: input.settings.model, system, prompt, schema, signal: input.signal, log: input.log, ...limits });
+    const req = { label, worktree: input.worktree, model: input.settings.model, system, prompt, schema, signal: input.signal, log: input.log, ...limits };
+    const result = gemini ? await runGeminiAgent(req, geminiKey!) : await runAgent(req);
     costUsd += result.costUsd;
     return result.output;
   };

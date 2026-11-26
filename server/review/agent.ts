@@ -116,16 +116,23 @@ export async function runGit(cwd: string, args: string[], maxBytes = 64 * 1024, 
   return { code: out.truncated ? 0 : timedOut ? 124 : code, stdout: out.text, stderr: timedOut ? `timed out after ${timeoutMs / 1000}s` : err.text, truncated: out.truncated };
 }
 
+export const GIT_TOOL_DESCRIPTION = `Run a read-only git command in the repository worktree (HEAD = PR head). args excludes "git"; args[0] is one of: ${GIT_COMMANDS.join(', ')}; only common read-only options are accepted (use the Grep tool to search). Example: ["show", "<merge-base>:src/lib.rs"].`;
+
+/** Shared by the Claude MCP tool and the Gemini runner. */
+export async function gitTool(root: string, args: string[]): Promise<{ text: string; isError: boolean }> {
+  const denied = checkGitArgs(args);
+  if (denied) return { text: denied, isError: true };
+  const r = await runGit(root, args);
+  if (r.code !== 0) return { text: `git exited ${r.code}: ${r.stderr.trim() || r.stdout.trim()}`, isError: true };
+  return { text: (r.stdout || '(no output)') + (r.truncated ? '\n… output truncated at 64KB; narrow the command (paths, -L, --stat).' : ''), isError: false };
+}
+
 function gitServer(root: string) {
-  return createSdkMcpServer({ name: 'repo', version: '1.0.0', tools: [tool('git',
-    `Run a read-only git command in the repository worktree (HEAD = PR head). args excludes "git"; args[0] is one of: ${GIT_COMMANDS.join(', ')}; only common read-only options are accepted (use the Grep tool to search). Example: ["show", "<merge-base>:src/lib.rs"].`,
+  return createSdkMcpServer({ name: 'repo', version: '1.0.0', tools: [tool('git', GIT_TOOL_DESCRIPTION,
     { args: z.array(z.string()).min(1).max(64) },
     async ({ args }) => {
-      const denied = checkGitArgs(args);
-      if (denied) return { content: [{ type: 'text', text: denied }], isError: true };
-      const r = await runGit(root, args);
-      if (r.code !== 0) return { content: [{ type: 'text', text: `git exited ${r.code}: ${r.stderr.trim() || r.stdout.trim()}` }], isError: true };
-      return { content: [{ type: 'text', text: (r.stdout || '(no output)') + (r.truncated ? '\n… output truncated at 64KB; narrow the command (paths, -L, --stat).' : '') }] };
+      const { text, isError } = await gitTool(root, args);
+      return { content: [{ type: 'text', text }], ...(isError ? { isError: true } : {}) };
     },
     { annotations: { readOnlyHint: true } })] });
 }
