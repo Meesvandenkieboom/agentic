@@ -3,6 +3,10 @@ import { startOAuthFlow, exchangeCodeForTokens } from './server/oauth';
 import { saveTokens, clearTokens, isLoggedIn, getAnthropicTokens, saveCodexLoginMarker, isCodexLoggedIn, clearCodexTokens } from './server/tokenStorage';
 import * as readline from 'readline';
 import { getCodexCommand } from './server/codex/runtime';
+import { getAgyCommand } from './server/gemini/acp';
+import { existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -13,7 +17,8 @@ async function handleLogin() {
   // Provider selection menu
   console.log('Select provider:');
   console.log('  1) Claude (Anthropic subscription)');
-  console.log('  2) Codex (ChatGPT subscription)\n');
+  console.log('  2) Codex (ChatGPT subscription)');
+  console.log('  3) Gemini (Google AI Pro/Ultra via Antigravity CLI)\n');
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -21,20 +26,51 @@ async function handleLogin() {
   });
 
   const choice = await new Promise<string>((resolve) => {
-    rl.question('Choice (1/2): ', resolve);
+    rl.question('Choice (1/2/3): ', resolve);
   });
   rl.close();
 
-  if (choice !== '1' && choice !== '2') {
+  if (choice !== '1' && choice !== '2' && choice !== '3') {
     console.error('\n❌ Invalid choice. Login cancelled.');
     process.exit(1);
   }
 
   if (choice === '1') {
     await handleClaudeLogin();
-  } else {
+  } else if (choice === '2') {
     await handleCodexLogin();
+  } else {
+    await handleGeminiLogin();
   }
+}
+
+// agy keeps its own login; Agentic only starts the flow and checks for the saved token.
+const GEMINI_TOKEN = join(homedir(), '.gemini', 'antigravity-cli', 'antigravity-oauth-token');
+
+async function handleGeminiLogin() {
+  console.log('\n🔐 Gemini Login (Antigravity CLI)\n');
+  const agy = getAgyCommand();
+  let installed = false;
+  try { installed = Bun.spawnSync([agy, '--version'], { stdout: 'pipe', stderr: 'pipe' }).exitCode === 0; } catch { installed = false; }
+  if (!installed) {
+    console.error('❌ The Antigravity CLI (agy) is not installed.');
+    console.log('\nTo install it, run:');
+    console.log(process.platform === 'win32'
+      ? '  irm https://antigravity.google/cli/install.ps1 | iex\n'
+      : '  curl -fsSL https://antigravity.google/cli/install.sh | bash\n');
+    console.log('After installation, run this command again.\n');
+    process.exit(1);
+  }
+
+  console.log('🔄 Open the link below, sign in with the Google account that has your AI Pro/Ultra plan,');
+  console.log('   then paste the code (or the full URL you land on) back here.\n');
+  const proc = Bun.spawn([agy, 'acp', '--login', '--disable-telemetry'], { stdout: 'inherit', stderr: 'inherit', stdin: 'inherit' });
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    console.error(`\n❌ Gemini login failed with exit code ${exitCode}\n`);
+    process.exit(exitCode);
+  }
+  console.log('\n✅ Successfully logged in with Gemini!\n');
 }
 
 async function handleClaudeLogin() {
@@ -268,6 +304,16 @@ async function handleStatus() {
 
   console.log('');
 
+  console.log('Gemini:');
+  if (existsSync(GEMINI_TOKEN)) {
+    console.log('  ✅ Antigravity CLI authenticated');
+  } else {
+    console.log('  ❌ Not logged in');
+    console.log(`  💡 Run: bun run login → select Gemini`);
+  }
+
+  console.log('');
+
   // Show API key fallback info
   if (!claudeLoggedIn) {
     console.log(`💡 Claude authentication method: ${process.env.ANTHROPIC_API_KEY ? 'API Key' : 'Not configured'}\n`);
@@ -343,14 +389,14 @@ function showHelp() {
 🤖 Agentic - CLI
 
 Commands:
-  --login        Log in with provider (Claude or Codex)
+  --login        Log in with provider (Claude, Codex or Gemini)
   --logout       Log out and clear tokens
   --status       Show authentication status for all providers
   --update       Update to the latest version from GitHub
   --help         Show this help message
 
 Examples:
-  bun run cli.ts --login    # Select Claude or Codex provider
+  bun run cli.ts --login    # Select Claude, Codex or Gemini provider
   bun run cli.ts --logout   # Logout from one or all providers
   bun run cli.ts --status   # Check auth status
   bun run cli.ts --update
@@ -358,6 +404,7 @@ Examples:
 Providers:
   Claude         Anthropic subscription (OAuth)
   Codex          ChatGPT subscription (requires @openai/codex CLI)
+  Gemini         Google AI Pro/Ultra subscription (requires the Antigravity CLI, agy)
 
 Note: Use 'agentic' command to launch the app (standalone binary).
 `);

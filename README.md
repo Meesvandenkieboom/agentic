@@ -249,7 +249,7 @@ Codex chats share one managed runtime. A runtime crash, or the fallback reset wh
 
 **Google Gemini:**
 
-Gemini runs through the Antigravity CLI's ACP server. Install `agy` (https://antigravity.google/docs/getting-started) on the machine running Agentic and log in once with `agy acp --login`. Agentic looks for `agy` on `PATH`, then in `~/.local/bin`. Turns run unattended like Codex: tool permission requests are approved automatically. Follow-ups can't be sent mid-turn; Stop cancels the turn. Conversations resume from their saved ACP session IDs.
+Gemini runs through the Antigravity CLI's ACP server. Install `agy` (https://antigravity.google/docs/getting-started) on the machine running Agentic and log in once with `bun run login` → Gemini (or `agy acp --login`). Agentic looks for `agy` on `PATH`, then in `~/.local/bin`. Turns run unattended like Codex: tool permission requests are approved automatically. Follow-ups can't be sent mid-turn; Stop cancels the turn. Conversations resume from their saved ACP session IDs.
 
 - **Codex** - OpenAI models via ChatGPT subscription
 - No API key needed - uses CLI auth
