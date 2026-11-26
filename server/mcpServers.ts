@@ -96,6 +96,10 @@ export const MCP_SERVERS_BY_PROVIDER: Record<ProviderType, Record<string, McpSer
       url: 'https://mcp.context7.com/mcp',
     },
   },
+  'gemini': {
+    'grep': { type: 'http', url: 'https://mcp.grep.app' },
+    'context7': { type: 'http', url: 'https://mcp.context7.com/mcp' },
+  },
   'codex': {
     // Grep.app MCP - code search across public GitHub repositories
     'grep': {
@@ -227,7 +231,7 @@ export function getAllowedMcpTools(provider: ProviderType, _modelId?: string): s
     'mcp__context7__get-library-docs',
   ];
 
-  if (provider === 'anthropic' || provider === 'codex') {
+  if (provider === 'anthropic' || provider === 'codex' || provider === 'gemini') {
     return [
       ...grepTools,
       ...context7Tools,

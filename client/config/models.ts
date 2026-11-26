@@ -25,7 +25,7 @@
  * Add new models here to make them available in the UI.
  */
 
-export type ProviderType = 'anthropic' | 'codex';
+export type ProviderType = 'anthropic' | 'codex' | 'gemini';
 
 export const DEFAULT_MODEL_ID = 'opus-5-5';
 
@@ -155,6 +155,20 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     description: 'OpenAI Codex via ChatGPT — faster, lighter GPT-5.4 mini',
     apiModelId: 'gpt-5.4-mini',
     provider: 'codex',
+  },
+  {
+    id: 'gemini-4-neon',
+    name: 'Gemini 4 Neon',
+    description: 'Google Gemini via Antigravity — fast frontier reasoning for coding and agentic work',
+    apiModelId: 'gemini-4-neon',
+    provider: 'gemini',
+  },
+  {
+    id: 'gemini-4-carbon',
+    name: 'Gemini 4 Carbon',
+    description: 'Google Gemini via Antigravity — most capable, for long-horizon projects',
+    apiModelId: 'gemini-4-carbon',
+    provider: 'gemini',
   },
 ];
 

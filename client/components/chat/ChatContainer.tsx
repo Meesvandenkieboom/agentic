@@ -150,7 +150,7 @@ export function ChatContainer() {
   const queuedInputs = useQueuedInputs();
   const allowSteering = modelProvider === 'codex'
     ? !!activeCodexTurn
-    : !!currentSessionId && isCurrentSessionLoading && !!queuedInputs.running[currentSessionId];
+    : modelProvider !== 'gemini' && !!currentSessionId && isCurrentSessionLoading && !!queuedInputs.running[currentSessionId];
   const currentQueuedInputs = currentSessionId ? queuedInputs.bySession[currentSessionId] : undefined;
   const visibleQuestion = pendingQuestion?.sessionId === currentSessionId ? pendingQuestion : null;
   const isWorkspacePreparing = currentSession?.workspace_status === 'preparing';
@@ -615,7 +615,8 @@ export function ChatContainer() {
   const handleStop = () => {
     if (currentSessionId && isSessionLoading(currentSessionId)) {
       stopGeneration(currentSessionId);
-      if (modelProvider !== 'codex') setSessionLoading(currentSessionId, false);
+      // Native runtimes report their own result once the stop lands.
+      if (modelProvider !== 'codex' && modelProvider !== 'gemini') setSessionLoading(currentSessionId, false);
     }
   };
 

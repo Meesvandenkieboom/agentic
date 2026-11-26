@@ -61,6 +61,12 @@ export async function getProviders(): Promise<Record<ProviderType, ProviderConfi
       name: 'OpenAI Codex',
       oauthTokens: null,
     },
+    'gemini': {
+      // agy owns its Google login
+      apiKey: '',
+      name: 'Google Gemini',
+      oauthTokens: null,
+    },
   };
 }
 
@@ -74,7 +80,7 @@ export async function getProviders(): Promise<Record<ProviderType, ProviderConfi
 export async function configureProvider(provider: ProviderType): Promise<void> {
   // App Server owns Codex authentication. Starting a Codex chat must not alter
   // the environment used by concurrently starting Claude chats.
-  if (provider === 'codex') return;
+  if (provider === 'codex' || provider === 'gemini') return;
   const providers = await getProviders();
   const config = providers[provider];
 

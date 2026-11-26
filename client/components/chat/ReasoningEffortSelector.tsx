@@ -40,14 +40,23 @@ const CODEX_EFFORT_OPTIONS: EffortOption[] = [
   { id: 'ultra',  label: 'Ultra',      description: 'Maximum reasoning with parallel subagent delegation' },
 ];
 
+// Antigravity thinking levels; a model without the chosen level keeps its default.
+const GEMINI_EFFORT_OPTIONS: EffortOption[] = [
+  { id: 'low',    label: 'Low',        description: 'Fast responses with lighter thinking' },
+  { id: 'medium', label: 'Medium',     description: 'Balances speed and thinking depth' },
+  { id: 'high',   label: 'High',       description: 'Default — strong reasoning' },
+  { id: 'xhigh',  label: 'Extra High', description: 'Deepest thinking (Neon)' },
+];
+
 export function effortOptionsFor(provider: ProviderType): EffortOption[] {
-  return provider === 'codex' ? CODEX_EFFORT_OPTIONS : CLAUDE_EFFORT_OPTIONS;
+  return provider === 'codex' ? CODEX_EFFORT_OPTIONS : provider === 'gemini' ? GEMINI_EFFORT_OPTIONS : CLAUDE_EFFORT_OPTIONS;
 }
 
 /** Clamp an effort to the selected provider's ladder (e.g. Codex 'ultra' → Claude 'max'). */
 export function normalizeEffort(effort: ReasoningEffort, provider: ProviderType): ReasoningEffort {
-  if (effortOptionsFor(provider).some(o => o.id === effort)) return effort;
-  return effort === 'ultra' ? 'max' : DEFAULT_EFFORT;
+  const options = effortOptionsFor(provider);
+  if (options.some(o => o.id === effort)) return effort;
+  return effort === 'ultra' || effort === 'max' ? options[options.length - 1].id : DEFAULT_EFFORT;
 }
 
 interface ReasoningEffortSelectorProps {

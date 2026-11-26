@@ -24,6 +24,8 @@ import { validateDirectory } from "../directoryUtils";
 import { getRuntimeSessionPaths } from '../sessionWorkspace';
 import { processAttachments } from '../attachments';
 import { codexSessions } from '../providers/codex';
+import { geminiSessions } from '../providers/gemini';
+import { handleGeminiProvider } from './geminiHandler';
 import { loadUserConfig } from "../userConfig";
 import { parseApiError, getUserFriendlyMessage } from "../utils/apiErrors";
 import { sessionStreamManager, type ContentBlock, type MessageContent } from "../sessionStreamManager";
@@ -42,7 +44,7 @@ import {
   handleKillBackgroundProcess,
   handleStopGeneration,
 } from "./controlHandlers";
-import { normalizeModelId } from "../../client/config/models";
+import { normalizeModelId, type ProviderType } from "../../client/config/models";
 import { getClaudeThinkingOptions } from "./claudeThinking";
 
 // ───────────────────────────────────────────────
@@ -50,6 +52,8 @@ import { getClaudeThinkingOptions } from "./claudeThinking";
 // ───────────────────────────────────────────────
 
 const chatSubmissions = new Set<string>();
+// Providers that run their own agent runtime and persist turns as session_message snapshots.
+const isNativeProvider = (provider?: string) => provider === 'codex' || provider === 'gemini';
 
 export async function handleWebSocketMessage(
   ws: ChatWebSocket,
@@ -67,7 +71,7 @@ export async function handleWebSocketMessage(
         break;
       case 'chat': {
         if (typeof data.sessionId !== 'string') throw new Error('Missing sessionId');
-        if (chatSubmissions.has(data.sessionId) || codexSessions.isActive(data.sessionId)) {
+        if (chatSubmissions.has(data.sessionId) || codexSessions.isActive(data.sessionId) || geminiSessions.isActive(data.sessionId)) {
           ws.send(JSON.stringify({ type: 'input_rejected', sessionId: data.sessionId, message: 'This chat already has an active turn. Send a follow-up instead.' }));
           break;
         }
@@ -130,12 +134,13 @@ function handleReconnect(ws: ChatWebSocket, data: Record<string, unknown>): void
   sessionStreamManager.updateWebSocket(sessionId, ws);
   const generating = sessionStreamManager.isGenerating(sessionId);
   console.log(`🔄 Client reconnected for session ${sessionId.substring(0, 8)} (${generating ? '⚡ generating' : '💤 idle'})`);
-  if (MODEL_MAP[normalizeModelId(session.model)]?.provider === 'codex') {
+  if (isNativeProvider(MODEL_MAP[normalizeModelId(session.model)]?.provider)) {
     ws.send(JSON.stringify({ type: 'session_history', sessionId, messages: sessionDb.getSessionMessages(sessionId) }));
     const question = codexSessions.pendingQuestion(sessionId);
     ws.send(JSON.stringify({ type: 'question_state', sessionId, question }));
   }
-  ws.send(JSON.stringify({ type: 'reconnect_ack', sessionId, isGenerating: generating, turnId: codexSessions.activeTurnId(sessionId) }));
+  const turnId = codexSessions.activeTurnId(sessionId) ?? geminiSessions.activeTurnId(sessionId);
+  ws.send(JSON.stringify({ type: 'reconnect_ack', sessionId, isGenerating: generating, turnId }));
 }
 
 // ───────────────────────────────────────────────
@@ -236,7 +241,7 @@ async function handleChatMessage(
   // Save user message to database
   const contentForDb = typeof content === 'string' ? content : JSON.stringify(content);
   const savedUserMessage = sessionDb.addMessage(sessionId as string, 'user', contentForDb);
-  if (MODEL_MAP[effectiveModelId]?.provider === 'codex') {
+  if (isNativeProvider(MODEL_MAP[effectiveModelId]?.provider)) {
     ws.send(JSON.stringify({ type: 'session_message', sessionId, message: savedUserMessage, clientMessageId: data.clientMessageId }));
   }
 
@@ -273,8 +278,8 @@ async function handleChatMessage(
   // Configure model and provider
   const modelConfig = MODEL_MAP[effectiveModelId] || MODEL_MAP[normalizeModelId()];
   const { apiModelId, provider } = modelConfig;
-  const providerType = provider as 'anthropic' | 'codex';
-  if (providerType === 'codex') {
+  const providerType = provider as ProviderType;
+  if (isNativeProvider(providerType)) {
     // Reserve cancellation and reconnect state before asynchronous setup begins.
     sessionStreamManager.getOrCreateStream(sessionId as string);
     sessionStreamManager.updateWebSocket(sessionId as string, ws);
@@ -316,7 +321,7 @@ async function handleChatMessage(
 
   // For existing streams: update WebSocket, enqueue message, return.
   // Re-check: a stopped stream can be cleaned up during the awaits above.
-  if (!isNewStream && providerType !== 'codex' && sessionStreamManager.hasStream(sessionId as string)) {
+  if (!isNewStream && !isNativeProvider(providerType) && sessionStreamManager.hasStream(sessionId as string)) {
     const abortCtrl = sessionStreamManager.getAbortController(sessionId as string);
     if (abortCtrl?.signal.aborted) {
       console.log(`🔄 Session ${(sessionId as string).substring(0, 8)} was aborted, cleaning up`);
@@ -356,6 +361,13 @@ async function handleChatMessage(
       mcpServers,
       imagePaths,
     );
+    return;
+  }
+
+  if (providerType === 'gemini') {
+    const allMcpServers: Record<string, unknown> = { ...mcpServers, ...mcpClientManager.getMcpServersForSDK() };
+    await bridgeOrExcludePortBoundMcps(allMcpServers);
+    await handleGeminiProvider(session, sessionId as string, promptText, workingDir, effort as string | undefined, apiModelId, allMcpServers, imagePaths);
     return;
   }
 
@@ -632,7 +644,7 @@ async function spawnClaudeStream(
   workingDir: string,
   messageContent: MessageContent,
   apiModelId: string,
-  providerType: 'anthropic' | 'codex',
+  providerType: ProviderType,
   timezone: string | undefined,
   mcpServers: Record<string, unknown>,
   activeQueries: Map<string, unknown>,

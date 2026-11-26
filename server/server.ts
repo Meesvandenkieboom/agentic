@@ -67,6 +67,7 @@ import { handleMCPServerRoutes } from "./routes/mcpServers";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
 import type { ChatWebSocketData } from "./websocket/types";
 import { codexAppServer } from './codex/appServer';
+import { acpConnection } from './gemini/acp';
 import { sessionStreamManager } from "./sessionStreamManager";
 import { startOAuthTokenSync } from "./oauthTokenSync";
 import { runStartupMigrations } from "./utils/configMigration";
@@ -119,6 +120,7 @@ const _mcpShutdownHandler = (signal: 'SIGINT' | 'SIGTERM') => {
   stopAgenticReview();
   sessionStreamManager.shutdown();
   codexAppServer.stop();
+  acpConnection.stop();
   Promise.all([shutdownAllMcpBridges(), shutdownMcpEndpoints()])
     .catch((err) => console.error(`MCP bridge shutdown error on ${signal}:`, err))
     .finally(() => {

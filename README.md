@@ -82,6 +82,7 @@ Agentic is a **desktop-first chat interface** that brings the power of Anthropic
 ### 🌐 Multi-Provider Support
 - **Anthropic** - Direct Claude API access
 - **OpenAI Codex** - ChatGPT subscription via Codex App Server
+- **Google Gemini** - Google AI Pro/Ultra subscription via the Antigravity CLI (`agy acp`)
 - **Easy Switching** - Change providers via dropdown
 
 ### 🐙 GitHub Integration
@@ -245,6 +246,10 @@ During a turn, you can send follow-ups and answer nonblocking questions while Co
 When upgrading from the SDK version, finish active turns before updating dependencies (`bun install`), rebuilding (`bun run build`), and restarting Agentic. Refresh open browser tabs afterward. Running SDK turns cannot transfer into App Server mid-turn. This migration does not rewrite the chat database or attachment files; keep Codex's saved transcripts available for conversation resumption.
 
 Codex chats share one managed runtime. A runtime crash, or the fallback reset when Stop remains unresponsive for 30 seconds, interrupts its active chats and reports an error to each. Saved output remains available; start a new message to resume.
+
+**Google Gemini:**
+
+Gemini runs through the Antigravity CLI's ACP server. Install `agy` (https://antigravity.google/docs/getting-started) on the machine running Agentic and log in once with `agy acp --login`. Agentic looks for `agy` on `PATH`, then in `~/.local/bin`. Turns run unattended like Codex: tool permission requests are approved automatically. Follow-ups can't be sent mid-turn; Stop cancels the turn. Conversations resume from their saved ACP session IDs.
 
 - **Codex** - OpenAI models via ChatGPT subscription
 - No API key needed - uses CLI auth
