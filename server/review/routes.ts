@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { reviewModels } from '../../shared/review';
 import { getReviewService } from './index';
 import type { ReviewService } from './service';
 
@@ -75,7 +76,7 @@ export async function handleReviewRoutes(req: Request, url: URL, getService: () 
     if (repoMatch && req.method === 'PATCH') {
       const body = await req.json().catch(() => null) as Record<string, unknown> | null;
       if (!body || typeof body !== 'object') return fail('Invalid body.');
-      const patch: { enabled?: boolean; automatic?: boolean; instructions?: string } = {};
+      const patch: { enabled?: boolean; automatic?: boolean; instructions?: string; model?: string | null } = {};
       for (const key of ['enabled', 'automatic'] as const) {
         if (body[key] === undefined) continue;
         if (typeof body[key] !== 'boolean') return fail(`${key} must be a boolean.`);
@@ -84,6 +85,12 @@ export async function handleReviewRoutes(req: Request, url: URL, getService: () 
       if (body.instructions !== undefined) {
         if (typeof body.instructions !== 'string' || body.instructions.length > 4000) return fail('Instructions must be at most 4000 characters.');
         patch.instructions = body.instructions;
+      }
+      if ('model' in body && body.model !== undefined) {
+        if (body.model !== null && (typeof body.model !== 'string' || !reviewModels.some(m => m.id === body.model))) {
+          return fail('Unknown model.');
+        }
+        patch.model = body.model;
       }
       const repo = service.updateRepo(Number(repoMatch[1]), patch);
       return repo ? json(repo) : fail('Repository not found.', 404);

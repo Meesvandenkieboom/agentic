@@ -217,5 +217,34 @@ describe('routes', () => {
     expect(await (await call('/api/review/app/created?code=x&state=forged'))!.text()).toContain('Link expired');
     expect((await call('/api/review/repos/1', { method: 'PATCH', headers: { origin: 'https://evil.example' }, body: '{}' }))!.status).toBe(403);
     expect(await (await call('/api/review/app'))!.json()).toMatchObject({ status: 'none' });
+
+    // Per-repo model selection + Carbon/Hydrogen options + reset to default.
+    store.syncRepos([{ id: 7, installation_id: 99, full_name: 'mees/bot', private: true }]);
+    const patchRepo = (body: unknown) => call('/api/review/repos/7', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    expect(await (await patchRepo({ model: 'gemini-4-carbon' }))!.json()).toMatchObject({ id: 7, model: 'gemini-4-carbon' });
+    expect(await (await patchRepo({ model: 'gemini-4-hydrogen' }))!.json()).toMatchObject({ id: 7, model: 'gemini-4-hydrogen' });
+    expect(await (await patchRepo({ model: null }))!.json()).toMatchObject({ id: 7, model: null });
+    expect((await patchRepo({ model: 'not-a-model' }))!.status).toBe(400);
+
+    const patchSettings = (body: unknown) => call('/api/review/settings', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    expect(await (await patchSettings({ model: 'gemini-4-carbon' }))!.json()).toEqual({ model: 'gemini-4-carbon' });
+    expect(await (await patchSettings({ model: 'gemini-4-hydrogen' }))!.json()).toEqual({ model: 'gemini-4-hydrogen' });
+  });
+
+  it('migrates legacy review_repos tables without a model column', () => {
+    const db = new Database(':memory:');
+    db.run(`CREATE TABLE review_repos (
+      id INTEGER PRIMARY KEY, installation_id INTEGER NOT NULL, full_name TEXT NOT NULL, private INTEGER NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 0, automatic INTEGER NOT NULL DEFAULT 0, enabled_at INTEGER, automatic_since INTEGER,
+      removed INTEGER NOT NULL DEFAULT 0, instructions TEXT NOT NULL DEFAULT '')`);
+    db.run("INSERT INTO review_repos (id, installation_id, full_name, private, enabled) VALUES (1, 10, 'mees/legacy', 1, 1)");
+    const store = new ReviewStore(db);
+    expect(store.repo(1)?.model).toBeNull();
+    expect(store.updateRepo(1, { model: 'gemini-4-hydrogen' })?.model).toBe('gemini-4-hydrogen');
+    expect(store.updateRepo(1, { model: null })?.model).toBeNull();
   });
 });

@@ -21,7 +21,7 @@ export interface PriorThread {
 
 export interface EngineInput {
   worktree: string;          // detached checkout at headSha; origin/<base> and the merge-base are available
-  repo: { fullName: string; instructions: string };
+  repo: { fullName: string; instructions: string; model?: string | null };
   pr: { number: number; title: string; body: string; author: string; baseRef: string; headRef: string; commits: { sha: string; subject: string }[] };
   headSha: string;
   mergeBase: string;

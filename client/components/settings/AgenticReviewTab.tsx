@@ -207,16 +207,16 @@ export function AgenticReviewTab() {
       <p className="text-xs text-gray-400">To block merging until findings are resolved, turn on <span className="text-gray-300">Require conversation resolution before merging</span> in the branch’s protection rule or ruleset — each finding is a review thread, like Codex Review.</p>
     </div>
 
-    <ReviewRepoList repos={repos} setRepos={setRepos} />
+    <ReviewRepoList repos={repos} setRepos={setRepos} defaultModel={app.settings.model} />
 
     <div className={`${card} space-y-1.5`}>
-      <label className="flex items-center justify-between gap-4 text-sm text-gray-100">Review model
+      <label className="flex items-center justify-between gap-4 text-sm text-gray-100">Default review model
         <select value={app.settings.model} disabled={busy === 'model'} onChange={event => changeModel(event.target.value)}
           className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-1.5 text-sm text-gray-100 disabled:opacity-50">
           {reviewModels.map(model => <option key={model.id} value={model.id} className="bg-[#1a1c1e]">{model.label}</option>)}
         </select>
       </label>
-      <p className="text-xs text-gray-400">Reviews run on your Claude account. Each review uses several agent passes plus verification.</p>
+      <p className="text-xs text-gray-400">Used unless a repository overrides it above. Claude models use your Claude account; Gemini models use your Antigravity CLI subscription. Each review uses several agent passes plus verification.</p>
     </div>
 
     <section aria-labelledby="review-jobs-heading" className="space-y-3">

@@ -6,7 +6,10 @@ export const reviewModels = [
   { id: 'claude-opus-5-5', label: 'Opus 5.5' },
   { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
   { id: 'gemini-4-neon', label: 'Gemini 4 Neon' },
+  { id: 'gemini-4-carbon', label: 'Gemini 4 Carbon' },
+  { id: 'gemini-4-hydrogen', label: 'Gemini 4 Hydrogen' },
 ] as const;
+export const isGeminiReviewModel = (model: string): boolean => model.startsWith('gemini-');
 
 export interface ReviewAppState {
   status: 'none' | 'created' | 'installed';
@@ -21,7 +24,7 @@ export interface ReviewAppState {
 }
 
 export interface ReviewRepo {
-  id: number; fullName: string; private: boolean; enabled: boolean; automatic: boolean; instructions: string;
+  id: number; fullName: string; private: boolean; enabled: boolean; automatic: boolean; instructions: string; model: string | null;
   lastReview: { pr: number; status: ReviewJobStatus; at: number; url: string } | null;
 }
 

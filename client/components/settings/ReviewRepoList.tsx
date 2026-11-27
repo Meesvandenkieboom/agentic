@@ -3,9 +3,9 @@ import { RefreshCw } from 'lucide-react';
 import type { ReviewRepo } from '../../../shared/review';
 import { ReviewRepoRow } from './ReviewRepoRow';
 
-interface ReviewRepoListProps { repos: ReviewRepo[]; setRepos: React.Dispatch<React.SetStateAction<ReviewRepo[]>> }
+interface ReviewRepoListProps { repos: ReviewRepo[]; setRepos: React.Dispatch<React.SetStateAction<ReviewRepo[]>>; defaultModel: string }
 
-export function ReviewRepoList({ repos, setRepos }: ReviewRepoListProps) {
+export function ReviewRepoList({ repos, setRepos, defaultModel }: ReviewRepoListProps) {
   const [query, setQuery] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
@@ -40,10 +40,10 @@ export function ReviewRepoList({ repos, setRepos }: ReviewRepoListProps) {
       No repositories yet. Use Repository access to choose which repositories the app can see.
     </p> : <div className="rounded-xl border border-white/10 bg-black/20">
       <div aria-hidden="true" className="flex items-center gap-3 px-3 pt-2 text-[11px] text-gray-500">
-        <span className="flex-1" /><span className="w-20 text-center">Review</span><span className="w-20 text-center">Automatic</span><span className="w-7" />
+        <span className="flex-1" /><span className="w-40 text-center">Model</span><span className="w-20 text-center">Review</span><span className="w-20 text-center">Automatic</span><span className="w-7" />
       </div>
       <ul className="divide-y divide-white/5">
-        {shown.map(repo => <ReviewRepoRow key={repo.id} repo={repo} onChange={replace} />)}
+        {shown.map(repo => <ReviewRepoRow key={repo.id} repo={repo} defaultModel={defaultModel} onChange={replace} />)}
       </ul>
       {shown.length === 0 && <p className="px-3 py-3 text-sm text-gray-400">No repositories match “{query.trim()}”.</p>}
     </div>}

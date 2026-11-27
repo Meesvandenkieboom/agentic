@@ -4,7 +4,7 @@ import { defaultReviewSettings, type ReviewJobKind, type ReviewJobStatus, type R
 
 export interface RepoRow {
   id: number; installation_id: number; full_name: string; private: number; enabled: number; automatic: number;
-  enabled_at: number | null; automatic_since: number | null; removed: number; instructions: string;
+  enabled_at: number | null; automatic_since: number | null; removed: number; instructions: string; model: string | null;
 }
 export interface PrRow { repo_id: number; number: number; draft: number; head_sha: string; summary_comment_id: number | null }
 export interface JobRow {
@@ -23,7 +23,10 @@ export class ReviewStore {
     db.run(`CREATE TABLE IF NOT EXISTS review_repos (
       id INTEGER PRIMARY KEY, installation_id INTEGER NOT NULL, full_name TEXT NOT NULL, private INTEGER NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 0, automatic INTEGER NOT NULL DEFAULT 0, enabled_at INTEGER, automatic_since INTEGER,
-      removed INTEGER NOT NULL DEFAULT 0, instructions TEXT NOT NULL DEFAULT '')`);
+      removed INTEGER NOT NULL DEFAULT 0, instructions TEXT NOT NULL DEFAULT '', model TEXT)`);
+    if (!db.query<{ name: string }, []>('PRAGMA table_info(review_repos)').all().some(c => c.name === 'model')) {
+      db.run('ALTER TABLE review_repos ADD COLUMN model TEXT');
+    }
     db.run(`CREATE TABLE IF NOT EXISTS review_prs (
       repo_id INTEGER NOT NULL, number INTEGER NOT NULL, draft INTEGER NOT NULL, head_sha TEXT NOT NULL,
       summary_comment_id INTEGER, PRIMARY KEY (repo_id, number))`);
@@ -83,17 +86,18 @@ export class ReviewStore {
     })();
   }
 
-  updateRepo(id: number, patch: { enabled?: boolean; automatic?: boolean; instructions?: string }): RepoRow | null {
+  updateRepo(id: number, patch: { enabled?: boolean; automatic?: boolean; instructions?: string; model?: string | null }): RepoRow | null {
     const repo = this.repo(id);
     if (!repo || repo.removed) return null;
     const enabled = patch.enabled ?? !!repo.enabled;
     const automatic = enabled && (patch.automatic ?? !!repo.automatic);
+    const model = 'model' in patch ? (patch.model ?? null) : repo.model;
     this.db.transaction(() => {
-      this.db.run(`UPDATE review_repos SET enabled = ?, automatic = ?, enabled_at = ?, automatic_since = ?, instructions = ? WHERE id = ?`, [
+      this.db.run(`UPDATE review_repos SET enabled = ?, automatic = ?, enabled_at = ?, automatic_since = ?, instructions = ?, model = ? WHERE id = ?`, [
         enabled ? 1 : 0, automatic ? 1 : 0,
         enabled ? (repo.enabled ? repo.enabled_at : this.now()) : null,
         automatic ? (repo.automatic ? repo.automatic_since : this.now()) : null,
-        patch.instructions ?? repo.instructions, id,
+        patch.instructions ?? repo.instructions, model, id,
       ]);
       // Re-enabling must not replay comments or draft→ready transitions from the disabled period.
       if (enabled && !repo.enabled) {

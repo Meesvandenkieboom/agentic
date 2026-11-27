@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { ChevronDown, Globe, Loader2, Lock } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';
-import type { ReviewRepo } from '../../../shared/review';
+import { reviewModels, type ReviewRepo } from '../../../shared/review';
 
-type RepoPatch = Partial<Pick<ReviewRepo, 'enabled' | 'automatic' | 'instructions'>>;
+type RepoPatch = Partial<Pick<ReviewRepo, 'enabled' | 'automatic' | 'instructions' | 'model'>>;
 
 interface SwitchProps { checked: boolean; label: string; title?: string; disabled?: boolean; onChange: (checked: boolean) => void }
 
@@ -16,7 +16,7 @@ function Switch({ checked, label, title, disabled, onChange }: SwitchProps) {
   </button>;
 }
 
-export function ReviewRepoRow({ repo, onChange }: { repo: ReviewRepo; onChange: (repo: ReviewRepo) => void }) {
+export function ReviewRepoRow({ repo, defaultModel, onChange }: { repo: ReviewRepo; defaultModel: string; onChange: (repo: ReviewRepo) => void }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -24,6 +24,7 @@ export function ReviewRepoRow({ repo, onChange }: { repo: ReviewRepo; onChange: 
   const instructions = draft ?? repo.instructions;
   const dirty = draft !== null && draft !== repo.instructions;
   const RepoIcon = repo.private ? Lock : Globe;
+  const defaultLabel = reviewModels.find(m => m.id === defaultModel)?.label ?? defaultModel;
 
   const update = async (patch: RepoPatch) => {
     if (saving) return false;
@@ -55,6 +56,20 @@ export function ReviewRepoRow({ repo, onChange }: { repo: ReviewRepo; onChange: 
             Last review #{repo.lastReview.pr} · {formatDistanceToNowStrict(repo.lastReview.at, { addSuffix: true })} · {repo.lastReview.status}
           </a> : 'No reviews yet'}
         </p>
+      </div>
+      <div className="w-40 flex justify-center">
+        <select
+          aria-label={`Review model for ${repo.fullName}`}
+          value={repo.model ?? ''}
+          disabled={!repo.enabled || saving}
+          onChange={event => void update({ model: event.target.value || null })}
+          className="w-full rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-xs text-gray-100 disabled:opacity-40"
+        >
+          <option value="" className="bg-[#1a1c1e]">Default ({defaultLabel})</option>
+          {reviewModels.map(model => (
+            <option key={model.id} value={model.id} className="bg-[#1a1c1e]">{model.label}</option>
+          ))}
+        </select>
       </div>
       <div className="w-20 flex justify-center">
         <Switch checked={repo.enabled} label={`Review ${repo.fullName}`} onChange={enabled => void update({ enabled })} />

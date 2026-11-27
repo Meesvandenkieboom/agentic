@@ -149,7 +149,8 @@ export class ReviewService {
     return next;
   }
 
-  updateRepo(id: number, patch: { enabled?: boolean; automatic?: boolean; instructions?: string }): ReviewRepo | null {
+  updateRepo(id: number, patch: { enabled?: boolean; automatic?: boolean; instructions?: string; model?: string | null }): ReviewRepo | null {
+    if (patch.model !== undefined && patch.model !== null && !reviewModels.some(m => m.id === patch.model)) throw new Error('Unknown model.');
     const row = this.store.updateRepo(id, patch);
     if (!row) return null;
     if (!row.enabled) { this.runner.abortWhere(job => job.repo_id === id, 'Agentic Review was turned off for this repository.'); this.checkouts.removeCache(id); }
@@ -161,7 +162,7 @@ export class ReviewService {
   private repoDto(r: RepoRow): ReviewRepo {
     const last = this.store.lastJob(r.id);
     return {
-      id: r.id, fullName: r.full_name, private: !!r.private, enabled: !!r.enabled, automatic: !!r.automatic, instructions: r.instructions,
+      id: r.id, fullName: r.full_name, private: !!r.private, enabled: !!r.enabled, automatic: !!r.automatic, instructions: r.instructions, model: r.model ?? null,
       lastReview: last ? { pr: last.pr, status: last.status, at: last.finished_at ?? last.started_at ?? last.created_at, url: last.review_url ?? `https://github.com/${r.full_name}/pull/${last.pr}` } : null,
     };
   }

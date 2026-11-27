@@ -70,7 +70,7 @@ export class ReviewRunner {
       const previous = this.store.prJobs(repo.id, job.pr).find(j => j.id !== job.id && j.status === 'done' && j.head_sha);
       const result = await this.engine({
         worktree, headSha, mergeBase, files, priorThreads,
-        repo: { fullName: repo.full_name, instructions: repo.instructions },
+        repo: { fullName: repo.full_name, instructions: repo.instructions, model: repo.model },
         pr: { number: job.pr, title: pr.title, body: pr.body ?? '', author: pr.user?.login ?? 'unknown', baseRef: pr.base.ref, headRef: pr.head.ref, commits },
         trigger: { kind: job.kind, focus: job.focus },
         lastReviewedSha: previous?.head_sha ?? null,
