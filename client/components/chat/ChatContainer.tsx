@@ -148,9 +148,9 @@ export function ChatContainer() {
   const currentSession = sessions.find(session => session.id === currentSessionId);
   const activeCodexTurn = currentSessionId ? activeCodexTurns[currentSessionId] : undefined;
   const queuedInputs = useQueuedInputs();
-  const allowSteering = modelProvider === 'codex'
+  const allowSteering = modelProvider === 'codex' || modelProvider === 'gemini'
     ? !!activeCodexTurn
-    : modelProvider !== 'gemini' && !!currentSessionId && isCurrentSessionLoading && !!queuedInputs.running[currentSessionId];
+    : !!currentSessionId && isCurrentSessionLoading && !!queuedInputs.running[currentSessionId];
   const currentQueuedInputs = currentSessionId ? queuedInputs.bySession[currentSessionId] : undefined;
   const visibleQuestion = pendingQuestion?.sessionId === currentSessionId ? pendingQuestion : null;
   const isWorkspacePreparing = currentSession?.workspace_status === 'preparing';

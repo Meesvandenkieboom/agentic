@@ -80,6 +80,100 @@ describe('Gemini over ACP', () => {
     const { done } = await turn(sessions, 'auth');
     await expect(done).rejects.toThrow('agy acp --login');
   });
+
+  it('steers mid-tool without interrupting the running tool and splits history after it finishes', async () => {
+    const { sessions } = setup();
+    const timeline: string[] = [];
+    const done = sessions.run('steer-tool', '/tmp', e => {
+      if (e.type === 'block') {
+        if (e.block.type === 'tool_use') timeline.push(`tool:${e.block.id}:${e.block.input.status}`);
+        else if (e.block.type === 'text') timeline.push(`text:${e.block.text}`);
+      } else if (e.type === 'input_boundary' || e.type === 'result') {
+        timeline.push(e.type === 'result' ? `result:${e.success}` : 'input_boundary');
+      }
+    }, { sessionId: 'chat', model: 'gemini-4-neon' });
+
+    for (let n = 0; !timeline.includes('tool:c1:in_progress'); n++) {
+      if (n > 200) throw new Error('tool never started');
+      await Bun.sleep(5);
+    }
+    const turnId = sessions.activeTurnId('chat')!;
+    let dropped = false;
+    sessions.steer('chat', 'skip step 2', [], {
+      turnId,
+      clientMessageId: 'q1',
+      onDelivered: () => timeline.push('delivered:q1'),
+      onDropped: () => { dropped = true; },
+    });
+
+    await done;
+    expect(dropped).toBe(false);
+    expect(timeline).toEqual([
+      'tool:c1:in_progress',
+      'tool:c1:completed',
+      'input_boundary',
+      'delivered:q1',
+      'text:after:skip step 2',
+      'result:true',
+    ]);
+    expect(sessions.isActive('chat')).toBe(false);
+  });
+
+  it('steers mid-text, lets the first response finish, and splits on usage_update before the follow-up reply', async () => {
+    const { sessions } = setup();
+    const timeline: string[] = [];
+    const done = sessions.run('steer-text', '/tmp', e => {
+      if (e.type === 'block' && e.block.type === 'text') timeline.push(`text:${e.block.text}`);
+      else if (e.type === 'input_boundary' || e.type === 'result') timeline.push(e.type === 'result' ? `result:${e.success}` : 'input_boundary');
+    }, { sessionId: 'chat', model: 'gemini-4-neon' });
+
+    for (let n = 0; !timeline.includes('text:part1 '); n++) {
+      if (n > 200) throw new Error('text never started');
+      await Bun.sleep(5);
+    }
+    sessions.steer('chat', 'add mango', [], {
+      turnId: sessions.activeTurnId('chat')!,
+      clientMessageId: 'q2',
+      onDelivered: () => timeline.push('delivered:q2'),
+    });
+
+    await done;
+    expect(timeline).toEqual([
+      'text:part1 ',
+      'text:part1 part2',
+      'input_boundary',
+      'delivered:q2',
+      'text:reply:add mango',
+      'result:true',
+    ]);
+  });
+
+  it('drops undelivered steers when cancelled and rejects invalid turnIds or inactive sessions', async () => {
+    const { sessions } = setup();
+    expect(() => sessions.steer('chat', 'hi', [], { onDelivered: () => {} })).toThrow('no longer accepting input');
+
+    const controller = new AbortController();
+    const { events, done } = await turn(sessions, 'wait', { signal: controller.signal });
+    for (let n = 0; !sessions.activeTurnId('chat'); n++) {
+      if (n > 200) throw new Error('turn never started');
+      await Bun.sleep(5);
+    }
+    expect(() => sessions.steer('chat', 'hi', [], { turnId: 'wrong', onDelivered: () => {} })).toThrow('active turn changed');
+
+    let delivered = false, dropped = false;
+    sessions.steer('chat', 'queued before cancel', [], {
+      turnId: sessions.activeTurnId('chat')!,
+      clientMessageId: 'q3',
+      onDelivered: () => { delivered = true; },
+      onDropped: () => { dropped = true; },
+    });
+    await Bun.sleep(20);
+    controller.abort();
+    await done;
+    expect(delivered).toBe(false);
+    expect(dropped).toBe(true);
+    expect(events.at(-1)).toEqual({ type: 'result', success: false });
+  });
 });
 
 describe('Gemini mapping', () => {

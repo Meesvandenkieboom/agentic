@@ -17,8 +17,7 @@ export async function handleClaudeSteerRoute(req: Request, url: URL): Promise<Re
   const sessionId = match[1];
   const session = sessionDb.getSession(sessionId);
   const provider = session && MODEL_MAP[normalizeModelId(session.model)]?.provider;
-  if (!session || provider === 'codex') return;
-  if (provider === 'gemini') return Response.json({ error: 'Gemini does not accept follow-ups mid-turn. Your draft has been kept.' }, { status: 409 });
+  if (!session || provider === 'codex' || provider === 'gemini') return;
 
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return Response.json({ error: 'Invalid JSON.' }, { status: 400 }); }

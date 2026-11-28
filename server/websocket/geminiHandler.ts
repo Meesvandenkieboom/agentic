@@ -28,6 +28,7 @@ export async function handleGeminiProvider(
   try {
     await geminiSessions.run(promptText, workingDir, event => {
       if (event.type === 'block') store.update(event.block);
+      else if (event.type === 'input_boundary') store.inputBoundary();
       else {
         if (event.type === 'result') {
           store.flush();

@@ -5,14 +5,51 @@ const received: unknown[] = [];
 let sessions = 0;
 const permissionWaiters = new Map<string, () => void>();
 const cancelWaiters = new Map<string, () => void>();
+const steerWaiters = new Map<string, (id: number, text: string) => void>();
 const write = (message: unknown) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message as object }) + '\n');
 const update = (sessionId: string, update: unknown) => write({ method: 'session/update', params: { sessionId, update } });
 
 async function prompt(id: number, sessionId: string, text: string) {
+  const waiter = steerWaiters.get(sessionId);
+  if (waiter) {
+    steerWaiters.delete(sessionId);
+    waiter(id, text);
+    return;
+  }
   if (text.includes('auth')) return write({ id, error: { code: -32000, message: 'Authentication required' } });
   if (text.includes('wait')) {
+    let activeId = id;
+    steerWaiters.set(sessionId, nextId => {
+      write({ id: activeId, result: { stopReason: 'end_turn' } });
+      activeId = nextId;
+    });
     await new Promise<void>(resolve => cancelWaiters.set(sessionId, resolve));
-    return write({ id, result: { stopReason: 'cancelled' } });
+    steerWaiters.delete(sessionId);
+    return write({ id: activeId, result: { stopReason: 'cancelled' } });
+  }
+  if (text.includes('steer-tool')) {
+    update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'c1', kind: 'execute', status: 'in_progress', title: 'sleep 3', rawInput: { CommandLine: 'sleep 3' } });
+    const steered = await new Promise<{ id: number; text: string }>(resolve => {
+      steerWaiters.set(sessionId, (nextId, nextText) => resolve({ id: nextId, text: nextText }));
+    });
+    // Mirror real `agy acp`: resolve the superseded prompt right away, let the tool finish, then reply under the new prompt.
+    write({ id, result: { stopReason: 'end_turn' } });
+    await Bun.sleep(15);
+    update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: 'c1', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'step1_ok' } }] });
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `after:${steered.text}` } });
+    return write({ id: steered.id, result: { stopReason: 'end_turn', usage: { outputTokens: 9 } } });
+  }
+  if (text.includes('steer-text')) {
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'part1 ' } });
+    const steered = await new Promise<{ id: number; text: string }>(resolve => {
+      steerWaiters.set(sessionId, (nextId, nextText) => resolve({ id: nextId, text: nextText }));
+    });
+    write({ id, result: { stopReason: 'end_turn' } });
+    await Bun.sleep(15);
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'part2' } });
+    update(sessionId, { sessionUpdate: 'usage_update', used: 100, size: 1000 });
+    update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `reply:${steered.text}` } });
+    return write({ id: steered.id, result: { stopReason: 'end_turn', usage: { outputTokens: 12 } } });
   }
   update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'plan' } });
   update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hel' } });

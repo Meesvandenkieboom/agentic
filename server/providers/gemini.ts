@@ -19,21 +19,43 @@ export interface RunGeminiOptions {
   onSessionId?: (id: string) => void;
 }
 
+export interface SteerGeminiOptions {
+  turnId?: string;
+  clientMessageId?: string;
+  onDelivered: () => void;
+  onDropped?: () => void;
+}
+
 type Raw = Record<string, unknown>;
 type ToolBlock = Extract<CodexBlock, { type: 'tool_use' }>;
+type PromptResult = { stopReason: string; usage?: { outputTokens?: number } };
+interface PendingSteer {
+  clientMessageId?: string;
+  onDelivered: () => void;
+  onDropped?: () => void;
+}
 interface ActiveRun {
   acpSessionId: string | null;
   turnId: string | null;
+  cancelling: boolean;
+  settled: boolean;
   emit: CodexEventCallback;
   tools: Map<string, Raw>;
   textId: string | null;
   thoughtId: string | null;
   texts: Map<string, string>;
   seq: number;
+  promptGen: number;
+  activePrompt: Promise<PromptResult> | null;
+  pendingSteers: PendingSteer[];
 }
 
 const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
 const str = (value: unknown) => typeof value === 'string' ? value : '';
+const buildPromptBlocks = (text: string, imagePaths?: string[]) => [
+  ...(text.trim() ? [{ type: 'text', text }] : []),
+  ...(imagePaths ?? []).map(p => ({ type: 'image', mimeType: MIME[extname(p).toLowerCase()] ?? 'image/png', data: readFileSync(p).toString('base64') })),
+];
 
 /** Agentic's MCP map → ACP's mcpServers list (stdio and http). */
 export function toAcpMcpServers(servers: Record<string, unknown>): unknown[] {
@@ -84,18 +106,23 @@ export class GeminiSessions {
 
   async run(prompt: string, cwd: string, emit: CodexEventCallback, opts: RunGeminiOptions): Promise<void> {
     if (this.runs.has(opts.sessionId)) throw new Error('This chat already has an active Gemini turn.');
-    const run: ActiveRun = { acpSessionId: null, turnId: null, emit, tools: new Map(), textId: null, thoughtId: null, texts: new Map(), seq: 0 };
+    const run: ActiveRun = {
+      acpSessionId: null, turnId: null, cancelling: false, settled: false, emit,
+      tools: new Map(), textId: null, thoughtId: null, texts: new Map(), seq: 0,
+      promptGen: 0, activePrompt: null, pendingSteers: [],
+    };
     this.runs.set(opts.sessionId, run);
     let stopTimer: ReturnType<typeof setTimeout> | undefined;
     let success: boolean | undefined;
     const cancel = () => {
+      run.cancelling = true;
       if (!run.acpSessionId || stopTimer) return;
       try { this.acp.notify('session/cancel', { sessionId: run.acpSessionId }); } catch { /* already disconnected */ }
       stopTimer = setTimeout(() => this.acp.stop(new Error('Gemini did not finish stopping. It was restarted; send a new message to resume the conversation.')), this.stopTimeoutMs);
     };
     opts.signal?.addEventListener('abort', cancel);
     try {
-      if (opts.signal?.aborted) { success = false; return; }
+      if (opts.signal?.aborted) { run.settled = true; success = false; return; }
       const mcpServers = opts.mcpServers ?? [];
       let id = opts.resumeSessionId ?? null, fresh = false;
       if (id && !this.live.has(id)) {
@@ -116,32 +143,96 @@ export class GeminiSessions {
       await this.acp.request('session/set_config_option', { sessionId: id, configId: 'model', value: opts.model });
       // Not every model offers every level; keep the session default then.
       if (opts.effort) await this.acp.request('session/set_config_option', { sessionId: id, configId: 'thought_level', value: opts.effort }).catch(() => {});
-      if (opts.signal?.aborted) { success = false; return; }
+      if (opts.signal?.aborted) { run.settled = true; success = false; return; }
 
       run.turnId = randomUUID();
       emit({ type: 'turn_started', turnId: run.turnId });
       const text = fresh && opts.developerInstructions ? `${opts.developerInstructions}\n\n${prompt}` : prompt;
-      const blocks = [
-        ...(text.trim() ? [{ type: 'text', text }] : []),
-        ...(opts.imagePaths ?? []).map(p => ({ type: 'image', mimeType: MIME[extname(p).toLowerCase()] ?? 'image/png', data: readFileSync(p).toString('base64') })),
-      ];
-      const result = await this.acp.request<{ stopReason: string; usage?: { outputTokens?: number } }>('session/prompt', { sessionId: id, prompt: blocks }, null);
+      const blocks = buildPromptBlocks(text, opts.imagePaths);
+      let currentGen = ++run.promptGen;
+      let currentPromise = this.acp.request<PromptResult>('session/prompt', { sessionId: id, prompt: blocks }, null);
+      run.activePrompt = currentPromise;
+
+      let result!: PromptResult;
+      for (;;) {
+        try {
+          result = await currentPromise;
+        } catch (error) {
+          if (run.promptGen !== currentGen && run.activePrompt) {
+            currentGen = run.promptGen;
+            currentPromise = run.activePrompt;
+            continue;
+          }
+          throw error;
+        }
+        // A mid-turn follow-up causes `agy acp` to resolve the older `session/prompt`
+        // immediately while continuing the active stream under the newer request.
+        if (run.promptGen !== currentGen && run.activePrompt) {
+          currentGen = run.promptGen;
+          currentPromise = run.activePrompt;
+          continue;
+        }
+        break;
+      }
+      run.settled = true;
+      if (result.stopReason === 'end_turn') this.flushPendingSteers(run);
       if (typeof result.usage?.outputTokens === 'number') emit({ type: 'token_update', outputTokens: result.usage.outputTokens });
       if (result.stopReason !== 'end_turn' && result.stopReason !== 'cancelled') {
         this.block(run, { type: 'text', id: `${run.turnId}-stop`, text: `Gemini stopped: ${result.stopReason.replace(/_/g, ' ')}.` });
       }
       success = result.stopReason === 'end_turn';
     } catch (error) {
+      run.settled = true;
       if (error instanceof AcpRpcError && /auth/i.test(error.message)) {
         throw new Error('Gemini is not logged in. Run `agy acp --login` in a terminal once, then send your message again.');
       }
       throw error;
     } finally {
+      run.settled = true;
       clearTimeout(stopTimer);
       opts.signal?.removeEventListener('abort', cancel);
+      if (run.pendingSteers.length) {
+        for (const item of run.pendingSteers.splice(0)) item.onDropped?.();
+      }
       this.runs.delete(opts.sessionId);
       if (success !== undefined) emit({ type: 'result', success });
     }
+  }
+
+  /**
+   * Queue a mid-turn follow-up into the active `agy acp` session without cancelling
+   * in-flight tools or subagents. `agy acp` resolves the previous `session/prompt`
+   * and continues streaming under this new request.
+   */
+  steer(sessionId: string, text: string, imagePaths: string[], opts: SteerGeminiOptions): void {
+    const run = this.runs.get(sessionId);
+    if (!run || !run.acpSessionId || !run.turnId || run.cancelling || run.settled) {
+      throw new Error('This turn is no longer accepting input. Your draft has been kept.');
+    }
+    if (opts.turnId !== undefined && opts.turnId !== run.turnId) {
+      throw new Error('The active turn changed. Your draft has been kept.');
+    }
+    if (!this.acp.connected) {
+      throw new Error('Gemini (agy) is disconnected. Your draft has been kept.');
+    }
+    const blocks = buildPromptBlocks(text, imagePaths);
+    if (!blocks.length) throw new Error('Message is empty.');
+
+    run.pendingSteers.push({ clientMessageId: opts.clientMessageId, onDelivered: opts.onDelivered, onDropped: opts.onDropped });
+    run.promptGen += 1;
+    const nextPrompt = this.acp.request<PromptResult>('session/prompt', { sessionId: run.acpSessionId, prompt: blocks }, null);
+    // The active `run()` loop adopts and awaits `run.activePrompt`; prevent unhandled rejections before handoff.
+    nextPrompt.catch(() => {});
+    run.activePrompt = nextPrompt;
+  }
+
+  private flushPendingSteers(run: ActiveRun): void {
+    if (!run.pendingSteers.length) return;
+    const queued = run.pendingSteers.splice(0);
+    run.textId = null;
+    run.thoughtId = null;
+    run.emit({ type: 'input_boundary' });
+    for (const item of queued) item.onDelivered();
   }
 
   /** Runs unattended like Codex: tool permission requests are approved. */
@@ -158,10 +249,18 @@ export class GeminiSessions {
     const u = params.update as Raw | undefined;
     if (!run?.turnId || !u) return;
     switch (u.sessionUpdate) {
+      case 'usage_update': {
+        // Marks the end of a model response step so a queued follow-up lands cleanly before the next step.
+        run.textId = null;
+        run.thoughtId = null;
+        return;
+      }
       case 'agent_message_chunk': case 'agent_thought_chunk': {
         const content = u.content as Raw | undefined;
         if (content?.type !== 'text') return;
         const thought = u.sessionUpdate === 'agent_thought_chunk';
+        const startingNewBlock = thought ? run.thoughtId === null : run.textId === null;
+        if (startingNewBlock && run.pendingSteers.length) this.flushPendingSteers(run);
         if (thought) { run.textId = null; run.thoughtId ??= `${run.turnId}-${run.seq++}`; }
         else { run.thoughtId = null; run.textId ??= `${run.turnId}-${run.seq++}`; }
         const id = (thought ? run.thoughtId : run.textId)!;
@@ -173,6 +272,10 @@ export class GeminiSessions {
       case 'tool_call': case 'tool_call_update': {
         run.textId = run.thoughtId = null;
         const id = String(u.toolCallId);
+        // Existing tools keep updating their pre-follow-up cards; a brand-new tool starts after the follow-up.
+        if (u.sessionUpdate === 'tool_call' && !run.tools.has(id) && run.pendingSteers.length) {
+          this.flushPendingSteers(run);
+        }
         const merged = { ...run.tools.get(id), ...Object.fromEntries(Object.entries(u).filter(([, v]) => v !== undefined && v !== null)) };
         run.tools.set(id, merged);
         const block = toToolBlock(merged);
